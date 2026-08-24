@@ -1,0 +1,644 @@
+﻿<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:AST.Controls"
+    xmlns:conv="clr-namespace:AST.Converters"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <!--
+        No self-merge here: this dictionary is merged FLAT into Application.Resources (AST/App.xaml), AFTER
+        ui:ControlsDictionary + Typography.xaml + Spacing.xaml. As a same-collection sibling it resolves its
+        BasedOn / StaticResource refs against those preceding siblings ({x:Type ui:Button}/{x:Type DataGrid}/
+        {x:Type ui:PasswordBox} from ui:ControlsDictionary; Ast*Text from Typography; AstCardPadding/
+        AstRadiusCard from Spacing). Do NOT wrap this into a nested hub dictionary — a nested dictionary cannot
+        see preceding siblings at parse, and the duplicate ui:ControlsDictionary needed to work around that
+        regresses the FluentWindow maximize (see AST/App.xaml).
+    -->
+    <Style
+        x:Key="AstPageTitle"
+        BasedOn="{StaticResource AstHeadlineMediumText}"
+        TargetType="TextBlock" />
+    <Style
+        x:Key="AstPageSubtitle"
+        BasedOn="{StaticResource AstBodyMediumText}"
+        TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource AstTextSecondaryBrush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Margin" Value="0,8,0,0" />
+    </Style>
+    <!--
+        Section header retired as a TextBlock style: it is now the AstSectionHeader control (icon + title),
+        AST.UI/Controls/AstSectionHeader.xaml. Iconless card titles use AstBodyLargeText + SemiBold inline.
+    -->
+    <Style
+        x:Key="AstFieldLabel"
+        BasedOn="{StaticResource AstLabelMediumText}"
+        TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource AstTextPrimaryBrush}" />
+        <!--  14 is the standard form-label size across every screen (one above AstLabelMediumText's 12). This is the single home — do NOT add a per-screen local FieldLabel override (docs/shared-components.md, AstFieldLabel row).  -->
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Margin" Value="0,16,0,4" />
+    </Style>
+    <!--
+        Inline variant of AstFieldLabel: same size/weight, no stacked top margin, vertically centered — for a
+        label sitting beside its value on one row (a horizontal field strip) rather than stacked above it.
+    -->
+    <Style
+        x:Key="AstInlineFieldLabel"
+        BasedOn="{StaticResource AstFieldLabel}"
+        TargetType="TextBlock">
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <!--
+        Selectable value text that READS AS A LABEL (not a Fluent input). A read-only TextBox is the only
+        WPF primitive with built-in text selection, but WPF-UI's implicit TextBox style adds Fluent
+        accent-underline/height chrome. NO BasedOn here => this explicit style replaces that implicit
+        style, so the TextBox falls back to the framework-default template (plain text), which we strip to
+        borderless/transparent. Single-line; overflow hidden; user selects/drags to reveal a long value.
+        Foreground is intentionally NOT set here — each call site sets it (value colour is a per-use choice).
+    -->
+    <Style x:Key="AstSelectableValueText" TargetType="TextBox">
+        <Setter Property="IsReadOnly" Value="True" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI Variable, Segoe UI" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Hidden" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    </Style>
+    <Style x:Key="AstCard" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource AstSurfaceCardBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource AstOutlineBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource AstRadiusCard}" />
+        <Setter Property="Padding" Value="{StaticResource AstCardPadding}" />
+    </Style>
+    <Style x:Key="AstActionBar" TargetType="StackPanel">
+        <Setter Property="Orientation" Value="Horizontal" />
+        <Setter Property="Margin" Value="0,16,0,0" />
+    </Style>
+    <!--
+        Icon-only button that sits INSIDE a text field or a data-grid row: no border, no hover/pressed
+        "raised block", hand cursor. MUST derive from the default WPF-UI Button style via BasedOn — a
+        keyed style with TargetType="ui:Button" but NO BasedOn REPLACES the ControlsDictionary implicit
+        style, so the button loses the WPF-UI ControlTemplate that renders Icon with the Fluent icon font
+        (the icon then draws as a notdef box). BasedOn keeps that template; we only override the chrome.
+        Used by the key FolderOpen button and the grid Delete button (#6/#8).
+    -->
+    <Style
+        x:Key="AstInlineIconButton"
+        BasedOn="{StaticResource {x:Type ui:Button}}"
+        TargetType="ui:Button">
+        <Setter Property="Appearance" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="MouseOverBackground" Value="Transparent" />
+        <Setter Property="MouseOverBorderBrush" Value="Transparent" />
+        <Setter Property="PressedBackground" Value="Transparent" />
+        <Setter Property="PressedBorderBrush" Value="Transparent" />
+    </Style>
+    <!--
+        Read-only data table used on screens: left-hugging, header row only, no auto-generated columns,
+        with a MinHeight so it scrolls internally on overflow (screen layout standard). BasedOn the default
+        DataGrid style so the WPF-UI theme (merged via ui:ControlsDictionary) is preserved.
+    -->
+    <Style
+        x:Key="AstDataGrid"
+        BasedOn="{StaticResource {x:Type DataGrid}}"
+        TargetType="DataGrid">
+        <Setter Property="MinHeight" Value="120" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="AutoGenerateColumns" Value="False" />
+        <Setter Property="HeadersVisibility" Value="Column" />
+        <Setter Property="IsReadOnly" Value="True" />
+        <!--  Vertical scrollbar always reserved/visible so loading rows never widen the table and shift the panel beside it. Width follows Approach A (2026-07-15): the host uses * + MaxWidth + HAlign=Stretch and the grid scrolls horizontally inside itself when narrow — NOT a pinned Width.  -->
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Visible" />
+    </Style>
+    <!--
+        Project password field (WPF-UI PasswordBox). Mask = U+25CF ● via PasswordChar; glyph color =
+        control default Foreground (do NOT force brand/error red — red is reserved for problem states
+        via AstErrorBrush). MUST BasedOn the default ui:PasswordBox style so Reveal and Fluent
+        template stay intact.
+    -->
+    <Style
+        x:Key="AstPasswordBox"
+        BasedOn="{StaticResource {x:Type ui:PasswordBox}}"
+        TargetType="ui:PasswordBox">
+        <Setter Property="PasswordChar" Value="●" />
+        <Setter Property="RevealButtonEnabled" Value="True" />
+    </Style>
+    <!--
+        Form field: Label above a Content input slot, with an optional Helper hint and an Error line.
+        Lookless ContentControl (AST.UI/Controls/AstField.cs) so the input slot is a real Content
+        passthrough (ui:TextBox / AstPasswordBox / ComboBox / ui:NumberBox). AstField displays validation
+        state only; the ViewModel owns validation. Base Visibility of the Helper/Error TextBlocks is set via
+        each TextBlock's own Style setter (NOT a direct attribute) so the HasError ControlTemplate trigger —
+        a template-level value that outranks a Style setter — can override it; a direct Visibility attribute
+        would be a local value the trigger could not beat. NullOrEmptyToVisibility is scoped to the template
+        (App.xaml declares that key after its MergedDictionaries, out of a merged sibling's StaticResource
+        reach), reusing the existing AST.Converters converter type.
+    -->
+    <Style x:Key="AstField" TargetType="{x:Type controls:AstField}">
+        <!-- Shell must not be a tab stop / focus target — only the hosted input (ContentPresenter) is. -->
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type controls:AstField}">
+                    <ControlTemplate.Resources>
+                        <conv:NullOrEmptyToVisibilityConverter x:Key="NullOrEmptyToVisibility" />
+                    </ControlTemplate.Resources>
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource AstFieldLabel}" Text="{TemplateBinding Label}" />
+                        <ContentPresenter />
+                        <TextBlock x:Name="HelperText" Text="{TemplateBinding Helper}">
+                            <TextBlock.Style>
+                                <Style BasedOn="{StaticResource AstBodySmallText}" TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource AstTextSecondaryBrush}" />
+                                    <Setter Property="Margin" Value="0,4,0,0" />
+                                    <Setter Property="Visibility" Value="{Binding Helper, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource NullOrEmptyToVisibility}}" />
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBlock x:Name="ErrorText" Text="{TemplateBinding Error}">
+                            <TextBlock.Style>
+                                <Style BasedOn="{StaticResource AstBodySmallText}" TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource AstErrorBrush}" />
+                                    <Setter Property="Margin" Value="0,4,0,0" />
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="HasError" Value="True">
+                            <Setter TargetName="HelperText" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="ErrorText" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <!--
+        Screen frame: the three top blocks every screen shares — screen header (AstScreenHeader), status band
+        (AstStatusBand, reserved height so a message never reflows the body), and the body slot (the
+        ContentPresenter). Lookless ContentControl (AST.UI/Controls/AstScreen.cs) so the body is a real Content
+        passthrough. Every property is a loss-less TemplateBinding passthrough to a composed child — AstScreen
+        holds no navigation authority (BackCommand flows straight to AstScreenHeader, which never navigates).
+        The 24,0,24,24 margin is the standard screen frame. AstScreen is its home for any screen that adopts it
+        (ConnectionDeclarationView does); AdminAuthView still hand-builds an identical copy independently —
+        retrofit deferred (2026-07-19).
+    -->
+    <Style x:Key="AstScreen" TargetType="{x:Type controls:AstScreen}">
+        <!--  Body slot fills its Grid cell like a raw cell would: a ContentControl defaults to Left/Top, but a hand-built frame put the body straight into a * cell (implicitly Stretch). Keep the contract identical so a body with a fill-height row/DataGrid isn't silently content-sized.  -->
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type controls:AstScreen}">
+                    <Grid Margin="24,0,24,24">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <controls:AstScreenHeader
+                            Title="{TemplateBinding Title}"
+                            Grid.Row="0"
+                            BackCommand="{TemplateBinding BackCommand}"
+                            Icon="{TemplateBinding Icon}" />
+                        <controls:AstStatusBand
+                            Grid.Row="1"
+                            Message="{TemplateBinding Message}"
+                            Severity="{TemplateBinding Severity}" />
+                        <ContentPresenter Grid.Row="2" Margin="0,6,0,0" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <!--
+        Single masked date atom (control: AST.UI/Controls/AstDateBox.cs). A dd/MM/yyyy masked ui:TextBox
+        (PART_TextBox) plus an OPT-IN Fluent calendar glyph (PART_GlyphToggle -> PART_Popup -> PART_Calendar,
+        shown only when ShowCalendarGlyph="True"). The Popup hosts a BARE stock Calendar — WPF-UI 4.3 styles
+        System.Windows.Controls.Calendar via an implicit style already merged flat into Application.Resources
+        (verified against the installed Wpf.Ui.dll), and ApplicationAccentColorManager.Apply(...) in
+        App.xaml.cs already applies the brand accent, so the popup calendar is Fluent + on-brand with NO
+        explicit style key and no extra brush wiring — do not add one. A CalendarDayButtonStyle override was
+        tried here (2026-07-29, to highlight the current Date) and reverted the same day: it visibly dropped
+        the Fluent per-cell look back to the classic Windows day-cell chrome (WPF-UI's modern look does not
+        come from an implicit {x:Type CalendarDayButton} style reachable from outside its own Calendar
+        ControlTemplate) — do not reattempt without first inspecting WPF-UI's actual compiled Calendar
+        template. The masked text box remains the single source of truth for Date; the calendar only writes
+        into Date on a genuine user pick (wired in AstDateBox.cs, not here). No Themes/Generic.xaml — same
+        keyed-style convention as AstField.
+    -->
+    <Style x:Key="AstDateBox" TargetType="{x:Type controls:AstDateBox}">
+        <!--  Content-sized: text column + glyph column (no full-bleed overlay — overlay clipped Fluent chrome).  -->
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type controls:AstDateBox}">
+                    <!-- Transparent so a glyph click while the popup is open (glyph IsHitTestVisible=false) hits this Grid, not a control behind the field. -->
+                    <Grid Background="Transparent">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ui:TextBox
+                            x:Name="PART_TextBox"
+                            Grid.Column="0"
+                            Width="94"
+                            Padding="8,0,8,0"
+                            VerticalContentAlignment="Center"
+                            ClearButtonEnabled="False"
+                            IsUndoEnabled="False"
+                            PlaceholderText="00/00/0000" />
+                        <!--
+                            Margin below is a single fixed part-to-part gap (text box to glyph), not a repeating
+                            stack; Spacing.Between (see AstEffectivePeriod) is for the latter, so a literal
+                            value here is not the same "never a literal margin" case.
+                        -->
+                        <ToggleButton
+                            x:Name="PART_GlyphToggle"
+                            Grid.Column="1"
+                            Width="28"
+                            Height="{Binding ActualHeight, ElementName=PART_TextBox}"
+                            Margin="2,0,0,0"
+                            Padding="0"
+                            VerticalAlignment="Center"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            Focusable="False">
+                            <ui:SymbolIcon FontSize="16" Symbol="CalendarLtr24" />
+                        </ToggleButton>
+                        <Popup
+                            x:Name="PART_Popup"
+                            AllowsTransparency="True"
+                            IsOpen="{Binding IsChecked, ElementName=PART_GlyphToggle, Mode=TwoWay}"
+                            Placement="Bottom"
+                            PlacementTarget="{Binding ElementName=PART_TextBox}"
+                            StaysOpen="False">
+                            <Border
+                                Background="{DynamicResource AstSurfaceCardBrush}"
+                                BorderBrush="{DynamicResource AstOutlineBrush}"
+                                BorderThickness="1"
+                                CornerRadius="{StaticResource AstRadiusCard}">
+                                <Calendar x:Name="PART_Calendar" />
+                            </Border>
+                        </Popup>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="ShowCalendarGlyph" Value="False">
+                            <Setter TargetName="PART_GlyphToggle" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="PART_GlyphToggle" Property="Margin" Value="0" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <!--
+        Effective-period block (control: AST.UI/Controls/AstEffectivePeriod.cs): one horizontal strip —
+        "Kỳ hiệu lực:" · "Từ ngày" · From · "đến ngày" · To · compact undetermined checkbox.
+        Parts PART_FromBox / PART_ToBox (AstDateBox, glyph on) + PART_UndeterminedCheck (CheckBox).
+        IsUndetermined is the open-end/missing discriminator — read with To, never infer from To == null.
+        Gaps use Spacing.Between + tokens, never a literal margin. No Themes/Generic.xaml.
+    -->
+    <Style x:Key="AstEffectivePeriod" TargetType="{x:Type controls:AstEffectivePeriod}">
+        <!-- Shell must not be a tab stop / focus target — only PART_FromBox / PART_ToBox /
+             PART_UndeterminedCheck (and their inner inputs) are operable. Same pattern as AstField. -->
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type controls:AstEffectivePeriod}">
+                    <ControlTemplate.Resources>
+                        <!--  Checkbox indicator sized like Screen-A CompactRadioButton (14×14).  -->
+                        <Style x:Key="AstEffectivePeriodUndeterminedCheck" TargetType="CheckBox">
+                            <Setter Property="FontSize" Value="14" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="VerticalContentAlignment" Value="Center" />
+                            <Setter Property="Cursor" Value="Hand" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="CheckBox">
+                                        <Border Padding="0,2" Background="Transparent">
+                                            <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                                                <!--  Fixed indicator-to-content gap (single part-to-part value, not a repeating Spacing.Between stack).  -->
+                                                <Border
+                                                    x:Name="Box"
+                                                    Width="14"
+                                                    Height="14"
+                                                    Margin="0,0,6,0"
+                                                    VerticalAlignment="Center"
+                                                    Background="Transparent"
+                                                    BorderBrush="{DynamicResource AstOutlineBrush}"
+                                                    BorderThickness="1.5"
+                                                    CornerRadius="2"
+                                                    SnapsToDevicePixels="True">
+                                                    <Viewbox
+                                                        Width="10"
+                                                        Height="10"
+                                                        HorizontalAlignment="Center"
+                                                        VerticalAlignment="Center">
+                                                        <Path
+                                                            x:Name="CheckMark"
+                                                            Data="M 0,5 L 3.5,8.5 L 9,1"
+                                                            Stroke="{DynamicResource AstPrimaryBrush}"
+                                                            StrokeThickness="1.5"
+                                                            Visibility="Collapsed" />
+                                                    </Viewbox>
+                                                </Border>
+                                                <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True" />
+                                            </StackPanel>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="CheckMark" Property="Visibility" Value="Visible" />
+                                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AstPrimaryBrush}" />
+                                            </Trigger>
+                                            <Trigger Property="IsEnabled" Value="False">
+                                                <Setter Property="Opacity" Value="0.5" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ControlTemplate.Resources>
+                    <StackPanel
+                        VerticalAlignment="Center"
+                        controls:Spacing.Between="{StaticResource AstControlPadding}"
+                        Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource AstInlineFieldLabel}" Text="Kỳ hiệu lực:" />
+                        <TextBlock Style="{StaticResource AstInlineFieldLabel}" Text="Từ ngày" />
+                        <controls:AstDateBox
+                            x:Name="PART_FromBox"
+                            VerticalAlignment="Center"
+                            Date="{Binding From, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                            ShowCalendarGlyph="True"
+                            Style="{StaticResource AstDateBox}"
+                            Today="{TemplateBinding Today}" />
+                        <TextBlock Style="{StaticResource AstInlineFieldLabel}" Text="đến ngày" />
+                        <controls:AstDateBox
+                            x:Name="PART_ToBox"
+                            VerticalAlignment="Center"
+                            Date="{Binding To, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                            ShowCalendarGlyph="True"
+                            Style="{StaticResource AstDateBox}"
+                            Today="{TemplateBinding Today}" />
+                        <CheckBox
+                            x:Name="PART_UndeterminedCheck"
+                            VerticalAlignment="Center"
+                            Content="Không xác định"
+                            IsChecked="{Binding IsUndetermined, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                            Style="{StaticResource AstEffectivePeriodUndeterminedCheck}" />
+                    </StackPanel>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <!--
+        Version-status label (control: AST.UI/Controls/AstVersionStatus.cs). Single TextBlock whose Text/
+        Foreground come from Status via VersionStatusToTextConverter / VersionStatusToBrushConverter (AST.
+        Converters, single home = VersionStatusPresentation); hidden entirely when Status == None via a
+        Trigger on Status, mirroring AstField's HasError trigger (Setter TargetName on a named TextBlock).
+        The two converters are declared inline in ControlTemplate.Resources rather than referenced as the
+        app-global {StaticResource VersionStatusToText}/{StaticResource VersionStatusToBrush} keys registered in
+        App.xaml: App.xaml declares them as direct Application.Resources entries AFTER its MergedDictionaries
+        chain, out of a merged sibling's StaticResource reach — the same reason AstField (above) redeclares
+        NullOrEmptyToVisibility locally instead of resolving the App.xaml key. No Themes/Generic.xaml — same
+        keyed-style convention as AstField / AstScreen / AstEffectivePeriod.
+    -->
+    <Style x:Key="AstVersionStatus" TargetType="{x:Type controls:AstVersionStatus}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type controls:AstVersionStatus}">
+                    <ControlTemplate.Resources>
+                        <conv:VersionStatusToTextConverter x:Key="VersionStatusToText" />
+                        <conv:VersionStatusToBrushConverter x:Key="VersionStatusToBrush" />
+                    </ControlTemplate.Resources>
+                    <TextBlock
+                        x:Name="StatusText"
+                        Foreground="{Binding Status, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource VersionStatusToBrush}}"
+                        Style="{StaticResource AstBodyMediumText}"
+                        Text="{Binding Status, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource VersionStatusToText}}" />
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Status" Value="None">
+                            <Setter TargetName="StatusText" Property="Visibility" Value="Collapsed" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <!--
+        Org-unit parent picker (control: AST.UI/Controls/AstOrgUnitPicker.cs). Mode switches between a
+        native ComboBox over the VM-supplied OrgUnitPickerItem list (Editable; already EP-filtered, N2)
+        and a static read-only text display (Display; DisplayText content decided by the caller — root
+        copy, locked parent name, ...). EditableComboBox's Width/Height are bound to DisplayTextBox's own
+        ActualWidth/ActualHeight (ElementName binding, the same technique AstDateBox uses for its own
+        sibling-size parity) so the two branches are always exactly the same size — this, not shared
+        Padding or Visibility alone, is what fixes the former 3-control overlay's field-height jump.
+        DisplayTextBox uses WPF-UI's own default ui:TextBox padding (no override) so it matches every
+        other plain-textbox form field's height exactly. The Editable ComboBox is re-templated from scratch (WPF-UI 4.3 ships
+        no ComboBox type) using AST's own Palette/Spacing tokens so it reads as one visual family with
+        ui:TextBox. Display-only overall — the picker does no filtering and no DB access. No
+        Themes/Generic.xaml — same keyed-style convention as AstField / AstDateBox.
+    -->
+    <Style x:Key="AstOrgUnitPickerComboBox" TargetType="{x:Type ComboBox}">
+        <Setter Property="Padding" Value="8,0,8,0" />
+        <Setter Property="Background" Value="{StaticResource AstSurfaceCardBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ComboBox}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="28" />
+                        </Grid.ColumnDefinitions>
+                        <ToggleButton
+                            x:Name="PART_ToggleButton"
+                            Grid.ColumnSpan="2"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch"
+                            ClickMode="Press"
+                            Focusable="False"
+                            IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                            <ToggleButton.Template>
+                                <ControlTemplate TargetType="{x:Type ToggleButton}">
+                                    <Border
+                                        x:Name="Chrome"
+                                        Background="{StaticResource AstSurfaceCardBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="{StaticResource AstRadiusInput}">
+                                        <Border.BorderBrush>
+                                            <SolidColorBrush Color="{StaticResource AstOutlineColor}" />
+                                        </Border.BorderBrush>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="28" />
+                                            </Grid.ColumnDefinitions>
+                                            <Path
+                                                x:Name="Chevron"
+                                                Grid.Column="1"
+                                                Width="10"
+                                                Height="6"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                Data="M 0,0 L 10,0 5,6 Z"
+                                                Stretch="Fill">
+                                                <Path.Fill>
+                                                    <SolidColorBrush Color="{StaticResource AstTextSecondaryColor}" />
+                                                </Path.Fill>
+                                            </Path>
+                                        </Grid>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Trigger.EnterActions>
+                                                <BeginStoryboard>
+                                                    <Storyboard>
+                                                        <ColorAnimation
+                                                            Storyboard.TargetName="Chrome"
+                                                            Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)"
+                                                            To="{StaticResource AstPrimaryColor}"
+                                                            Duration="0:0:0.12" />
+                                                    </Storyboard>
+                                                </BeginStoryboard>
+                                            </Trigger.EnterActions>
+                                            <Trigger.ExitActions>
+                                                <BeginStoryboard>
+                                                    <Storyboard>
+                                                        <ColorAnimation
+                                                            Storyboard.TargetName="Chrome"
+                                                            Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)"
+                                                            To="{StaticResource AstOutlineColor}"
+                                                            Duration="0:0:0.12" />
+                                                    </Storyboard>
+                                                </BeginStoryboard>
+                                            </Trigger.ExitActions>
+                                        </Trigger>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Trigger.EnterActions>
+                                                <BeginStoryboard>
+                                                    <Storyboard>
+                                                        <ColorAnimation
+                                                            Storyboard.TargetName="Chrome"
+                                                            Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)"
+                                                            To="{StaticResource AstPrimaryColor}"
+                                                            Duration="0:0:0.08" />
+                                                        <ColorAnimation
+                                                            Storyboard.TargetName="Chevron"
+                                                            Storyboard.TargetProperty="(Path.Fill).(SolidColorBrush.Color)"
+                                                            To="{StaticResource AstPrimaryColor}"
+                                                            Duration="0:0:0.08" />
+                                                    </Storyboard>
+                                                </BeginStoryboard>
+                                            </Trigger.EnterActions>
+                                            <Trigger.ExitActions>
+                                                <BeginStoryboard>
+                                                    <Storyboard>
+                                                        <ColorAnimation
+                                                            Storyboard.TargetName="Chrome"
+                                                            Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)"
+                                                            To="{StaticResource AstOutlineColor}"
+                                                            Duration="0:0:0.08" />
+                                                        <ColorAnimation
+                                                            Storyboard.TargetName="Chevron"
+                                                            Storyboard.TargetProperty="(Path.Fill).(SolidColorBrush.Color)"
+                                                            To="{StaticResource AstTextSecondaryColor}"
+                                                            Duration="0:0:0.08" />
+                                                    </Storyboard>
+                                                </BeginStoryboard>
+                                            </Trigger.ExitActions>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                        </ToggleButton>
+                        <ContentPresenter
+                            x:Name="ContentSite"
+                            Grid.Column="0"
+                            Margin="{TemplateBinding Padding}"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Center"
+                            Content="{TemplateBinding SelectionBoxItem}"
+                            ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                            ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                            ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                            IsHitTestVisible="False" />
+                        <Popup
+                            x:Name="PART_Popup"
+                            AllowsTransparency="True"
+                            IsOpen="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}}"
+                            Placement="Bottom"
+                            PopupAnimation="Slide"
+                            StaysOpen="False">
+                            <Border
+                                MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                Margin="0,2,0,0"
+                                Background="{StaticResource AstSurfaceCardBrush}"
+                                BorderBrush="{StaticResource AstOutlineBrush}"
+                                BorderThickness="1"
+                                CornerRadius="{StaticResource AstRadiusInput}">
+                                <ScrollViewer SnapsToDevicePixels="True">
+                                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+                                </ScrollViewer>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="AstOrgUnitPicker" TargetType="{x:Type controls:AstOrgUnitPicker}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type controls:AstOrgUnitPicker}">
+                    <Grid>
+                        <ui:TextBox
+                            x:Name="DisplayTextBox"
+                            VerticalContentAlignment="Center"
+                            IsEnabled="False"
+                            Text="{TemplateBinding DisplayText}"
+                            Visibility="Visible" />
+                        <ComboBox
+                            x:Name="EditableComboBox"
+                            Width="{Binding ActualWidth, ElementName=DisplayTextBox}"
+                            Height="{Binding ActualHeight, ElementName=DisplayTextBox}"
+                            DisplayMemberPath="Display"
+                            ItemsSource="{TemplateBinding Items}"
+                            SelectedValue="{Binding SelectedOrgUnitId, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            SelectedValuePath="Id"
+                            Style="{StaticResource AstOrgUnitPickerComboBox}"
+                            Visibility="Hidden" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Mode" Value="Editable">
+                            <Setter TargetName="DisplayTextBox" Property="Visibility" Value="Hidden" />
+                            <Setter TargetName="EditableComboBox" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>

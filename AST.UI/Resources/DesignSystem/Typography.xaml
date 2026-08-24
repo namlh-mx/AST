@@ -1,0 +1,67 @@
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Style x:Key="AstDisplayText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="Segoe UI Variable Display, Segoe UI Variable, Segoe UI" />
+        <Setter Property="FontSize" Value="40" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="LineHeight" Value="52" />
+        <Setter Property="LineStackingStrategy" Value="BlockLineHeight" />
+        <Setter Property="Foreground" Value="{DynamicResource AstTextPrimaryBrush}" />
+    </Style>
+    <!--
+        Type scale (Segoe UI Variable optical axes): Small for labels/captions, Text for body, Display for
+        headings. Consume a scale token rather than setting an ad-hoc FontSize. headline-lg step below.
+    -->
+    <Style
+        x:Key="AstHeadlineLargeText"
+        BasedOn="{StaticResource AstDisplayText}"
+        TargetType="TextBlock">
+        <Setter Property="FontSize" Value="32" />
+        <Setter Property="LineHeight" Value="40" />
+    </Style>
+    <Style
+        x:Key="AstHeadlineMediumText"
+        BasedOn="{StaticResource AstDisplayText}"
+        TargetType="TextBlock">
+        <Setter Property="FontSize" Value="24" />
+        <Setter Property="LineHeight" Value="32" />
+    </Style>
+    <Style x:Key="AstBodyLargeText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI Variable, Segoe UI" />
+        <Setter Property="FontSize" Value="18" />
+        <Setter Property="FontWeight" Value="Normal" />
+        <Setter Property="LineHeight" Value="24" />
+        <Setter Property="LineStackingStrategy" Value="BlockLineHeight" />
+        <Setter Property="Foreground" Value="{DynamicResource AstTextPrimaryBrush}" />
+    </Style>
+    <Style
+        x:Key="AstBodyMediumText"
+        BasedOn="{StaticResource AstBodyLargeText}"
+        TargetType="TextBlock">
+        <Setter Property="FontSize" Value="16" />
+        <Setter Property="LineHeight" Value="22" />
+    </Style>
+    <Style
+        x:Key="AstBodySmallText"
+        BasedOn="{StaticResource AstBodyLargeText}"
+        TargetType="TextBlock">
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="LineHeight" Value="20" />
+    </Style>
+    <Style x:Key="AstLabelMediumText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="Segoe UI Variable Small, Segoe UI Variable, Segoe UI" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="LineHeight" Value="16" />
+        <Setter Property="LineStackingStrategy" Value="BlockLineHeight" />
+        <Setter Property="Foreground" Value="{DynamicResource AstTextPrimaryBrush}" />
+    </Style>
+    <!--  label-sm step of the type scale; consume the token rather than an ad-hoc FontSize.  -->
+    <Style
+        x:Key="AstLabelSmallText"
+        BasedOn="{StaticResource AstLabelMediumText}"
+        TargetType="TextBlock">
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="LineHeight" Value="14" />
+    </Style>
+</ResourceDictionary>

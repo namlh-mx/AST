@@ -1,0 +1,34 @@
+﻿<UserControl
+    x:Class="AST.Controls.AstStatusBand"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    x:Name="Root">
+    <!--
+        Single home of the screen status band (WPF-CONVENTIONS.md). MinHeight reserves the row so
+        showing/hiding the message never reflows the layout (multi-workstation invariant). Empty Message
+        => hidden. Icon/text colour + glyph follow Severity via the app-level converters. FontSize 16 is
+        the unified value (was drifted: absent on AdminAuth, 16 on Connection); F5-tunable.
+    -->
+    <Border MinHeight="20">
+        <StackPanel
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Orientation="Horizontal"
+            Visibility="{Binding Message, ElementName=Root, Converter={StaticResource NullOrEmptyToVisibility}}">
+            <ui:SymbolIcon
+                VerticalAlignment="Center"
+                FontSize="16"
+                Foreground="{Binding Severity, ElementName=Root, Converter={StaticResource StatusSeverityToBrush}}"
+                Symbol="{Binding Severity, ElementName=Root, Converter={StaticResource StatusToSymbol}}" />
+            <TextBlock
+                Margin="8,0,0,0"
+                VerticalAlignment="Center"
+                FontWeight="Bold"
+                Foreground="{Binding Severity, ElementName=Root, Converter={StaticResource StatusSeverityToBrush}}"
+                Style="{StaticResource AstBodySmallText}"
+                Text="{Binding Message, ElementName=Root}"
+                TextWrapping="Wrap" />
+        </StackPanel>
+    </Border>
+</UserControl>

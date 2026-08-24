@@ -1,0 +1,33 @@
+﻿<UserControl
+    x:Class="AST.Controls.AstScreenHeader"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    x:Name="Root">
+    <!--
+        Screen header: a Fluent icon (brand red, 24px) + the screen title (AstPageTitle). When BackCommand is
+        set the whole header becomes the Back affordance — hand cursor, and a left-click executes BackCommand.
+        The header never navigates itself; the consuming view keeps navigation authority (rule-module-boundary
+        §1c). Icon is optional and collapses (no leading gap) when left unset. Background=Transparent makes the
+        whole header (incl. the icon-title gap) hit-testable.
+    -->
+    <StackPanel
+        x:Name="HeaderPanel"
+        HorizontalAlignment="Left"
+        VerticalAlignment="Center"
+        Background="Transparent"
+        MouseLeftButtonUp="OnHeaderClick"
+        Orientation="Horizontal">
+        <ui:SymbolIcon
+            x:Name="IconElement"
+            Margin="0,0,12,0"
+            VerticalAlignment="Center"
+            FontSize="24"
+            Foreground="{DynamicResource AstPrimaryBrush}"
+            Symbol="{Binding Icon, ElementName=Root}" />
+        <TextBlock
+            VerticalAlignment="Center"
+            Style="{StaticResource AstPageTitle}"
+            Text="{Binding Title, ElementName=Root}" />
+    </StackPanel>
+</UserControl>

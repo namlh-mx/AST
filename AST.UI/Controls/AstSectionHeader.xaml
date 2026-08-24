@@ -1,0 +1,26 @@
+﻿<UserControl
+    x:Class="AST.Controls.AstSectionHeader"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    x:Name="Root">
+    <!--
+        Section header: a Fluent icon (brand red, 18px) + a section title (body-lg, SemiBold). Replaces the
+        per-screen copy-pasted "SymbolIcon + AstSectionHeader-styled TextBlock" composite and retires the old
+        AstSectionHeader TextBlock style. Set Icon + Text per call site; the block carries no outer margin, so
+        the host places it (via layout / Spacing.Between).
+    -->
+    <StackPanel Orientation="Horizontal">
+        <ui:SymbolIcon
+            Margin="0,0,8,0"
+            VerticalAlignment="Center"
+            FontSize="18"
+            Foreground="{DynamicResource AstPrimaryBrush}"
+            Symbol="{Binding Icon, ElementName=Root}" />
+        <TextBlock
+            VerticalAlignment="Center"
+            FontWeight="SemiBold"
+            Style="{StaticResource AstBodyLargeText}"
+            Text="{Binding Text, ElementName=Root}" />
+    </StackPanel>
+</UserControl>

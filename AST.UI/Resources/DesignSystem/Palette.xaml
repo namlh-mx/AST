@@ -1,0 +1,41 @@
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        Brand palette. Consume one of these brushes — never hard-code a brand hex on an element.
+        AstPrimaryBrush (Agribank Red) is the brand anchor: use it sparingly, for high-impact actions and key
+        brand moments, not as general decoration. AstPrimaryDarkBrush is its pressed/dark tone and
+        AstOnPrimaryBrush is the text that sits on primary. AstAccentLinkBrush is the accessibility-driven accent
+        for links and secondary interactive elements — deliberately distinct from the brand red.
+    -->
+    <SolidColorBrush x:Key="AstPrimaryBrush" Color="#ae1c3e" />
+    <!--  Color (not Brush) form of AstPrimaryBrush, needed where a Storyboard ColorAnimation targets a Color property — StaticResource resolves at load, unlike Binding, so it doesn't block the Storyboard from freezing.  -->
+    <Color x:Key="AstPrimaryColor">#ae1c3e</Color>
+    <SolidColorBrush x:Key="AstPrimaryDarkBrush" Color="#89002a" />
+    <SolidColorBrush x:Key="AstOnPrimaryBrush" Color="#ffffff" />
+    <SolidColorBrush x:Key="AstAccentLinkBrush" Color="#0078d4" />
+    <!--  Semantic  -->
+    <SolidColorBrush x:Key="AstSuccessBrush" Color="#00674f" />
+    <SolidColorBrush x:Key="AstErrorBrush" Color="#ba1a1a" />
+    <!--
+        Caution amber. Used by the DIALOG surface only (AstDialog), where one message is shown on its own and
+        its kind must read at a glance. The in-screen status band keeps its locked convention (success = green,
+        any other message = red) — see StatusSeverityPresentation.
+    -->
+    <SolidColorBrush x:Key="AstWarningBrush" Color="#c8a200" />
+    <!--  Surface / structure  -->
+    <!--  Page surface: softened from #faf9f8 to #f0eeea (requester F5) so the background is gentler on the eyes; kept in sync with ApplicationBackground in WpfUiOverrides.xaml. Cards stay #ffffff.  -->
+    <SolidColorBrush x:Key="AstSurfaceBrush" Color="#f0eeea" />
+    <SolidColorBrush x:Key="AstSurfaceCardBrush" Color="#ffffff" />
+    <SolidColorBrush x:Key="AstOutlineBrush" Color="#e1e1e1" />
+    <!--  Color (not Brush) form of AstOutlineBrush, same Storyboard-freezing reason as AstPrimaryColor above.  -->
+    <Color x:Key="AstOutlineColor">#e1e1e1</Color>
+    <!--  Text  -->
+    <SolidColorBrush x:Key="AstTextPrimaryBrush" Color="#1a1c1c" />
+    <SolidColorBrush x:Key="AstTextSecondaryBrush" Color="#605e5c" />
+    <!--  Color (not Brush) form of AstTextSecondaryBrush, same Storyboard-freezing reason as AstPrimaryColor above.  -->
+    <Color x:Key="AstTextSecondaryColor">#605e5c</Color>
+    <!--  Startup indicator = foreground text colors (P2: no fill). Repurposes the keys the exe converter resolves.  -->
+    <SolidColorBrush x:Key="AstConnectedBrush" Color="#00674f" />
+    <SolidColorBrush x:Key="AstNotConnectedBrush" Color="#ba1a1a" />
+    <!--  Reserved: footer status dot amber for a future "connecting/processing" state (no StartupMode for it yet).  -->
+    <SolidColorBrush x:Key="AstConnectingBrush" Color="#c8a200" />
+</ResourceDictionary>

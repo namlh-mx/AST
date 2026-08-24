@@ -1,0 +1,17 @@
+﻿<!--  Reference skeleton — Prism View (AST project). NOT a working feature; copy the shape.
+      DataContext is wired by RegisterForNavigation<SampleView, SampleViewModel>() in App.xaml.cs
+      (Prism View-First; skill wpf-rule-view-viewmodel-wiring-prism). No DataContext/ViewModelLocator here.-->
+<UserControl
+    x:Class="AST.Views.SampleView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <StackPanel Margin="16">
+        <!--  Reuse design-system brush keys via DynamicResource; never hard-code colors.  -->
+        <TextBlock Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="{Binding Title}" />
+        <ui:Button
+            Margin="0,8,0,0"
+            Command="{Binding RefreshCommand}"
+            Content="Refresh" />
+    </StackPanel>
+</UserControl>
