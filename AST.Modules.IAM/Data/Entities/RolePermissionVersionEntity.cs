@@ -1,0 +1,23 @@
+using AST.Core.Data;
+using AST.Core.EffectivePeriod;
+using AST.Core.Iam;
+
+namespace AST.Modules.IAM.Data.Entities;
+
+// Direct mapping of table role_permission_version (docs/design-iam-schema.md §1.5).
+internal sealed class RolePermissionVersionEntity : IVersionRow
+{
+    public long Id { get; init; }
+    public long IdentityId { get; init; }
+    public DateOnly EffectiveFrom { get; init; }
+    public DateOnly EffectiveTo { get; init; }
+    public bool IsActive { get; init; }
+    public long RoleId { get; init; }
+    public long FunctionId { get; init; }
+    public ScopeLevel ScopeLevel { get; init; }
+    public bool Cancelled { get; init; }
+    public VersionOperationKind? OperationKind { get; init; }
+    public DateTime RecordedAt { get; init; }
+    public string RecordedBy { get; init; } = string.Empty;
+    public string? Reason { get; init; }
+}

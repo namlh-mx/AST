@@ -4,4 +4,6 @@
   <Project Path="AST.Infrastructure/AST.Infrastructure.csproj" />
   <Project Path="AST.Infrastructure.Tests/AST.Infrastructure.Tests.csproj" />
   <Project Path="AST.ConfigKeyGen/AST.ConfigKeyGen.csproj" />
+  <Project Path="AST.Modules.IAM/AST.Modules.IAM.csproj" />
+  <Project Path="AST.Modules.IAM.Tests/AST.Modules.IAM.Tests.csproj" />
 </Solution>
