@@ -1,0 +1,10 @@
+# Shell scripts MUST keep LF. A .sh checked out with CRLF fails on Linux and macOS
+# with "bad interpreter: /usr/bin/env bash^M", and scripts/apply-migrations.sh is on
+# the first path a new reader walks.
+*.sh text eol=lf
+
+# PowerShell is checked out with CRLF, which is what Windows tooling expects.
+*.ps1 text eol=crlf
+
+# SQL is read by the mysql client on both platforms; LF is safe everywhere.
+*.sql text eol=lf

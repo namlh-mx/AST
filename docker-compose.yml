@@ -1,0 +1,31 @@
+# A throwaway MySQL for running AST locally and for the integration tests.
+#
+# The application NEVER migrates its own database -- it verifies the schema version at
+# startup and blocks on a mismatch. So after this service is up, run
+# scripts/apply-migrations.sh (or .ps1) before launching the app.
+#
+# Credentials here are development-only and deliberately in the open.
+services:
+  mysql:
+    image: mysql:9.7
+    container_name: ast-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ast-dev-only
+      MYSQL_DATABASE: ast_db
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./scripts/init-databases.sql:/docker-entrypoint-initdb.d/10-init-databases.sql:ro
+      - ast-mysql-data:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-past-dev-only"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  ast-mysql-data:

@@ -1,4 +1,7 @@
 <Solution>
   <Project Path="AST.Core/AST.Core.csproj" />
   <Project Path="AST.Core.Tests/AST.Core.Tests.csproj" />
+  <Project Path="AST.Infrastructure/AST.Infrastructure.csproj" />
+  <Project Path="AST.Infrastructure.Tests/AST.Infrastructure.Tests.csproj" />
+  <Project Path="AST.ConfigKeyGen/AST.ConfigKeyGen.csproj" />
 </Solution>
