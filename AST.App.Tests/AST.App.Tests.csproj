@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- References the WPF exe to reach its headless-testable types (exe-only ViewModels + converters that
+         AST.Shell cannot host because they use Prism.Wpf IRegionManager / System.Windows). UseWPF so the
+         WPF types resolve. Tests that need the process-wide Application (OffscreenHost, layout pins) must
+         use Sta.RunOnSharedStaThread so EnsureApplication owns the singleton. Other STA tests (e.g.
+         AstDateBoxTests.Date_round_trips) may use Sta.Run — those threads never construct Application. -->
+    <UseWPF>true</UseWPF>
+    <!-- xUnit v3 test projects are executables, not libraries (they host their own runner). -->
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="FluentAssertions" Version="7.2.2" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="Moq" Version="4.20.72" />
+    <PackageReference Include="Verify" Version="31.27.0" />
+    <PackageReference Include="Verify.XunitV3" Version="31.27.0" />
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AST\AST.csproj" />
+  </ItemGroup>
+</Project>

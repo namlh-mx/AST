@@ -17,6 +17,20 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if (-not (Get-Command mysql -ErrorAction SilentlyContinue)) {
+  Write-Error @"
+The 'mysql' client is not on PATH, and this script needs it.
+
+Either install the MySQL client, or -- if you started the database with
+docker compose -- apply the migrations through the container instead:
+
+  Get-ChildItem migrations\V*.sql | Sort-Object Name | ForEach-Object {
+    Get-Content -Raw `$_.FullName | docker exec -i ast-mysql mysql -uast -past-dev-only ast_db
+  }
+"@
+}
+
 $migrations = Join-Path $PSScriptRoot ".." "migrations"
 
 $files = Get-ChildItem -Path $migrations -Filter "V*.sql" | Sort-Object Name

@@ -1,12 +1,16 @@
 <Solution>
   <Project Path="AST.Core/AST.Core.csproj" />
-  <Project Path="AST.Core.Tests/AST.Core.Tests.csproj" />
   <Project Path="AST.Infrastructure/AST.Infrastructure.csproj" />
-  <Project Path="AST.Infrastructure.Tests/AST.Infrastructure.Tests.csproj" />
-  <Project Path="AST.ConfigKeyGen/AST.ConfigKeyGen.csproj" />
+  <Project Path="AST.Core.Tests/AST.Core.Tests.csproj" />
+  <Project Path="AST/AST.csproj" />
   <Project Path="AST.Modules.IAM/AST.Modules.IAM.csproj" />
   <Project Path="AST.Modules.IAM.Tests/AST.Modules.IAM.Tests.csproj" />
+  <Project Path="AST.Infrastructure.Tests/AST.Infrastructure.Tests.csproj" />
+  <Project Path="AST.ConfigKeyGen/AST.ConfigKeyGen.csproj" />
   <Project Path="AST.UI/AST.UI.csproj" />
   <Project Path="AST.Shell/AST.Shell.csproj" />
   <Project Path="AST.Shell.Tests/AST.Shell.Tests.csproj" />
+  <Project Path="AST.Meta.Tests/AST.Meta.Tests.csproj" />
+  <Project Path="AST.App.Tests/AST.App.Tests.csproj" />
+  <Project Path="AST.AppScope.Tests/AST.AppScope.Tests.csproj" />
 </Solution>

@@ -1,0 +1,182 @@
+﻿<UserControl
+    x:Class="AST.Views.Platform.ConfigurationStationView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+
+    <!--
+        Standard WPF TabControl/TabItem: WPF-UI 4.3 themes these stock controls via an implicit style
+        (merged through ui:ControlsDictionary in App.xaml). ui:TabView/ui:TabViewItem exist in 4.3 but are
+        empty stubs (no Icon/IsClosable/theme), so the stock TabControl is the supported Fluent tab surface.
+        Each TabItem.Header carries a SymbolIcon + text; standard TabItems are inherently non-closable.
+    -->
+    <!--
+        Screen title sits ABOVE the tab strip so the page reads as one "Trạm cấu hình" surface; the per-tab
+        inner AstPageTitle blocks (which duplicated their tab-header text) are removed to avoid a redundant
+        double title now that the screen title labels the page and each tab header labels its tab.
+    -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <TextBlock
+            Grid.Row="0"
+            Margin="24,20,24,12"
+            Style="{StaticResource AstPageTitle}"
+            Text="Trạm cấu hình" />
+        <TabControl Grid.Row="1">
+            <!--  Tab 1: system configuration — two action rows (admin auth gates the DB row).  -->
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Margin="0,0,8,0" Symbol="Settings24" />
+                        <TextBlock VerticalAlignment="Center" Text="Cấu hình hệ thống" />
+                    </StackPanel>
+                </TabItem.Header>
+                <StackPanel
+                    MaxWidth="{StaticResource AstContentMaxWidthText}"
+                    Margin="{StaticResource AstPagePadding}"
+                    HorizontalAlignment="Left">
+
+                    <!--  Row 1: admin authentication.  -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel
+                            Grid.Column="0"
+                            VerticalAlignment="Center"
+                            Orientation="Horizontal">
+                            <ui:SymbolIcon Margin="0,0,8,0" Symbol="ShieldKeyhole24" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Style="{StaticResource AstBodyMediumText}"
+                                Text="Xác thực quản trị viên" />
+                        </StackPanel>
+                        <ui:Button
+                            Grid.Column="1"
+                            MinWidth="120"
+                            Margin="24,0,0,0"
+                            Command="{Binding ExecuteAdminAuthCommand}"
+                            Content="Thực hiện" />
+                    </Grid>
+
+                    <!--  Row 2: database configuration — disabled until admin auth succeeds.  -->
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel
+                            Grid.Column="0"
+                            VerticalAlignment="Center"
+                            Orientation="Horizontal">
+                            <ui:SymbolIcon Margin="0,0,8,0" Symbol="Database24" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Style="{StaticResource AstBodyMediumText}"
+                                Text="Cơ sở dữ liệu" />
+                        </StackPanel>
+                        <ui:Button
+                            Grid.Column="1"
+                            MinWidth="120"
+                            Margin="24,0,0,0"
+                            Command="{Binding ExecuteDbConfigCommand}"
+                            Content="Thực hiện"
+                            IsEnabled="{Binding IsDbConfigEnabled}" />
+                    </Grid>
+
+                    <!--  Row 3: org unit declaration — permission-gated by Iam.OrgUnit.Declare.  -->
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel
+                            Grid.Column="0"
+                            VerticalAlignment="Center"
+                            Orientation="Horizontal">
+                            <ui:SymbolIcon Margin="0,0,8,0" Symbol="PeopleTeam24" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Style="{StaticResource AstBodyMediumText}"
+                                Text="Khai báo đơn vị" />
+                        </StackPanel>
+                        <ui:Button
+                            Grid.Column="1"
+                            MinWidth="120"
+                            Margin="24,0,0,0"
+                            Command="{Binding ExecuteOrgUnitDeclareCommand}"
+                            Content="Thực hiện"
+                            IsEnabled="{Binding IsOrgUnitDeclareEnabled}" />
+                    </Grid>
+
+                    <!--  Row 4: role declaration — permission-gated by Iam.Role.Declare.  -->
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel
+                            Grid.Column="0"
+                            VerticalAlignment="Center"
+                            Orientation="Horizontal">
+                            <ui:SymbolIcon Margin="0,0,8,0" Symbol="PersonLock24" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Style="{StaticResource AstBodyMediumText}"
+                                Text="Khai báo vai trò" />
+                        </StackPanel>
+                        <ui:Button
+                            Grid.Column="1"
+                            MinWidth="120"
+                            Margin="24,0,0,0"
+                            Command="{Binding ExecuteRoleDeclareCommand}"
+                            Content="Thực hiện"
+                            IsEnabled="{Binding IsRoleDeclareEnabled}" />
+                    </Grid>
+                </StackPanel>
+            </TabItem>
+
+            <!--  Tab 2: business parameters — placeholder pending implementation.  -->
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Margin="0,0,8,0" Symbol="TableSettings24" />
+                        <TextBlock VerticalAlignment="Center" Text="Tham số nghiệp vụ" />
+                    </StackPanel>
+                </TabItem.Header>
+                <StackPanel
+                    MaxWidth="{StaticResource AstContentMaxWidthText}"
+                    Margin="{StaticResource AstPagePadding}"
+                    HorizontalAlignment="Left">
+                    <TextBlock
+                        Foreground="{DynamicResource AstTextSecondaryBrush}"
+                        Style="{StaticResource AstBodyMediumText}"
+                        Text="Chức năng chờ triển khai." />
+                </StackPanel>
+            </TabItem>
+
+            <!--  Tab 3: version management — placeholder pending implementation.  -->
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Margin="0,0,8,0" Symbol="History24" />
+                        <TextBlock VerticalAlignment="Center" Text="Quản lý phiên bản" />
+                    </StackPanel>
+                </TabItem.Header>
+                <StackPanel
+                    MaxWidth="{StaticResource AstContentMaxWidthText}"
+                    Margin="{StaticResource AstPagePadding}"
+                    HorizontalAlignment="Left">
+                    <TextBlock
+                        Foreground="{DynamicResource AstTextSecondaryBrush}"
+                        Style="{StaticResource AstBodyMediumText}"
+                        Text="Chức năng chờ triển khai." />
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</UserControl>

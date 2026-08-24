@@ -18,6 +18,20 @@ USER="${3:-ast}"
 PASS="${4:-ast-dev-only}"
 DB="${5:-ast_db}"
 
+if ! command -v mysql >/dev/null 2>&1; then
+  cat >&2 <<'HELP'
+The `mysql` client is not on PATH, and this script needs it.
+
+Either install the MySQL client, or -- if you started the database with
+docker compose -- apply the migrations through the container instead:
+
+  for f in migrations/V*.sql; do
+    docker exec -i ast-mysql mysql -uast -past-dev-only ast_db < "$f"
+  done
+HELP
+  exit 1
+fi
+
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../migrations" && pwd)"
 
 shopt -s nullglob

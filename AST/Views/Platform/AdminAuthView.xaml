@@ -1,0 +1,370 @@
+﻿<!--  Root is DeclarationFormView, not UserControl: that is what brings the standard leave-confirm + form wipe.  -->
+<views:DeclarationFormView
+    x:Class="AST.Views.Platform.AdminAuthView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:AST.Controls;assembly=AST.UI"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    xmlns:local="clr-namespace:AST.Views.Platform"
+    xmlns:views="clr-namespace:AST.Views"
+    Loaded="OnLoaded">
+
+    <views:DeclarationFormView.Resources>
+        <!--  Field labels sized to match the input content font (requester F5).  -->
+        <Style
+            x:Key="FieldLabel"
+            BasedOn="{StaticResource AstFieldLabel}"
+            TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14" />
+        </Style>
+
+    </views:DeclarationFormView.Resources>
+
+    <!--
+        No-scroll star layout (screen standard, WPF-CONVENTIONS.md): root Grid fills the content area,
+        Auto rows for fixed chrome (title/status) and two * rows for the data regions so both tables grow/
+        shrink with the window and each scrolls internally on overflow. No outer ScrollViewer (* is a no-op
+        inside a vertical ScrollViewer).
+        Top padding dropped to 0 (left/right/bottom keep the 24 AstPagePadding) so the 24px/32-line page title
+        rises until its vertical center (~24px below the content top) lands on the sidebar-toggle line (BLUE),
+        and the data rows below reach up toward the RED menu line. 0px top is F5-tunable.
+    -->
+    <Grid Margin="24,0,24,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!--  Drill-in screen (reached from ConfigurationStationView): the header IS the Back affordance (AstScreenHeader with BackCommand). Clicking the title RequestNavigates to the parent via BackCommand, still gated by the base's ConfirmNavigationRequest leave-confirm.  -->
+        <controls:AstScreenHeader
+            Title="Xác thực người cứu hộ"
+            Grid.Row="0"
+            BackCommand="{Binding BackCommand, RelativeSource={RelativeSource AncestorType={x:Type local:AdminAuthView}}}"
+            Icon="ShieldKeyhole24" />
+
+        <!--  Fixed status band under the title: single home = AstStatusBand (reserved height => no reflow). Binds this screen's IStatusBanner aggregate (StatusMessage/Severity).  -->
+        <controls:AstStatusBand
+            Grid.Row="1"
+            Message="{Binding StatusMessage}"
+            Severity="{Binding Severity}" />
+
+        <!--  TOP region (* row): two equal cards (1* | 32 gutter | 1*). Rescuer grid star-fills its card. Small top gap so the cards' top sits just BELOW the RED menu line (not overlapping it); F5-tunable.  -->
+        <Grid Grid.Row="2" Margin="0,6,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="32" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!--  ① Xác thực khóa (root DataContext = AdminAuthViewModel); content top-aligned in the stretched card.  -->
+            <Border Grid.Column="0" Style="{StaticResource AstCard}">
+                <!--  Per-region overflow fallback (layout stability): the form scrolls INSIDE the card only when the card is shorter than its content (small/scaled screens); the whole page never scrolls, and the Auto scrollbar stays hidden at normal sizes.  -->
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <StackPanel VerticalAlignment="Top">
+                        <controls:AstSectionHeader Icon="Key24" Text="Xác thực khóa" />
+
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="Khóa bí mật" />
+                        <!--  Key path with a FolderOpen24 inline icon button (no border/hover block) placed inside the field. Right margin leaves a gutter so the card's per-region overlay scrollbar (small screens) does not sit over the field's right edge.  -->
+                        <Grid Margin="0,0,16,0" IsEnabled="{Binding IsAuthenticated, Converter={StaticResource InverseBool}}">
+                            <ui:TextBox
+                                Padding="10,5,44,5"
+                                ClearButtonEnabled="False"
+                                IsReadOnly="True"
+                                PlaceholderText="Chưa chọn khóa"
+                                Text="{Binding KeyFilePath, Mode=OneWay}" />
+                            <ui:Button
+                                Width="34"
+                                Height="30"
+                                Margin="0,0,4,0"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                Command="{Binding BrowseKeyCommand}"
+                                Style="{StaticResource AstInlineIconButton}">
+                                <ui:Button.Icon>
+                                    <ui:SymbolIcon Symbol="FolderOpen24" />
+                                </ui:Button.Icon>
+                            </ui:Button>
+                        </Grid>
+
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="Cụm mật khẩu" />
+                        <controls:AstPasswordBox
+                            Margin="0,0,16,0"
+                            IsEnabled="{Binding IsAuthenticated, Converter={StaticResource InverseBool}}"
+                            Password="{Binding Passphrase, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            Style="{StaticResource AstPasswordBox}" />
+
+                        <!--  WrapPanel so the buttons wrap instead of clipping past the card edge at min window width.  -->
+                        <WrapPanel Margin="0,20,0,0" Orientation="Horizontal">
+                            <ui:Button
+                                Margin="0,0,8,8"
+                                Appearance="Primary"
+                                Command="{Binding AuthenticateCommand}"
+                                Content="Xác thực"
+                                IsEnabled="{Binding IsAuthenticated, Converter={StaticResource InverseBool}}">
+                                <ui:Button.Icon>
+                                    <ui:SymbolIcon Symbol="Key24" />
+                                </ui:Button.Icon>
+                            </ui:Button>
+                            <ui:Button
+                                Margin="0,0,8,8"
+                                Command="{Binding ClearFormCommand}"
+                                Content="Xóa form">
+                                <ui:Button.Icon>
+                                    <ui:SymbolIcon Symbol="Dismiss24" />
+                                </ui:Button.Icon>
+                            </ui:Button>
+                            <ui:Button
+                                Margin="0,0,8,8"
+                                Command="{Binding EndSessionCommand}"
+                                Content="Xóa phiên">
+                                <ui:Button.Icon>
+                                    <ui:SymbolIcon Symbol="SignOut24" />
+                                </ui:Button.Icon>
+                            </ui:Button>
+                            <ui:Button
+                                Margin="0,0,8,8"
+                                Command="{Binding SkipDebugCommand}"
+                                Content="Bỏ qua (Debug)"
+                                Visibility="{Binding CanSkipDebug, Converter={StaticResource BoolToVisibility}}">
+                                <ui:Button.Icon>
+                                    <ui:SymbolIcon Symbol="Bug24" />
+                                </ui:Button.Icon>
+                            </ui:Button>
+                        </WrapPanel>
+
+                        <Border MinHeight="48" Margin="0,8,0,0">
+                            <StackPanel Visibility="{Binding AuthenticatedKeyInfo, Converter={StaticResource NullOrEmptyToVisibility}}">
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Khóa đã xác thực" />
+                                <StackPanel Orientation="Horizontal">
+                                    <ui:SymbolIcon
+                                        VerticalAlignment="Center"
+                                        Foreground="{DynamicResource AstSuccessBrush}"
+                                        Symbol="CheckmarkCircle24" />
+                                    <TextBlock
+                                        Margin="8,0,0,0"
+                                        VerticalAlignment="Center"
+                                        Foreground="{DynamicResource AstSuccessBrush}"
+                                        Style="{StaticResource AstBodySmallText}"
+                                        Text="{Binding AuthenticatedKeyInfo}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!--  ② Quản lý người cứu hộ (DataContext = BreakGlass): table hugs content on the left, add-form at its right edge.  -->
+            <Border
+                Grid.Column="2"
+                DataContext="{Binding BreakGlass}"
+                Style="{StaticResource AstCard}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <controls:AstSectionHeader
+                        Grid.Row="0"
+                        Icon="People24"
+                        Text="Quản lý người cứu hộ" />
+
+                    <!--  Table hugs its content (all Auto columns, no star, HAlign=Left); add-form sits at the table's right edge with a small gap.  -->
+                    <Grid Grid.Row="1" Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <!--  Table column: * capped at 400 (384 columns + 16 always-on vertical scrollbar); narrower than that, the grid scrolls horizontally inside itself instead of moving the add-form.  -->
+                            <ColumnDefinition Width="*" MaxWidth="400" />
+                            <ColumnDefinition Width="20" />
+                            <!--  Add-form column: Auto = the form's fixed 260px.  -->
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <!--  Fixed columns (200+140+44=384) + 16 always-on vertical scrollbar = 400 natural width. The * column (MaxWidth 400) drives width; HAlign=Stretch (overriding AstDataGrid Left) makes it shrink + scroll horizontally when narrow, and adding rows never resizes it. Column widths F5-tunable; keep the column MaxWidth = their sum + 16.  -->
+                        <DataGrid
+                            x:Name="AdminsGrid"
+                            Grid.Column="0"
+                            HorizontalAlignment="Stretch"
+                            ItemsSource="{Binding Admins}"
+                            ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                            Style="{StaticResource AstDataGrid}">
+                            <!--  Content widths (F5-tunable): User 200 fits the 25-char max Windows username, date 140.  -->
+                            <DataGrid.Columns>
+                                <DataGridTextColumn
+                                    Width="200"
+                                    Binding="{Binding User}"
+                                    Header="User" />
+                                <DataGridTextColumn
+                                    Width="140"
+                                    Binding="{Binding CreatedDisplay}"
+                                    Header="Ngày tạo" />
+                                <DataGridTemplateColumn Width="44">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <ui:Button
+                                                Width="34"
+                                                Height="30"
+                                                HorizontalAlignment="Center"
+                                                Command="{Binding DataContext.RemoveCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding User}"
+                                                Style="{StaticResource AstInlineIconButton}">
+                                                <ui:Button.Icon>
+                                                    <ui:SymbolIcon Symbol="Delete24" />
+                                                </ui:Button.Icon>
+                                            </ui:Button>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <StackPanel
+                            Grid.Column="2"
+                            Width="260"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Top">
+                            <TextBlock Style="{StaticResource FieldLabel}" Text="Tên đăng nhập Windows" />
+                            <ui:TextBox
+                                Margin="0,4,0,0"
+                                IsEnabled="{Binding IsAuthenticated}"
+                                Text="{Binding NewAdmin, UpdateSourceTrigger=PropertyChanged}" />
+                            <!--  Two equal-width buttons (Ký = Thêm) via a 1:1 grid.  -->
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <ui:Button
+                                    Grid.Column="0"
+                                    HorizontalAlignment="Stretch"
+                                    Command="{Binding AddCommand}"
+                                    Content="Thêm"
+                                    IsEnabled="{Binding IsAuthenticated}">
+                                    <ui:Button.Icon>
+                                        <ui:SymbolIcon Symbol="Add24" />
+                                    </ui:Button.Icon>
+                                </ui:Button>
+                                <ui:Button
+                                    Grid.Column="1"
+                                    Margin="8,0,0,0"
+                                    HorizontalAlignment="Stretch"
+                                    Appearance="Primary"
+                                    Command="{Binding SaveCommand}"
+                                    Content="Ký">
+                                    <ui:Button.Icon>
+                                        <ui:SymbolIcon Symbol="Signature24" />
+                                    </ui:Button.Icon>
+                                </ui:Button>
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!--  ③ Lịch sử thay đổi (* row, DataContext = History): table fills the left, compact path/verify on the right.  -->
+        <Border
+            Grid.Row="3"
+            Margin="0,24,0,0"
+            DataContext="{Binding History}"
+            Style="{StaticResource AstCard}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <controls:AstSectionHeader
+                    Grid.Row="0"
+                    Icon="History24"
+                    Text="Lịch sử thay đổi" />
+
+                <Grid Grid.Row="1" Margin="0,12,0,0">
+                    <Grid.ColumnDefinitions>
+                        <!--  Table column: * so it fills available width, capped at 936 (920 columns + 16 always-on vertical scrollbar) so it never grows past its natural width on wide monitors; below 936 the DataGrid scrolls horizontally inside itself (Approach A) instead of clipping/moving the panel.  -->
+                        <ColumnDefinition Width="*" MaxWidth="936" />
+                        <ColumnDefinition Width="16" />
+                        <!--  Panel column: Auto = the panel's fixed 240px, so it stays put regardless of table state.  -->
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <!--  Fixed columns (140+160+140+160+200+120=920) + 16 always-on vertical scrollbar = 936 natural width. No hard Width: the * column (MaxWidth 936) drives width, HAlign=Stretch fills it (overriding the AstDataGrid Left) so the grid shrinks + shows a horizontal scrollbar when the window is narrow, and adding rows never changes the width (no reflow). Column widths F5-tunable; keep the column MaxWidth = their sum + 16 when tuning.  -->
+                    <DataGrid
+                        x:Name="HistoryGrid"
+                        Grid.Column="0"
+                        HorizontalAlignment="Stretch"
+                        ItemsSource="{Binding Rows}"
+                        ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                        Style="{StaticResource AstDataGrid}">
+                        <!--  Content widths (F5-tunable): dates 140, Đối tượng 140, actor 160, User 200 (25-char max username); Thao tác 160 fits the longest label "Lỗi xác minh chữ ký" (19 chars) so its gap to User matches the others; status 120.  -->
+                        <DataGrid.Columns>
+                            <DataGridTextColumn
+                                Width="140"
+                                Binding="{Binding TimeLocal}"
+                                Header="Thời gian" />
+                            <DataGridTextColumn
+                                Width="160"
+                                Binding="{Binding Actor}"
+                                Header="Người thực hiện" />
+                            <DataGridTextColumn
+                                Width="140"
+                                Binding="{Binding Target}"
+                                Header="Đối tượng" />
+                            <DataGridTextColumn
+                                Width="160"
+                                Binding="{Binding Operation}"
+                                Header="Thao tác" />
+                            <DataGridTextColumn
+                                Width="200"
+                                Binding="{Binding User}"
+                                Header="User" />
+                            <!--  Same DataGridTextColumn header/cell chrome as the others (no stock HeaderStyle override) so it is not visually "classic".  -->
+                            <DataGridTemplateColumn Width="120" Header="Trạng thái ký">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <ui:SymbolIcon HorizontalAlignment="Left" Symbol="{Binding Signed, Converter={StaticResource BoolToLockSymbol}}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <StackPanel
+                        Grid.Column="2"
+                        Width="320"
+                        VerticalAlignment="Top">
+                        <TextBlock
+                            Margin="0,8,0,4"
+                            Style="{StaticResource FieldLabel}"
+                            Text="Đường dẫn tệp" />
+                        <!--  Decorative folder icon (Column 0) + selectable label-look path (Column 1) — same shape as the connection screen's save-path field. Path is a read-only AstSelectableValueText (no Fluent chrome), single-line, overflow hidden; user selects/drags to reveal a long path.  -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <ui:SymbolIcon
+                                Grid.Column="0"
+                                VerticalAlignment="Center"
+                                Foreground="{DynamicResource AstTextPrimaryBrush}"
+                                Symbol="FolderOpen24" />
+                            <TextBox
+                                Grid.Column="1"
+                                Margin="8,0,0,0"
+                                VerticalAlignment="Center"
+                                Foreground="{DynamicResource AstTextPrimaryBrush}"
+                                Style="{StaticResource AstSelectableValueText}"
+                                Text="{Binding DataContext.BreakGlass.FilePath, RelativeSource={RelativeSource AncestorType=UserControl}, Mode=OneWay}" />
+                        </Grid>
+                        <StackPanel Style="{StaticResource AstActionBar}">
+                            <ui:Button Command="{Binding VerifyCommand}" Content="Kiểm tra chữ ký">
+                                <ui:Button.Icon>
+                                    <ui:SymbolIcon Symbol="Certificate24" />
+                                </ui:Button.Icon>
+                            </ui:Button>
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</views:DeclarationFormView>

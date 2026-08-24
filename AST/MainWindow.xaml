@@ -1,0 +1,187 @@
+﻿<ui:FluentWindow
+    x:Class="AST.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:prism="http://prismlibrary.com/"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="AST"
+    Width="1360"
+    Height="860"
+    MinWidth="1280"
+    MinHeight="720"
+    prism:ViewModelLocator.AutoWireViewModel="True"
+    ExtendsContentIntoTitleBar="True"
+    Loaded="OnLoaded"
+    WindowBackdropType="None"
+    WindowState="Maximized">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <!--
+                Row0 grown from Auto (~32px, just the OS caption strip) to an explicit height so a band opens BELOW
+                the min/max/close buttons, giving room to position the "AST" title within it (chrome only,
+                rule-module-boundary §1c). 64px is F5-tunable.
+            -->
+            <RowDefinition Height="64" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!--
+            Title-bar band. ui:TitleBar is top-aligned so the OS caption strip (min/max/close at right) keeps its
+            natural ~32px height at the TOP of the taller Row0. "AST" is hosted in TitleBar.Header (the left content
+            region, an interactive area) so its left edge can be pinned with an exact Margin.
+            
+            AST IS THE HOME AFFORDANCE (there is no separate Home button): clicking it navigates the content region to
+            Dashboard, and it turns bold + brand red while Dashboard is the shown screen (SetAstActive, code-behind).
+            Chrome only (rule-module-boundary §1c): it drives content navigation through the shell's own NavigateCommand,
+            never shell navigation authority. FontSize (size), Margin left (left/right), and VerticalAlignment / Margin
+            top (up/down) are all F5-tunable.
+        -->
+        <Grid Grid.Row="0">
+            <ui:TitleBar VerticalAlignment="Top">
+                <ui:TitleBar.Header>
+                    <TextBlock
+                        x:Name="AstTitleText"
+                        Margin="8,0,0,0"
+                        VerticalAlignment="Bottom"
+                        Cursor="Hand"
+                        FontSize="22"
+                        MouseLeftButtonUp="OnAstClicked"
+                        Text="AST" />
+                </ui:TitleBar.Header>
+            </ui:TitleBar>
+        </Grid>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!--
+                NavigationView is the menu chrome only (no TargetPageType): its MenuItems/FooterMenuItems are built
+                in code-behind (OnLoaded) from MainWindowViewModel's SidebarNode trees, and each leaf raises
+                NavigateCommand, which Prism-navigates the ContentRegion below (rule-module-boundary §1c).
+            -->
+            <ui:NavigationView
+                x:Name="RootNavigation"
+                Grid.Column="0"
+                HorizontalAlignment="Left"
+                CompactPaneLength="48"
+                IsBackButtonVisible="Collapsed"
+                IsPaneOpen="False"
+                IsPaneToggleVisible="False"
+                OpenPaneLength="260"
+                PaneDisplayMode="Left">
+                <!--
+                    Pane header (constant 48px height in both states so the first menu item never shifts vertically
+                    when the pane opens/closes). Two columns: a left star column holds the user area (icon + label,
+                    hidden while the rail is collapsed), and a fixed 48px right column holds our own pane-toggle button
+                    (the built-in toggle is hidden via IsPaneToggleVisible="False"). When collapsed the star column is
+                    empty so the 48px toggle cell fills the rail — its glyph is left-aligned onto the menu-icon line
+                    (~19px, matching the items below); when open the toggle sits at the right edge. The toggle drives
+                    IsPaneOpen from code-behind (chrome only,
+                    rule-module-boundary §1c). A real account panel is plugged into the user area later.
+                -->
+                <ui:NavigationView.PaneHeader>
+                    <Grid Height="48">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="48" />
+                        </Grid.ColumnDefinitions>
+                        <!--
+                            User area: icon + label laid out on the SAME horizontal geometry as the menu items below
+                            (icon centred in a 40px column with Margin -1 → glyph centre ~19px; label starts at 40px),
+                            so the header lines up with the list when the pane is open. Hidden while collapsed.
+                        -->
+                        <StackPanel
+                            Grid.Column="0"
+                            VerticalAlignment="Center"
+                            Orientation="Horizontal"
+                            Visibility="{Binding IsPaneOpen, ElementName=RootNavigation, Converter={StaticResource BoolToVisibility}}">
+                            <Grid Width="40">
+                                <ui:SymbolIcon
+                                    Margin="-1,0,0,0"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    FontSize="16"
+                                    Foreground="{DynamicResource AstTextSecondaryBrush}"
+                                    Symbol="PersonCircle24" />
+                            </Grid>
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Foreground="{DynamicResource AstTextSecondaryBrush}"
+                                Style="{StaticResource AstBodySmallText}"
+                                Text="Người dùng" />
+                        </StackPanel>
+                        <ui:Button
+                            x:Name="PaneToggleButton"
+                            Grid.Column="1"
+                            Width="48"
+                            Height="48"
+                            Padding="0"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            HorizontalContentAlignment="Left"
+                            Appearance="Transparent"
+                            BorderBrush="Transparent"
+                            BorderThickness="0"
+                            Click="OnPaneToggleClicked"
+                            Cursor="Hand">
+                            <!--
+                                Mirror the nav item's icon column (40px wide, icon centred with Margin -1) so the
+                                collapsed toggle glyph lands on the same vertical line as the menu icons below it
+                                (their centre sits at ~19px, not the 24px centre of the 48px cell).
+                            -->
+                            <Grid Width="40">
+                                <ui:SymbolIcon
+                                    Margin="-1,0,0,0"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Symbol="Navigation24" />
+                            </Grid>
+                        </ui:Button>
+                    </Grid>
+                </ui:NavigationView.PaneHeader>
+            </ui:NavigationView>
+
+            <!--
+                Content column: the Prism ContentRegion fills the whole column now that the Home quick-action moved
+                up into the title bar (rule-module-boundary §1c). Its top sits on the same line as the sidebar
+                pane-toggle top, so every screen reclaims the old 48px action strip.
+            -->
+            <ContentControl Grid.Column="1" prism:RegionManager.RegionName="ContentRegion" />
+        </Grid>
+
+        <!--
+            Status bar (footer): a single connection-state dot, no text/clock. Fill by StartupMode
+            (green = Connected, red = NotConnected; an amber "connecting" state is reserved for later
+            when connection polling exists). Per-screen status lives on each screen, not a global banner.
+        -->
+        <Border
+            Grid.Row="2"
+            Height="28"
+            Padding="16,0"
+            Background="{StaticResource AstSurfaceBrush}"
+            BorderBrush="{StaticResource AstOutlineBrush}"
+            BorderThickness="0,1,0,0">
+            <Ellipse
+                Width="10"
+                Height="10"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                Fill="{Binding Startup.Mode, Converter={StaticResource StartupModeToBrush}}" />
+        </Border>
+
+        <!--
+            Fluent dialog host: the modal overlay that ContentDialog renders into, spanning the whole window
+            so the mask dims every band. Visual chrome only (rule-module-boundary §1c) — it is NOT a Prism
+            region and never hosts business content; ContentRegion above stays the single content-navigation
+            authority. Declared last so it paints over the other rows; while no dialog is shown the default
+            style collapses it and turns off hit-testing, so it cannot swallow clicks. Wired to
+            IContentDialogService in code-behind (SetDialogHost).
+        -->
+        <ui:ContentDialogHost x:Name="RootDialogHost" Grid.RowSpan="3" />
+    </Grid>
+</ui:FluentWindow>

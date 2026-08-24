@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- Hosts the REAL AST.App as the process Application, which is a per-process thread-affine
+         singleton. It therefore cannot share a process with AST.App.Tests, whose OffscreenHost owns
+         that singleton as a plain Application with a hand-maintained replica of App.xaml's merge.
+         Separate project = separate test host process = one owner, no ordering rule to remember. -->
+    <UseWPF>true</UseWPF>
+    <!-- xUnit v3 test projects are executables, not libraries (they host their own runner). -->
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="FluentAssertions" Version="7.2.2" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AST\AST.csproj" />
+  </ItemGroup>
+</Project>

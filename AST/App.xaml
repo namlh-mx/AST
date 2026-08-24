@@ -1,0 +1,43 @@
+﻿<prism:PrismApplication
+    x:Class="AST.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:conv="clr-namespace:AST.Converters;assembly=AST.UI"
+    xmlns:prism="http://prismlibrary.com/"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!--
+                    Flat app-global merge (tokens before the styles that consume them; WpfUiOverrides LAST so its
+                    retints win). The AST design-system dictionaries live in the AST.UI shared library; every module
+                    UI renders inside this window and inherits these app-global resources. Two hard WPF-UI constraints
+                    forbid wrapping this in a single nested "hub" dictionary: (1) ApplicationThemeManager /
+                    ApplicationAccentColorManager.Apply (App.xaml.cs, brand accent) locate the ThemesDictionary among
+                    Application.Resources.MergedDictionaries — nesting it hides it and the runtime accent silently
+                    no-ops; (2) a nested Controls.xaml cannot resolve its {x:Type ui:Button} BasedOn against a WPF-UI
+                    dictionary outside the nesting, and duplicating ui:ControlsDictionary to work around that regresses
+                    the FluentWindow chrome (maximize covered the taskbar). Keep this list flat and in this order.
+                -->
+                <ui:ThemesDictionary Theme="Light" />
+                <ui:ControlsDictionary />
+                <ResourceDictionary Source="pack://application:,,,/AST.UI;component/Resources/DesignSystem/Palette.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/AST.UI;component/Resources/DesignSystem/Typography.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/AST.UI;component/Resources/DesignSystem/Spacing.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/AST.UI;component/Resources/DesignSystem/Controls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/AST.UI;component/Resources/DesignSystem/WpfUiOverrides.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <conv:StartupModeToBrushConverter x:Key="StartupModeToBrush" />
+            <conv:StatusSeverityToBrushConverter x:Key="StatusSeverityToBrush" />
+            <conv:StatusSeverityToSymbolConverter x:Key="StatusToSymbol" />
+            <conv:BoolToLockSymbolConverter x:Key="BoolToLockSymbol" />
+            <conv:InverseBooleanConverter x:Key="InverseBool" />
+            <conv:NullOrEmptyToVisibilityConverter x:Key="NullOrEmptyToVisibility" />
+            <conv:UtcIsoToLocalStringConverter x:Key="UtcIsoToLocalString" />
+            <conv:VersionStatusToTextConverter x:Key="VersionStatusToText" />
+            <conv:VersionStatusToBrushConverter x:Key="VersionStatusToBrush" />
+            <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        </ResourceDictionary>
+    </Application.Resources>
+</prism:PrismApplication>

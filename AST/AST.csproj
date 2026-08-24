@@ -1,0 +1,61 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\AST.Core\AST.Core.csproj" />
+    <ProjectReference Include="..\AST.Infrastructure\AST.Infrastructure.csproj" />
+    <!-- rule-module-boundary §1b (plug-in mechanism, Task X): build-only reference, triggers the module to
+         build (so its DLL exists to stage into Modules/, see the CopyIamModule* targets below) but is NOT linked
+         into this assembly's compilation (no `using AST.Modules.IAM` anywhere in AST; DirectoryModuleCatalog
+         discovers it from Modules/ at runtime instead, see App.xaml.cs CreateModuleCatalog()). -->
+    <ProjectReference Include="..\AST.Modules.IAM\AST.Modules.IAM.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\AST.Shell\AST.Shell.csproj" />
+    <ProjectReference Include="..\AST.UI\AST.UI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Xaml.Behaviors.Wpf" Version="1.1.135" />
+    <PackageReference Include="Prism.DryIoc" Version="9.0.537" />
+    <PackageReference Include="Serilog" Version="4.3.1" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Keep the shell's chrome helpers (NavigationMenuBuilder) internal while the headless tests can still
+         call them directly: the same arrangement AST.UI and AST.Infrastructure already use for their tests. -->
+    <InternalsVisibleTo Include="AST.App.Tests" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <!-- AST.Modules.IAM.csproj targets net10.0 (not -windows, it is a headless business module); keep this
+       literal in sync with that project's TargetFramework if it ever changes. -->
+  <PropertyGroup>
+    <IamModuleOutputDir>$(MSBuildThisFileDirectory)..\AST.Modules.IAM\bin\$(Configuration)\net10.0\</IamModuleOutputDir>
+  </PropertyGroup>
+
+  <!-- Stages AST.Modules.IAM's own build output (the module DLL + its transitive package deps, e.g. Dapper,
+       MySqlConnector) into Modules/ next to this exe, so DirectoryModuleCatalog finds it at runtime. Runs for
+       both plain Build (F5) and Publish: the referenced project already builds first via normal project-build
+       ordering (ReferenceOutputAssembly="false" only drops the compile-time link, not the build-order edge). -->
+  <Target Name="CopyIamModuleToBuildOutput" AfterTargets="Build">
+    <ItemGroup>
+      <IamModuleFiles Include="$(IamModuleOutputDir)**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(IamModuleFiles)" DestinationFolder="$(OutDir)Modules\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyIamModuleToPublishOutput" AfterTargets="Publish">
+    <ItemGroup>
+      <IamModuleFiles Include="$(IamModuleOutputDir)**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(IamModuleFiles)" DestinationFolder="$(PublishDir)Modules\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

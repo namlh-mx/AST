@@ -1,0 +1,382 @@
+﻿<!--  Root is DeclarationFormView, not UserControl: that is what brings the standard leave-confirm + form wipe.  -->
+<views:DeclarationFormView
+    x:Class="AST.Views.Platform.ConnectionDeclarationView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:AST.Controls;assembly=AST.UI"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    xmlns:local="clr-namespace:AST.Views.Platform"
+    xmlns:views="clr-namespace:AST.Views"
+    Loaded="OnLoaded">
+
+
+    <!--  Standard screen frame (header · status band · body) = AstScreen; frame margins/rows owned by the control. This is a drill-in screen: the header is the Back affordance when BackCommand is set — AstScreen forwards it to AstScreenHeader, which never navigates itself (the view keeps Prism authority, §1c).  -->
+    <controls:AstScreen
+        Title="Cấu hình kết nối cơ sở dữ liệu"
+        BackCommand="{Binding BackCommand, RelativeSource={RelativeSource AncestorType={x:Type local:ConnectionDeclarationView}}}"
+        Icon="Database24"
+        Message="{Binding StatusMessage}"
+        Severity="{Binding Severity}"
+        Style="{StaticResource AstScreen}">
+
+        <!--  Workstation  -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="32" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!--  Card A  -->
+            <Border Grid.Column="0" Style="{StaticResource AstCard}">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <StackPanel VerticalAlignment="Top">
+                        <controls:AstSectionHeader Icon="PlugConnected24" Text="Thông tin kết nối" />
+
+                        <Border
+                            Margin="0,12,0,0"
+                            Padding="12"
+                            BorderBrush="{DynamicResource AstOutlineBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon
+                                    Margin="0,0,12,0"
+                                    VerticalAlignment="Center"
+                                    FontSize="20"
+                                    Symbol="CloudDismiss24" />
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock
+                                        FontWeight="Bold"
+                                        Style="{StaticResource AstBodySmallText}"
+                                        Text="Không có kết nối" />
+                                    <TextBlock
+                                        Margin="0,4,0,0"
+                                        Foreground="{DynamicResource AstTextSecondaryBrush}"
+                                        Style="{StaticResource AstBodySmallText}"
+                                        Text="Vui lòng kiểm tra thông tin cấu hình" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!--  Host | Port — same 1*|16|1* as User | Password  -->
+                        <Grid Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <controls:AstField
+                                Grid.Column="0"
+                                Label="Địa chỉ máy chủ"
+                                Style="{StaticResource AstField}">
+                                <ui:TextBox Text="{Binding Host, UpdateSourceTrigger=PropertyChanged}" />
+                            </controls:AstField>
+                            <controls:AstField
+                                Grid.Column="2"
+                                Label="Cổng"
+                                Style="{StaticResource AstField}">
+                                <ui:TextBox Text="{Binding Port, UpdateSourceTrigger=PropertyChanged}" />
+                            </controls:AstField>
+                        </Grid>
+
+                        <controls:AstField Label="Tên cơ sở dữ liệu" Style="{StaticResource AstField}">
+                            <ui:TextBox Text="{Binding Database, UpdateSourceTrigger=PropertyChanged}" />
+                        </controls:AstField>
+
+                        <!--  User | Password — same column recipe; RevealButton = project PasswordBox pattern (AdminAuth)  -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <controls:AstField
+                                Grid.Column="0"
+                                Label="Tên đăng nhập"
+                                Style="{StaticResource AstField}">
+                                <ui:TextBox Text="{Binding User, UpdateSourceTrigger=PropertyChanged}" />
+                            </controls:AstField>
+                            <controls:AstField
+                                Grid.Column="2"
+                                Label="Mật khẩu"
+                                Style="{StaticResource AstField}">
+                                <controls:AstPasswordBox Password="{Binding Password, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource AstPasswordBox}" />
+                            </controls:AstField>
+                        </Grid>
+
+                        <!--
+                            Equal button widths = max content width (SharedSizeGroup), group centered in the card.
+                            Do NOT stretch buttons across the full card width.
+                        -->
+                        <StackPanel
+                            Margin="0,20,0,0"
+                            HorizontalAlignment="Center"
+                            Grid.IsSharedSizeScope="True"
+                            Orientation="Horizontal">
+                            <Grid Margin="0,0,8,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="ConnFormActions" />
+                                </Grid.ColumnDefinitions>
+                                <ui:Button
+                                    HorizontalAlignment="Stretch"
+                                    Command="{Binding ClearCommand}"
+                                    Content="Xóa">
+                                    <ui:Button.Icon>
+                                        <ui:SymbolIcon Symbol="Eraser24" />
+                                    </ui:Button.Icon>
+                                </ui:Button>
+                            </Grid>
+                            <Grid Margin="0,0,8,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="ConnFormActions" />
+                                </Grid.ColumnDefinitions>
+                                <ui:Button
+                                    HorizontalAlignment="Stretch"
+                                    Command="{Binding TestCommand}"
+                                    Content="Kiểm tra">
+                                    <ui:Button.Icon>
+                                        <ui:SymbolIcon Symbol="Flash24" />
+                                    </ui:Button.Icon>
+                                </ui:Button>
+                            </Grid>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="ConnFormActions" />
+                                </Grid.ColumnDefinitions>
+                                <ui:Button
+                                    HorizontalAlignment="Stretch"
+                                    Appearance="Primary"
+                                    Command="{Binding SaveCommand}"
+                                    Content="Ký và lưu">
+                                    <ui:Button.Icon>
+                                        <ui:SymbolIcon Symbol="Save24" />
+                                    </ui:Button.Icon>
+                                </ui:Button>
+                            </Grid>
+                        </StackPanel>
+
+                        <TextBlock Style="{StaticResource AstFieldLabel}" Text="Đường dẫn lưu tập tin thông số" />
+                        <!--  Folder icon (Column 0) is a purely decorative pictograph — no click, no command. Path value follows at the right (Column 1). Same shape as the AdminAuth history path field.  -->
+                        <Grid Margin="0,0,16,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <ui:SymbolIcon
+                                Grid.Column="0"
+                                VerticalAlignment="Center"
+                                Foreground="{DynamicResource AstTextSecondaryBrush}"
+                                Symbol="FolderOpen24" />
+                            <TextBox
+                                Grid.Column="1"
+                                Margin="8,0,0,0"
+                                VerticalAlignment="Center"
+                                Foreground="{DynamicResource AstTextSecondaryBrush}"
+                                Style="{StaticResource AstSelectableValueText}"
+                                Text="—" />
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!--  Right: B + C  -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="16" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Style="{StaticResource AstCard}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <controls:AstSectionHeader
+                            Grid.Row="0"
+                            Icon="LinkDismiss24"
+                            Text="Ngắt kết nối" />
+
+                        <TextBlock
+                            Grid.Row="1"
+                            Style="{StaticResource AstFieldLabel}"
+                            Text="Nội dung thông báo" />
+                        <TextBox
+                            Grid.Row="2"
+                            MinHeight="80"
+                            Margin="0,0,0,0"
+                            AcceptsReturn="True"
+                            IsReadOnly="True"
+                            Text=""
+                            TextWrapping="Wrap"
+                            VerticalScrollBarVisibility="Auto" />
+
+                        <Border
+                            Grid.Row="3"
+                            Margin="0,12,0,0"
+                            Padding="12"
+                            BorderBrush="{DynamicResource AstOutlineBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock
+                                        FontWeight="Bold"
+                                        Foreground="{DynamicResource AstPrimaryBrush}"
+                                        Style="{StaticResource AstBodySmallText}"
+                                        Text="Đang thông báo ngắt kết nối" />
+                                    <TextBlock
+                                        Margin="0,4,0,0"
+                                        Foreground="{DynamicResource AstTextSecondaryBrush}"
+                                        Style="{StaticResource AstBodySmallText}"
+                                        Text="Hệ thống sẽ tự động ngắt sau khi hết thời gian chờ" />
+                                </StackPanel>
+                                <StackPanel
+                                    Grid.Column="1"
+                                    VerticalAlignment="Center"
+                                    Orientation="Horizontal">
+                                    <ui:SymbolIcon
+                                        Margin="0,0,6,0"
+                                        FontSize="20"
+                                        Foreground="{DynamicResource AstPrimaryBrush}"
+                                        Symbol="Timer24" />
+                                    <TextBlock
+                                        FontWeight="Bold"
+                                        Foreground="{DynamicResource AstPrimaryBrush}"
+                                        Style="{StaticResource AstBodyLargeText}"
+                                        Text="00:30" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <StackPanel
+                            Grid.Row="4"
+                            Margin="0,12,0,0"
+                            HorizontalAlignment="Center"
+                            Grid.IsSharedSizeScope="True"
+                            Orientation="Horizontal">
+                            <Grid Margin="0,0,8,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="DisconnectActions" />
+                                </Grid.ColumnDefinitions>
+                                <ui:Button
+                                    HorizontalAlignment="Stretch"
+                                    Click="OnPlaceholderClick"
+                                    Content="Hủy yêu cầu">
+                                    <ui:Button.Icon>
+                                        <ui:SymbolIcon Symbol="Dismiss24" />
+                                    </ui:Button.Icon>
+                                </ui:Button>
+                            </Grid>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="DisconnectActions" />
+                                </Grid.ColumnDefinitions>
+                                <ui:Button
+                                    HorizontalAlignment="Stretch"
+                                    Appearance="Primary"
+                                    Click="OnPlaceholderClick"
+                                    Content="Ngắt kết nối">
+                                    <ui:Button.Icon>
+                                        <ui:SymbolIcon Symbol="Power24" />
+                                    </ui:Button.Icon>
+                                </ui:Button>
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="2" Style="{StaticResource AstCard}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <controls:AstSectionHeader
+                            Grid.Row="0"
+                            Icon="History24"
+                            Text="Lịch sử cấu hình" />
+
+                        <DataGrid
+                            Grid.Row="1"
+                            MinHeight="120"
+                            Margin="0,12,0,0"
+                            HorizontalAlignment="Stretch"
+                            CanUserAddRows="False"
+                            ItemsSource="{Binding History}"
+                            Style="{StaticResource AstDataGrid}">
+                            <DataGrid.Columns>
+                                <!--  Fixed so the 16-char dd-MM-yyyy HH:mm string never truncates; the star columns take the slack.  -->
+                                <DataGridTextColumn
+                                    Width="150"
+                                    Header="Thời gian"
+                                    IsReadOnly="True">
+                                    <DataGridTextColumn.Binding>
+                                        <Binding Converter="{StaticResource UtcIsoToLocalString}" Path="TsUtc" />
+                                    </DataGridTextColumn.Binding>
+                                </DataGridTextColumn>
+                                <DataGridTextColumn
+                                    Width="*"
+                                    Header="Người thực hiện"
+                                    IsReadOnly="True">
+                                    <DataGridTextColumn.Binding>
+                                        <MultiBinding StringFormat="{}{0} ({1})">
+                                            <Binding Path="User" />
+                                            <Binding Path="Machine" />
+                                        </MultiBinding>
+                                    </DataGridTextColumn.Binding>
+                                </DataGridTextColumn>
+                                <!--  Widest content (host:port / database) — takes a larger share of the star space.  -->
+                                <DataGridTextColumn
+                                    Width="1.5*"
+                                    Header="Máy chủ"
+                                    IsReadOnly="True">
+                                    <DataGridTextColumn.Binding>
+                                        <MultiBinding StringFormat="{}{0}:{1} / {2}">
+                                            <Binding Path="Host" />
+                                            <Binding Path="Port" />
+                                            <Binding Path="Database" />
+                                        </MultiBinding>
+                                    </DataGridTextColumn.Binding>
+                                </DataGridTextColumn>
+                                <DataGridTextColumn
+                                    Width="*"
+                                    Binding="{Binding DbUser}"
+                                    Header="User"
+                                    IsReadOnly="True" />
+                                <DataGridTemplateColumn Width="Auto" Header="Thao tác">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <ui:Button
+                                                Width="34"
+                                                Height="30"
+                                                HorizontalAlignment="Center"
+                                                Command="{Binding DataContext.ReuseCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding}"
+                                                Style="{StaticResource AstInlineIconButton}">
+                                                <ui:Button.Icon>
+                                                    <ui:SymbolIcon Symbol="ArrowRepeatAll24" />
+                                                </ui:Button.Icon>
+                                            </ui:Button>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+    </controls:AstScreen>
+</views:DeclarationFormView>

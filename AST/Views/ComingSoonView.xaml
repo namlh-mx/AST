@@ -1,0 +1,15 @@
+﻿<UserControl
+    x:Class="AST.Views.ComingSoonView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer Padding="{StaticResource AstPagePadding}" VerticalScrollBarVisibility="Auto">
+        <StackPanel MaxWidth="{StaticResource AstContentMaxWidthText}" HorizontalAlignment="Left">
+            <TextBlock Style="{StaticResource AstPageTitle}" Text="{Binding Title}" />
+            <TextBlock
+                Style="{StaticResource AstPageSubtitle}"
+                Text="Chức năng chờ triển khai."
+                TextWrapping="Wrap" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

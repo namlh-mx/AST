@@ -1,0 +1,383 @@
+<!--  Root is DeclarationFormView: leave-confirm + wipe. Binds RoleDeclarationViewModel.  -->
+<views:DeclarationFormView
+    x:Class="AST.Views.Iam.Role.RoleDeclarationView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:AST.Controls;assembly=AST.UI"
+    xmlns:local="clr-namespace:AST.Views.Iam.Role"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    xmlns:views="clr-namespace:AST.Views"
+    Language="vi-VN">
+
+    <views:DeclarationFormView.Resources>
+        <ResourceDictionary>
+            <Style
+                x:Key="EqualActionButton"
+                BasedOn="{StaticResource {x:Type ui:Button}}"
+                TargetType="ui:Button">
+                <Setter Property="Width" Value="110" />
+                <Setter Property="Margin" Value="0,0,8,0" />
+            </Style>
+            <Style
+                x:Key="EqualHistoryButton"
+                BasedOn="{StaticResource {x:Type ui:Button}}"
+                TargetType="ui:Button">
+                <Setter Property="Width" Value="128" />
+                <Setter Property="MinWidth" Value="128" />
+                <Setter Property="MaxWidth" Value="128" />
+                <Setter Property="Margin" Value="0,0,12,0" />
+                <Setter Property="Appearance" Value="Secondary" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+            </Style>
+        </ResourceDictionary>
+    </views:DeclarationFormView.Resources>
+
+    <controls:AstScreen
+        Icon="PersonLock24"
+        Message="{Binding StatusMessage}"
+        Severity="{Binding Severity}"
+        Style="{StaticResource AstScreen}"
+        Title="Khai báo vai trò">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="16" />
+                <!--  B3: MinHeight keeps history usable at 1280×720 when the declaration card grows.  -->
+                <RowDefinition Height="*" MinHeight="180" />
+            </Grid.RowDefinitions>
+
+            <!--  (1) Declaration card — ScrollViewer so the action bar stays reachable with populated grids (B3).  -->
+            <Border Grid.Row="0" Style="{StaticResource AstCard}">
+                <ScrollViewer
+                    HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <controls:AstSectionHeader
+                            Grid.Column="0"
+                            Icon="DocumentEdit24"
+                            Text="Khai báo thông tin" />
+                        <controls:AstVersionStatus
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Status="{Binding Status}"
+                            Style="{StaticResource AstVersionStatus}" />
+                    </Grid>
+
+                    <StackPanel Margin="0,12,0,0">
+                        <TextBlock
+                            Margin="0,0,0,8"
+                            Style="{StaticResource AstInlineFieldLabel}"
+                            Text="{Binding EffectivePeriodText}"
+                            Visibility="{Binding EffectivePeriodText, Converter={StaticResource NullOrEmptyToVisibility}}" />
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <controls:AstField
+                                Grid.Column="0"
+                                Label="Mã vai trò"
+                                Style="{StaticResource AstField}">
+                                <ui:TextBox Text="{Binding RoleCode, UpdateSourceTrigger=PropertyChanged}">
+                                    <ui:TextBox.Style>
+                                        <Style BasedOn="{StaticResource {x:Type ui:TextBox}}" TargetType="ui:TextBox">
+                                            <Setter Property="IsEnabled" Value="False" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Mode}" Value="Adding">
+                                                    <Setter Property="IsEnabled" Value="True" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Mode}" Value="Editing">
+                                                    <Setter Property="IsEnabled" Value="True" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ui:TextBox.Style>
+                                </ui:TextBox>
+                            </controls:AstField>
+                            <controls:AstField
+                                Grid.Column="2"
+                                Label="Tên vai trò"
+                                Style="{StaticResource AstField}">
+                                <ui:TextBox Text="{Binding RoleName, UpdateSourceTrigger=PropertyChanged}">
+                                    <ui:TextBox.Style>
+                                        <Style BasedOn="{StaticResource {x:Type ui:TextBox}}" TargetType="ui:TextBox">
+                                            <Setter Property="IsEnabled" Value="False" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Mode}" Value="Adding">
+                                                    <Setter Property="IsEnabled" Value="True" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Mode}" Value="Editing">
+                                                    <Setter Property="IsEnabled" Value="True" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ui:TextBox.Style>
+                                </ui:TextBox>
+                            </controls:AstField>
+                        </Grid>
+
+                        <CheckBox
+                            Margin="0,12,0,0"
+                            Content="Vai trò quản trị (admin flag)"
+                            IsChecked="{Binding IsAdminRole, Mode=TwoWay}"
+                            IsEnabled="{Binding IsAdminFlagEditable}" />
+
+                        <controls:AstSectionHeader
+                            Margin="0,16,0,8"
+                            Icon="ShieldLock24"
+                            Text="Quyền hiện hành" />
+                        <Grid>
+                        <DataGrid
+                            MaxHeight="160"
+                            AutoGenerateColumns="False"
+                            CanUserAddRows="False"
+                            ItemsSource="{Binding EffectiveGrants}"
+                            Style="{StaticResource AstDataGrid}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn
+                                    Width="*"
+                                    Binding="{Binding FunctionKey}"
+                                    Header="Chức năng"
+                                    IsReadOnly="True" />
+                                <DataGridTextColumn
+                                    Width="160"
+                                    Binding="{Binding ScopeText}"
+                                    Header="Phạm vi"
+                                    IsReadOnly="True" />
+                                <DataGridTemplateColumn Width="80" Header="">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <ui:Button
+                                                Appearance="Secondary"
+                                                Command="{Binding DataContext.RemoveEffectiveGrantCommand, RelativeSource={RelativeSource AncestorType={x:Type local:RoleDeclarationView}}}"
+                                                CommandParameter="{Binding}"
+                                                Content="Thu hồi" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <Border
+                            Background="{DynamicResource AstSurfaceCardBrush}"
+                            Visibility="{Binding GrantsGridOverlayText, Converter={StaticResource NullOrEmptyToVisibility}}">
+                            <TextBlock
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Text="{Binding GrantsGridOverlayText}" />
+                        </Border>
+                        </Grid>
+
+                        <controls:AstSectionHeader
+                            Margin="0,16,0,8"
+                            Icon="Add24"
+                            Text="Thêm quyền (nháp)" />
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox
+                                Grid.Column="0"
+                                DisplayMemberPath="DisplayName"
+                                IsEnabled="{Binding CanMutateGrants}"
+                                ItemsSource="{Binding FunctionPickerItems}"
+                                SelectedItem="{Binding SelectedFunctionToAdd, Mode=TwoWay}" />
+                            <ComboBox
+                                Grid.Column="2"
+                                IsEnabled="{Binding CanMutateGrants}"
+                                ItemsSource="{Binding ScopeChoices}"
+                                SelectedItem="{Binding SelectedScopeToAdd, Mode=TwoWay}" />
+                            <ui:Button
+                                Grid.Column="4"
+                                Command="{Binding AddGrantCommand}"
+                                Content="Thêm dòng"
+                                Style="{StaticResource EqualActionButton}" />
+                        </Grid>
+                        <DataGrid
+                            MaxHeight="120"
+                            AutoGenerateColumns="False"
+                            CanUserAddRows="False"
+                            ItemsSource="{Binding DraftGrants}"
+                            Style="{StaticResource AstDataGrid}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn
+                                    Width="*"
+                                    Binding="{Binding FunctionKey}"
+                                    Header="Chức năng"
+                                    IsReadOnly="True" />
+                                <DataGridTextColumn
+                                    Width="160"
+                                    Binding="{Binding ScopeText}"
+                                    Header="Phạm vi"
+                                    IsReadOnly="True" />
+                                <DataGridTemplateColumn Width="80" Header="">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <ui:Button
+                                                Appearance="Secondary"
+                                                Command="{Binding DataContext.RemoveDraftGrantCommand, RelativeSource={RelativeSource AncestorType={x:Type local:RoleDeclarationView}}}"
+                                                CommandParameter="{Binding}"
+                                                Content="Xóa" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <controls:AstSectionHeader
+                            Margin="0,16,0,8"
+                            Icon="History24"
+                            Text="Nhật ký quyền (v1)" />
+                        <DataGrid
+                            MaxHeight="140"
+                            AutoGenerateColumns="False"
+                            CanUserAddRows="False"
+                            ItemsSource="{Binding PermissionJournal}"
+                            Style="{StaticResource AstDataGrid}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn
+                                    Width="160"
+                                    Binding="{Binding WhenText}"
+                                    Header="Thời điểm thực hiện"
+                                    IsReadOnly="True" />
+                                <DataGridTextColumn Width="90" Binding="{Binding Who}" Header="Ai" IsReadOnly="True" />
+                                <DataGridTextColumn Width="70" Binding="{Binding Action}" Header="Thao tác" IsReadOnly="True" />
+                                <DataGridTextColumn Width="*" Binding="{Binding FunctionKey}" Header="Chức năng" IsReadOnly="True" />
+                                <DataGridTextColumn Width="120" Binding="{Binding ScopeText}" Header="Phạm vi" IsReadOnly="True" />
+                                <DataGridTextColumn Width="140" Binding="{Binding Note}" Header="Ghi chú" IsReadOnly="True" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <controls:AstField Label="Ghi chú" Style="{StaticResource AstField}">
+                            <ui:TextBox Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}">
+                                <ui:TextBox.Style>
+                                    <Style BasedOn="{StaticResource {x:Type ui:TextBox}}" TargetType="ui:TextBox">
+                                        <Setter Property="IsEnabled" Value="False" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Mode}" Value="Adding">
+                                                <Setter Property="IsEnabled" Value="True" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Mode}" Value="Editing">
+                                                <Setter Property="IsEnabled" Value="True" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Mode}" Value="Closing">
+                                                <Setter Property="IsEnabled" Value="True" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ui:TextBox.Style>
+                            </ui:TextBox>
+                        </controls:AstField>
+
+                        <StackPanel HorizontalAlignment="Right" Style="{StaticResource AstActionBar}">
+                            <ui:Button
+                                Appearance="Secondary"
+                                Command="{Binding BeginAddCommand}"
+                                Content="Thêm"
+                                Style="{StaticResource EqualActionButton}" />
+                            <ui:Button
+                                Appearance="Secondary"
+                                Command="{Binding BeginEditCommand}"
+                                Content="Sửa"
+                                Style="{StaticResource EqualActionButton}" />
+                            <ui:Button
+                                Appearance="Secondary"
+                                Command="{Binding BeginCloseCommand}"
+                                Content="Đóng"
+                                Style="{StaticResource EqualActionButton}" />
+                            <ui:Button
+                                Appearance="Secondary"
+                                Command="{Binding CancelCommand}"
+                                Content="Hủy"
+                                Style="{StaticResource EqualActionButton}" />
+                            <ui:Button
+                                Appearance="Primary"
+                                Command="{Binding SaveCommand}"
+                                Content="Lưu"
+                                Style="{StaticResource EqualActionButton}" />
+                        </StackPanel>
+                    </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!--  (2) History card  -->
+            <Border Grid.Row="2" Style="{StaticResource AstCard}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Grid.Row="0" Margin="0,0,0,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <controls:AstSectionHeader
+                                Grid.Column="0"
+                                Icon="History24"
+                                Text="Lịch sử khai báo" />
+                            <StackPanel
+                                Grid.Column="1"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                                <ui:Button
+                                    Click="OnHistoryRefreshClick"
+                                    Content="Làm mới"
+                                    Style="{StaticResource EqualHistoryButton}" />
+                                <ui:Button
+                                    Click="OnHistoryShowAllClick"
+                                    Content="Hiện tất cả"
+                                    Style="{StaticResource EqualHistoryButton}" />
+                                <ui:Button
+                                    Margin="0"
+                                    Click="OnHistoryViewClick"
+                                    Content="Xem"
+                                    IsEnabled="{Binding Chrome.CanViewHistory, RelativeSource={RelativeSource AncestorType={x:Type local:RoleDeclarationView}}}"
+                                    Style="{StaticResource EqualHistoryButton}" />
+                            </StackPanel>
+                        </Grid>
+                        <ui:TextBox
+                            Margin="0,8,0,0"
+                            PlaceholderText="Tìm theo mã, tên..."
+                            Text="{Binding HistoryFilterText, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <DataGrid
+                        Grid.Row="1"
+                        ItemsSource="{Binding Chrome.HistoryRowsView, RelativeSource={RelativeSource AncestorType={x:Type local:RoleDeclarationView}}}"
+                        SelectedItem="{Binding Chrome.SelectedHistoryRow, RelativeSource={RelativeSource AncestorType={x:Type local:RoleDeclarationView}}, Mode=TwoWay}"
+                        Style="{StaticResource AstDataGrid}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Width="110" Binding="{Binding RoleCode}" Header="Mã vai trò" />
+                            <DataGridTextColumn Width="160" Binding="{Binding RoleName}" Header="Tên vai trò" />
+                            <DataGridTextColumn Width="90" Binding="{Binding FromText}" Header="Từ ngày" />
+                            <DataGridTextColumn Width="110" Binding="{Binding ToText}" Header="Đến ngày" />
+                            <DataGridTextColumn Width="110" Binding="{Binding StatusText}" Header="Tình trạng">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{Binding Status, Converter={StaticResource VersionStatusToBrush}}" />
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Width="130" Binding="{Binding RecordedAtText}" Header="Ngày ghi" />
+                            <DataGridTextColumn Width="80" Binding="{Binding Operation}" Header="Thao tác" />
+                            <DataGridTextColumn Width="90" Binding="{Binding RecordedBy}" Header="Người ghi" />
+                            <DataGridTextColumn Width="160" Binding="{Binding Note}" Header="Ghi chú" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </Border>
+        </Grid>
+    </controls:AstScreen>
+</views:DeclarationFormView>
