@@ -1,0 +1,16 @@
+<Project>
+
+  <!-- Enforces "0 warnings" across the whole solution: warning = error, which turns the reuse and
+       altitude lessons from a reminder into a mechanism. If one specific warning is judged
+       acceptable for a reason, add <NoWarn>CSxxxx</NoWarn> in THAT project with the reason -
+       never disable it solution-wide. -->
+  <PropertyGroup>
+    <Version>0.1.0-alpha</Version>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Nullable>enable</Nullable>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+</Project>

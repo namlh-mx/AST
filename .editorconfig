@@ -1,0 +1,56 @@
+# AST — root .editorconfig (adopted 2026-07-29, decision-log entry same day)
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cs,xaml,csproj,props,targets,json,yml,yaml,md,xml,config}]
+indent_style = space
+indent_size = 4
+
+[*.{yml,yaml,md}]
+indent_size = 2
+
+[*.cs]
+end_of_line = crlf
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# Nullable / modernization — align with Nullable=enable + AnalysisLevel=latest
+dotnet_diagnostic.CS8618.severity = warning
+dotnet_diagnostic.CS8600.severity = warning
+dotnet_diagnostic.CS8602.severity = warning
+dotnet_diagnostic.CS8603.severity = warning
+dotnet_diagnostic.CS8604.severity = warning
+
+# File-scoped namespaces: verified 2026-07-29, 276/276 .cs files already file-scoped — safe as warning.
+dotnet_diagnostic.IDE0161.severity = warning
+
+# IDE0005/IDE0055 measured 2026-07-29 with dotnet build: IDE0005 needs GenerateDocumentationFile=true
+# to run on build at all (Roslyn #41640, not set project-wide here); IDE0055 hit real pre-existing
+# formatting in AST.Core (VersionOp.cs, ConfigAuditRecord.cs). Both would turn into build errors under
+# TreatWarningsAsErrors, so kept as suggestion for this first cut — promote after a dedicated
+# formatting-sweep task measures full blast radius.
+dotnet_diagnostic.IDE0005.severity = suggestion # Remove unnecessary using
+dotnet_diagnostic.IDE0055.severity = suggestion # Formatting
+
+# Style preferences — left as suggestion (no repo-wide sweep yet); promote later after a dedicated task
+dotnet_diagnostic.IDE0011.severity = suggestion # Add braces
+dotnet_diagnostic.IDE0028.severity = suggestion # Collection init
+dotnet_diagnostic.IDE0040.severity = suggestion # Accessibility modifiers
+dotnet_diagnostic.IDE0058.severity = suggestion # Unused expression
+dotnet_diagnostic.IDE0090.severity = suggestion # Simplify new
+dotnet_diagnostic.IDE0290.severity = suggestion # Primary constructor
+dotnet_diagnostic.IDE0300.severity = suggestion # Collection expression
+dotnet_diagnostic.IDE0301.severity = suggestion # Collection expression simplify
+dotnet_diagnostic.IDE0305.severity = suggestion # Collection expression
+
+# Naming — light touch only (do not force underscore fields overnight)
+dotnet_naming_rule.interfaces_should_be_i.severity = warning
+dotnet_naming_rule.interfaces_should_be_i.symbols = interface_symbols
+dotnet_naming_rule.interfaces_should_be_i.style = starts_with_i
+dotnet_naming_symbols.interface_symbols.applicable_kinds = interface
+dotnet_naming_style.starts_with_i.required_prefix = I
+dotnet_naming_style.starts_with_i.capitalization = pascal_case

@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ErrorOr" Version="2.1.1" />
+    <!-- FunctionRegistry logs a late-registration diagnostic directly (rule-platform-infra §1 edge diagnostic,
+         the same static-Log idiom used app-wide; no injected ILogger). -->
+    <PackageReference Include="Serilog" Version="4.3.1" />
+  </ItemGroup>
+
+  <!-- F3 (brief 046 FR1): tests assert fill-flag bit-identity via internal CaptureFillState. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="AST.Core.Tests" />
+  </ItemGroup>
+
+</Project>

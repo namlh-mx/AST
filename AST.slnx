@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="AST.Core/AST.Core.csproj" />
+  <Project Path="AST.Core.Tests/AST.Core.Tests.csproj" />
+</Solution>

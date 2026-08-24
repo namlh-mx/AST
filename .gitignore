@@ -1,0 +1,24 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+
+# .NET / MSBuild
+*.user
+*.suo
+project.lock.json
+artifacts/
+
+# IDE / tooling caches
+.vs/
+.vscode/
+.idea/
+
+# Local secrets / connection strings (never commit).
+# Copy mysql.secrets.sample.json to mysql.secrets.json and fill it in.
+appsettings.*.local.json
+*.secrets.json
+!*.sample.json
+
+# Local working notes, never published
+.local/
