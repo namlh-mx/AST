@@ -161,7 +161,14 @@ public sealed class OrgUnitRepositoryTests : IamRepositoryTestBase
         Assert.False(cancel.IsError, DescribeErrors(cancel.Errors));
 
         var history = await OrgUnits.GetHistoryInScopeAsync(GlobalScope, id);
-        Assert.Contains(history, r => r.Id == future.Value.NewVersionId && r.Status == VersionLifecycleStatus.Cancelled && !r.IsActive);
+        // `Should()`, not `Assert.Contains` (AI Agent AST-CONSULT-144/F-09): this assertion CHANGED on this
+        // branch -- `cancelled: true` became `Status == Cancelled` -- so `rule-testing`'s assertion-style
+        // gate applies to it. The surrounding pre-existing `Assert.*` calls are out of this branch's scope.
+        history.Should().Contain(
+            r => r.Id == future.Value.NewVersionId
+                 && r.Status == VersionLifecycleStatus.Cancelled
+                 && !r.IsActive,
+            "a cancelled plan stays in history carrying BOTH its cancelled status and isactive = 0");
     }
 
     // Ordering changed (requester-approved) from EffectiveFrom-descending to RecordedAt (audit

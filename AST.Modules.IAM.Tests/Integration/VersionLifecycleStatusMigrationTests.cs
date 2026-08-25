@@ -212,6 +212,16 @@ public sealed class VersionLifecycleStatusMigrationTests : IAsyncLifetime
             3, "the abort preserves every table's legacy `cancelled` column: nothing is DROPped before "
              + "phase 4, whichever table's gate fires");
 
+        // ⭐ The ORDERING claim itself (AI Agent AST-CONSULT-144/F-07). The `cancelled` count above proves
+        // only that nothing was DESTROYED -- it does not prove phase 1 ran BEFORE phase 2, because phase 4
+        // holds every DROP either way. MEASURED -- move the three legacy CHECKs below phase 2's ADD COLUMN
+        // statements and the abort, the 3819, the constraint name, all three `cancelled` columns and the
+        // surviving `2` are all still exactly as asserted above; only this assertion goes red. Without it,
+        // "the gate runs before anything is added" is a comment in the migration, not a tested claim.
+        (await CountPhase2ArtifactsAsync(db)).Should().Be(
+            0, "phase 1 aborts BEFORE phase 2, so no `status` column, no successor column and no successor "
+             + "FK may exist once the migration has failed");
+
         // The row's original marker survives -- the point of gating rather than backfilling it away.
         // ⚠️ `cancelled + 0`, not `cancelled`: MySqlConnector's TreatTinyAsBoolean is on by default, so a
         // plain read of a TINYINT(1) comes back as a bool and 2 arrives as 1. MEASURED -- this assertion
@@ -281,6 +291,30 @@ public sealed class VersionLifecycleStatusMigrationTests : IAsyncLifetime
                     nameof(table), table, "no pre-V010 seed is defined for this table");
         }
     }
+
+    // Every artifact phase 2 DECLARES, as ONE number: the three `status` columns, org_unit_version's
+    // `replaced_by_org_unit_id`, and the fk_ouv_replaced_by constraint. 0 means phase 2 never ran.
+    // One scalar rather than five assertions on purpose -- the claim under test is "phase 2 did not
+    // start", and any single artifact appearing falsifies it.
+    // ⚠ DECLARES, not "creates" (AI Agent AST-CONSULT-147/F-05). InnoDB also auto-creates a supporting
+    // index for the FK -- VERIFIED by SHOW CREATE TABLE on MySQL 9.7.1: `KEY fk_ouv_replaced_by
+    // (replaced_by_org_unit_id)`, which no existing index left-prefixes. It is deliberately NOT counted
+    // and the zero result is still sound, because that index cannot exist without the counted
+    // constraint. What was overstated was the word "every", not the arithmetic.
+    private static async Task<int> CountPhase2ArtifactsAsync(MySqlConnection db) =>
+        await db.ExecuteScalarAsync<int>(
+            """
+            SELECT
+              (SELECT COUNT(*) FROM information_schema.columns
+                 WHERE table_schema = DATABASE() AND column_name = 'status'
+                   AND table_name IN ('org_unit_version', 'role_version', 'role_permission_version'))
+            + (SELECT COUNT(*) FROM information_schema.columns
+                 WHERE table_schema = DATABASE() AND table_name = 'org_unit_version'
+                   AND column_name = 'replaced_by_org_unit_id')
+            + (SELECT COUNT(*) FROM information_schema.table_constraints
+                 WHERE constraint_schema = DATABASE() AND table_name = 'org_unit_version'
+                   AND constraint_name = 'fk_ouv_replaced_by')
+            """);
 
     private static async Task<int> CountLegacyCancelledColumnsAsync(MySqlConnection db) =>
         await db.ExecuteScalarAsync<int>(
