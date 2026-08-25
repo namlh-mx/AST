@@ -157,30 +157,60 @@ public sealed class VersionLifecycleStatusMigrationTests : IAsyncLifetime
     // constraint and holds -128..127. The backfill keys on `= 1`, so a stray 2 would land as 'normal'
     // and lose its meaning permanently once the column is dropped. Phase 1 gates that before anything
     // is added or destroyed.
-    [Fact]
-    public async Task V010_AbortsWhenALegacyCancelledValueIsOutsideZeroOne()
+    // ⚠ One row per TABLE (AI Agent AST-CONSULT-144/F-06). Phase 1 writes THREE separate constraints, one
+    // per table, and this control originally covered org_unit_version alone -- the gate was claimed for
+    // three tables while covering one.
+    // MEASURED per table, ALL THREE (AI Agent AST-CONSULT-147/F-04 asked for this; two of the three had
+    // been inference): removing chk_ouv_/chk_rv_/chk_rpv_legacy_cancelled_domain and its phase-4 DROP
+    // reddens exactly that table's row and leaves the other two GREEN.
+    // The assertion on the constraint NAME is a second, narrower claim: that THIS table's own gate is
+    // what fired, not merely that some CHECK did.
+    // ⚠ TWO mutations, because they witness DIFFERENT assertions and neither can stand in for the other.
+    // (An earlier draft of this comment cited only the removal and reported the rename's result -- the
+    // removal structurally CANNOT reach the name assertion, so that was a claim, not a measurement.)
+    //   REMOVE chk_rv_legacy_cancelled_domain and its phase-4 DROP -> V010 runs to COMPLETION, so the row
+    //     reddens at the ThrowAsync below and never reaches line 184. Witnesses the gate's EXISTENCE only.
+    //   RENAME it to something that is NOT a superstring of the original (a `_x` suffix would still
+    //     satisfy Contain) -> the abort and the 3819 both still pass and ONLY the name assertion reddens.
+    // MEASURED, both, on this server: exactly the role_version row went red each time, the other two
+    // stayed green.
+    [Theory]
+    [InlineData("org_unit_version", "chk_ouv_legacy_cancelled_domain")]
+    [InlineData("role_version", "chk_rv_legacy_cancelled_domain")]
+    [InlineData("role_permission_version", "chk_rpv_legacy_cancelled_domain")]
+    public async Task V010_AbortsWhenALegacyCancelledValueIsOutsideZeroOne(string table, string constraintName)
     {
         TestDatabase.SkipUnlessAvailable(_connectionString is not null);
 
         await using var db = await OpenPreV010SchemaAsync(_connectionString!);
-        await db.ExecuteAsync("INSERT INTO `org_unit` (id) VALUES (1)");
-        await db.ExecuteAsync(
-            """
-            INSERT INTO org_unit_version
-              (org_unit_id, org_code, org_name_full_vn, org_name_short_vn,
-               cancelled, effective_from, effective_to, isactive, recorded_by)
-            VALUES (1, 'C1', 'A', 'A', 2, '2020-01-01', '9999-12-31', 0, 'tester')
-            """);
+        await SeedOutOfDomainCancelledRowAsync(db, table);
 
         var act = async () => await db.ExecuteAsync(V010Sql());
 
         // 3819 = CHECK violated. Without the number this would also pass if V010 failed for any other
         // reason, which is the whole lesson of T3-T8 above.
-        (await act.Should().ThrowAsync<MySqlException>()).Which.Number.Should().Be(
-            3819, "chk_ouv_legacy_cancelled_domain must refuse the row before any column is added or dropped");
+        var thrown = (await act.Should().ThrowAsync<MySqlException>()).Which;
+        thrown.Number.Should().Be(
+            3819, $"{constraintName} must refuse the row before any column is added or dropped");
+        // ⚠ This asserts on the server's HUMAN-READABLE message, which MySqlConnector surfaces verbatim
+        // and does not document as a contract -- unlike Number/SqlState (AI Agent AST-CONSULT-147/F-02).
+        // Kept, with the dependency stated rather than hidden: there is no structured field carrying the
+        // violated constraint's NAME, so dropping this assertion means dropping the claim, not moving it.
+        // The name is a format PARAMETER of ER_CHECK_CONSTRAINT_VIOLATED, so it survives a translated
+        // message even though the surrounding words would not.
+        // PINNED, measured on the same server the mutation runs used: MySQL 9.7.1, @@lc_messages=en_US.
+        // If this ever reddens on a server that is otherwise correct, that matrix is what changed.
+        thrown.Message.Should().Contain(
+            constraintName, "this row's whole claim is that THIS table's own gate fired, not a sibling's");
 
+        // ⚠ The reason names COLUMNS, not tables, and the distinction is load-bearing (AI Agent
+        // AST-CONSULT-147/F-03). On the role_permission_version row the first two tables ALREADY carry
+        // their phase-1 CHECK by the time this runs, so "all three tables are untouched" -- the wording
+        // this replaces -- was false while the assertion itself was true. A reason wider than what its
+        // assertion can see is how the next reader inherits a claim nothing tests.
         (await CountLegacyCancelledColumnsAsync(db)).Should().Be(
-            3, "phase 1 aborts before phase 2 adds anything, so all three tables are untouched");
+            3, "the abort preserves every table's legacy `cancelled` column: nothing is DROPped before "
+             + "phase 4, whichever table's gate fires");
 
         // The row's original marker survives -- the point of gating rather than backfilling it away.
         // ⚠️ `cancelled + 0`, not `cancelled`: MySqlConnector's TreatTinyAsBoolean is on by default, so a
@@ -188,7 +218,68 @@ public sealed class VersionLifecycleStatusMigrationTests : IAsyncLifetime
         // failed with "found 1" until the `+ 0`. That conversion is also WHY this finding bites: in the
         // old C# model a stray 2 read as Cancelled = true, while the backfill's `WHERE cancelled = 1`
         // would have left it 'normal' -- the migration would have silently flipped that row's meaning.
-        (await db.ExecuteScalarAsync<int>("SELECT cancelled + 0 FROM org_unit_version")).Should().Be(2);
+        // The table name is interpolated, never user input -- it comes from this test's own [InlineData].
+        (await db.ExecuteScalarAsync<int>($"SELECT cancelled + 0 FROM `{table}`"))
+            .Should().Be(OutOfDomainCancelled);
+    }
+
+    // The one value this control is about: legal for TINYINT, outside {0,1}, and NOT matched by the
+    // backfill's `WHERE cancelled = 1`. A const rather than a helper parameter -- the seed has exactly
+    // one caller and one meaningful value, and a parameter would invite a 0 or 1 for which no assertion
+    // here makes any claim (AI Agent, this round).
+    private const int OutOfDomainCancelled = 2;
+
+    // Seeds ONE version row carrying OutOfDomainCancelled on the named table, minting whatever identity
+    // rows that table's FKs require. PRE-V010 schema only -- `status` does not exist yet.
+    // Called BEFORE `act`, deliberately: a seed this helper cannot place must fail loudly here, not be
+    // mistaken for the abort the test is asserting.
+    private static async Task SeedOutOfDomainCancelledRowAsync(MySqlConnection db, string table)
+    {
+        const int cancelled = OutOfDomainCancelled;
+        switch (table)
+        {
+            case "org_unit_version":
+                await db.ExecuteAsync("INSERT INTO `org_unit` (id) VALUES (1)");
+                await db.ExecuteAsync(
+                    """
+                    INSERT INTO org_unit_version
+                      (org_unit_id, org_code, org_name_full_vn, org_name_short_vn,
+                       cancelled, effective_from, effective_to, isactive, recorded_by)
+                    VALUES (1, 'C1', 'A', 'A', @cancelled, '2020-01-01', '9999-12-31', 0, 'tester')
+                    """,
+                    new { cancelled });
+                break;
+
+            case "role_version":
+                await db.ExecuteAsync("INSERT INTO `role` (id) VALUES (1)");
+                await db.ExecuteAsync(
+                    """
+                    INSERT INTO role_version
+                      (role_id, role_code, role_name,
+                       cancelled, effective_from, effective_to, isactive, recorded_by)
+                    VALUES (1, 'R1', 'A', @cancelled, '2020-01-01', '9999-12-31', 0, 'tester')
+                    """,
+                    new { cancelled });
+                break;
+
+            case "role_permission_version":
+                await db.ExecuteAsync("INSERT INTO `role` (id) VALUES (1)");
+                await db.ExecuteAsync("INSERT INTO `function` (id) VALUES (1)");
+                await db.ExecuteAsync("INSERT INTO `role_permission` (id) VALUES (1)");
+                await db.ExecuteAsync(
+                    """
+                    INSERT INTO role_permission_version
+                      (role_permission_id, role_id, function_id, scope_level,
+                       cancelled, effective_from, effective_to, isactive, recorded_by)
+                    VALUES (1, 1, 1, 4, @cancelled, '2020-01-01', '9999-12-31', 0, 'tester')
+                    """,
+                    new { cancelled });
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(table), table, "no pre-V010 seed is defined for this table");
+        }
     }
 
     private static async Task<int> CountLegacyCancelledColumnsAsync(MySqlConnection db) =>
@@ -251,37 +342,108 @@ public sealed class VersionLifecycleStatusMigrationTests : IAsyncLifetime
     // 'cancelled'` also matches these spellings -- they would satisfy chk_ouv_status, then fail to
     // materialize as a VersionLifecycleStatus, i.e. the database would wave through a value the code
     // above it cannot read. V010 declares the column COLLATE utf8mb4_0900_as_cs to close that.
-    // ⚠ Both rows below are ACCEPTED without the COLLATE clause -- that is what makes this a control
-    // rather than a restatement of T8's out-of-domain case.
+    // ⚠ All three tokens below are ACCEPTED without the COLLATE clause -- that is what makes this a
+    // control rather than a restatement of T8's out-of-domain case.
+    // ⚠ One set of tokens per TABLE (AI Agent AST-CONSULT-144/F-05). V010 writes COLLATE utf8mb4_0900_as_cs
+    // three times, once per table, and this control originally covered org_unit_version alone -- so the
+    // collation claim held for one table while being stated for three.
+    // MEASURED per table, ALL THREE (AI Agent AST-CONSULT-147/F-04 asked for this; the previous wording
+    // reported two tables that had never been run): stripping COLLATE from org_unit_version,
+    // role_version or role_permission_version reddens exactly that table's 3 rows and leaves the
+    // other 6 GREEN.
     [Theory]
-    [InlineData("Cancelled")]   // case variant
-    [InlineData("cancelléd")]   // accent variant
-    [InlineData("CANCELLED")]   // upper case
-    public async Task CollationEquivalentStatusTokens_AreRejectedByTheDatabase(string status)
+    [InlineData("org_unit_version", "Cancelled")]              // case variant
+    [InlineData("org_unit_version", "cancelléd")]              // accent variant
+    [InlineData("org_unit_version", "CANCELLED")]              // upper case
+    [InlineData("role_version", "Cancelled")]
+    [InlineData("role_version", "cancelléd")]
+    [InlineData("role_version", "CANCELLED")]
+    [InlineData("role_permission_version", "Cancelled")]
+    [InlineData("role_permission_version", "cancelléd")]
+    [InlineData("role_permission_version", "CANCELLED")]
+    public async Task CollationEquivalentStatusTokens_AreRejectedByTheDatabase(string table, string status)
     {
         TestDatabase.SkipUnlessAvailable(_connectionString is not null);
 
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
 
-        var orgUnitId = await connection.ExecuteScalarAsync<long>(
-            "INSERT INTO org_unit () VALUES (); SELECT LAST_INSERT_ID();");
-
-        // isactive = 0 deliberately: the row is otherwise a PERFECTLY legal cancelled row, so the only
-        // thing that can reject it is the token's exactness. A row that also violated the isactive rule
-        // would pass this test for the wrong reason.
-        var act = async () => await connection.ExecuteAsync(
-            """
-            INSERT INTO org_unit_version
-                (org_unit_id, org_code, org_name_full_vn, org_name_short_vn, status,
-                 effective_from, effective_to, isactive, recorded_by)
-            VALUES
-                (@orgUnitId, 'COL', 'A', 'A', @status, '2020-01-01', '9999-12-31', 0, 'tester')
-            """,
-            new { orgUnitId, status });
+        var act = await ArrangeStatusInsertAsync(connection, table, status);
 
         (await act.Should().ThrowAsync<MySqlException>()).Which.Number.Should().Be(
             3819, "only the exact lowercase token is a VersionLifecycleStatus name; the CHECK must say so");
+    }
+
+    // Mints the identity rows the named table's FKs require, then returns the version-row INSERT itself
+    // as the delegate to assert on. FULL (post-V010) schema.
+    // ⚠ The minting happens HERE and not inside the returned delegate (AI Agent, this round). The
+    // assertion above pins error 3819 = CHECK violated; if a setup INSERT ran inside `act` and some
+    // identity table later gained a CHECK of its own, a rejected SETUP row would raise 3819 too and the
+    // test would go green without ever reaching the token it exists to test -- a guard narrower than its
+    // claim, which is the exact shape this whole review round is closing. Today no identity table has a
+    // CHECK, so this is a latent hole being closed, not a live bug.
+    // isactive = 0 deliberately: the row is otherwise a PERFECTLY legal cancelled row, so the only thing
+    // that can reject it is the token's exactness. A row that also violated the isactive rule would pass
+    // its test for the wrong reason.
+    private static async Task<Func<Task>> ArrangeStatusInsertAsync(
+        MySqlConnection connection, string table, string status)
+    {
+        switch (table)
+        {
+            case "org_unit_version":
+            {
+                var orgUnitId = await connection.ExecuteScalarAsync<long>(
+                    "INSERT INTO `org_unit` () VALUES (); SELECT LAST_INSERT_ID();");
+                return async () => await connection.ExecuteAsync(
+                    """
+                    INSERT INTO org_unit_version
+                        (org_unit_id, org_code, org_name_full_vn, org_name_short_vn, status,
+                         effective_from, effective_to, isactive, recorded_by)
+                    VALUES
+                        (@orgUnitId, 'COL', 'A', 'A', @status, '2020-01-01', '9999-12-31', 0, 'tester')
+                    """,
+                    new { orgUnitId, status });
+            }
+
+            case "role_version":
+            {
+                var roleId = await connection.ExecuteScalarAsync<long>(
+                    "INSERT INTO `role` () VALUES (); SELECT LAST_INSERT_ID();");
+                return async () => await connection.ExecuteAsync(
+                    """
+                    INSERT INTO role_version
+                        (role_id, role_code, role_name, status,
+                         effective_from, effective_to, isactive, recorded_by)
+                    VALUES
+                        (@roleId, 'COL-ROLE', 'A', @status, '2020-01-01', '9999-12-31', 0, 'tester')
+                    """,
+                    new { roleId, status });
+            }
+
+            case "role_permission_version":
+            {
+                var roleId = await connection.ExecuteScalarAsync<long>(
+                    "INSERT INTO `role` () VALUES (); SELECT LAST_INSERT_ID();");
+                var functionId = await connection.ExecuteScalarAsync<long>(
+                    "INSERT INTO `function` () VALUES (); SELECT LAST_INSERT_ID();");
+                var rolePermissionId = await connection.ExecuteScalarAsync<long>(
+                    "INSERT INTO `role_permission` () VALUES (); SELECT LAST_INSERT_ID();");
+                return async () => await connection.ExecuteAsync(
+                    """
+                    INSERT INTO role_permission_version
+                        (role_permission_id, role_id, function_id, scope_level, status,
+                         effective_from, effective_to, isactive, recorded_by)
+                    VALUES
+                        (@rolePermissionId, @roleId, @functionId, 4, @status,
+                         '2020-01-01', '9999-12-31', 0, 'tester')
+                    """,
+                    new { rolePermissionId, roleId, functionId, status });
+            }
+
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(table), table, "no status seed is defined for this table");
+        }
     }
 
     // T7 -- a separate shape on a DIFFERENT table's CHECK: role_version's domain has no `replaced` value

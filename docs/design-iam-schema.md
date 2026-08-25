@@ -64,7 +64,7 @@ CREATE TABLE `org_unit_version` (
   -- COLLATE _as_cs is load-bearing: under the tables' default _ai_ci, `status = 'cancelled'` also matches
   -- 'Cancelled' and 'cancelléd', which pass the CHECK and then fail to materialize as an enum name.
   status                   VARCHAR(10)  COLLATE utf8mb4_0900_as_cs NOT NULL DEFAULT 'normal',
-  -- set only on a `replaced` row, and required there: FK -> org_unit(id), the successor IDENTITY.
+  -- the successor IDENTITY; set only on a `replaced` row and required there (chk_ouv_status below).
   replaced_by_org_unit_id  BIGINT UNSIGNED NULL,
   -- per-row action recorded on write (Add/Edit/Close/Cancel/Replace) -- Phase 4d history-grid read; nullable,
   -- no backfill for pre-4d rows; enum persisted verbatim via ToString()/Enum.Parse (no other enum-to-column
@@ -82,7 +82,20 @@ CREATE TABLE `org_unit_version` (
   KEY idx_ouv_parent (parent_id, isactive, effective_from, effective_to),  -- subtree CTE + parent temporal-FK
   CONSTRAINT fk_ouv_ou     FOREIGN KEY (org_unit_id) REFERENCES `org_unit`(id),
   CONSTRAINT fk_ouv_parent FOREIGN KEY (parent_id)   REFERENCES `org_unit`(id),
-  CONSTRAINT chk_ouv_period CHECK (effective_from <= effective_to)
+  -- ⚠ InnoDB auto-creates a supporting index for this FK -- `KEY fk_ouv_replaced_by
+  -- (replaced_by_org_unit_id)` -- because no index above left-prefixes that column. VERIFIED by
+  -- SHOW CREATE TABLE on MySQL 9.7.1 (AI Agent AST-CONSULT-147/F-05). The blocks in this file are the
+  -- DECLARED DDL, not a physical-schema dump; that index is the one thing the two differ by.
+  CONSTRAINT fk_ouv_replaced_by FOREIGN KEY (replaced_by_org_unit_id) REFERENCES `org_unit`(id),
+  CONSTRAINT chk_ouv_period CHECK (effective_from <= effective_to),
+  -- the lifecycle invariant, enforced by the DATABASE and not by a promise a write path makes:
+  -- the status domain, `cancelled|replaced => isactive = 0`, and successor-link coherence in BOTH
+  -- directions (a `replaced` row has a link; nothing else may carry one).
+  CONSTRAINT chk_ouv_status CHECK (
+       (status = 'normal'    AND replaced_by_org_unit_id IS NULL)
+    OR (status = 'cancelled' AND isactive = 0 AND replaced_by_org_unit_id IS NULL)
+    OR (status = 'replaced'  AND isactive = 0 AND replaced_by_org_unit_id IS NOT NULL)
+  )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 ```
 > **Field set finalized 2026-07-22** for the org-unit declaration screen (rename `ma→org_code`, `ten→org_name_full_vn`, add `org_name_short_vn` + the supplemental catalog + the `cancelled` marker). Source of the requirement: the IAM declaration-screens business analysis §2.2/§2.4/§2.6. Applied to `migrations/V001__org_unit.sql`. `role` was renamed too (`ma→role_code`, `ten→role_name`, 2026-08-08, see §1.2) — `user`/`function` still keep `ma`/`ten` until their own screens.
@@ -105,9 +118,9 @@ CREATE TABLE `role_version` (
   role_code      VARCHAR(20)  NOT NULL,          -- natural key (P6)
   role_name      VARCHAR(100) NOT NULL,
   is_admin_role  TINYINT(1) NOT NULL DEFAULT 0,  -- version-level; <=1 admin-flag role active per day (N-14)
-  status         VARCHAR(10) NOT NULL DEFAULT 'normal',  -- lifecycle marker (V010, replaced `cancelled`);
-                                                 -- chk_rv_status: 'normal' OR ('cancelled' AND isactive=0).
-                                                 -- 'replaced' is NOT admitted here -- org-unit only in v1.
+  -- lifecycle marker (V010, replaced a `cancelled` TINYINT). AST.Core.Data.VersionLifecycleStatus.
+  -- COLLATE _as_cs is load-bearing here for the same reason as on org_unit_version (§1.1).
+  status         VARCHAR(10) COLLATE utf8mb4_0900_as_cs NOT NULL DEFAULT 'normal',
   operation_kind VARCHAR(10) NULL,               -- Add/Edit/Close/Cancel/Replace (Phase 4d history)
   effective_from DATE NOT NULL,
   effective_to   DATE NOT NULL DEFAULT '9999-12-31',
@@ -120,7 +133,13 @@ CREATE TABLE `role_version` (
   KEY idx_rv_code  (role_code, isactive, effective_from, effective_to),
   KEY idx_rv_admin (is_admin_role, isactive, effective_from, effective_to),
   CONSTRAINT fk_rv_role     FOREIGN KEY (role_id) REFERENCES `role`(id),
-  CONSTRAINT chk_rv_period  CHECK (effective_from <= effective_to)
+  CONSTRAINT chk_rv_period  CHECK (effective_from <= effective_to),
+  -- no `replaced` value: replacement is org-unit-scoped in v1, so this CHECK makes it unrepresentable
+  -- on a role version rather than merely unwritten.
+  CONSTRAINT chk_rv_status  CHECK (
+       status = 'normal'
+    OR (status = 'cancelled' AND isactive = 0)
+  )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 ```
 > **Field set updated 2026-08-08** — rename `ma`→`role_code`, `ten`→`role_name`; add `is_admin_role`, `cancelled`, `operation_kind` (mirrors org_unit's cancellation/history columns). Applied to `migrations/V002__role.sql`.
@@ -216,8 +235,9 @@ CREATE TABLE `role_permission_version` (
   role_id            BIGINT UNSIGNED NOT NULL,    -- FK -> role(id) (IDENTITY)     — temporal-FK parent
   function_id        BIGINT UNSIGNED NOT NULL,    -- FK -> function(id) (IDENTITY) — temporal-FK parent
   scope_level        TINYINT UNSIGNED NOT NULL,   -- 1..4 = ScopeLevel
-  status             VARCHAR(10) NOT NULL DEFAULT 'normal',  -- V010, replaced `cancelled`;
-                                     -- chk_rpv_status: 'normal' OR ('cancelled' AND isactive=0). No 'replaced'.
+  -- lifecycle marker (V010, replaced a `cancelled` TINYINT). AST.Core.Data.VersionLifecycleStatus.
+  -- COLLATE _as_cs is load-bearing here for the same reason as on org_unit_version (§1.1).
+  status             VARCHAR(10) COLLATE utf8mb4_0900_as_cs NOT NULL DEFAULT 'normal',
   operation_kind     VARCHAR(10) NULL,
   effective_from     DATE NOT NULL,
   effective_to       DATE NOT NULL DEFAULT '9999-12-31',
@@ -234,7 +254,12 @@ CREATE TABLE `role_permission_version` (
   CONSTRAINT fk_rpv_role FOREIGN KEY (role_id)     REFERENCES `role`(id),
   CONSTRAINT fk_rpv_func FOREIGN KEY (function_id) REFERENCES `function`(id),
   CONSTRAINT chk_rpv_period CHECK (effective_from <= effective_to),
-  CONSTRAINT chk_rpv_scope  CHECK (scope_level BETWEEN 1 AND 4)
+  CONSTRAINT chk_rpv_scope  CHECK (scope_level BETWEEN 1 AND 4),
+  -- no `replaced` value, same reason as chk_rv_status (§1.2).
+  CONSTRAINT chk_rpv_status CHECK (
+       status = 'normal'
+    OR (status = 'cancelled' AND isactive = 0)
+  )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 ```
 > **Field set updated 2026-08-08** — add `cancelled`, `operation_kind`; Model 2 wording locked (one write identity per grant). Applied to `migrations/V005__role_permission.sql`.
