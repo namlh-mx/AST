@@ -6,7 +6,7 @@ using MySqlConnector;
 
 namespace AST.Modules.IAM.Tests.Integration;
 
-// B1 smoke test: the fixture cleanly DROPs the ast_test schema -> runs all 9 migration scripts -> checks
+// B1 smoke test: the fixture cleanly DROPs the ast_test schema -> runs all 10 migration scripts -> checks
 // the DB structure via information_schema + ISchemaVersionChecker. Needs a real DB (mysql.secrets.json or
 // env var AST_TEST_CONNECTION_STRING): NOT configured -> Skipped; configured but broken -> FAILS loudly.
 // [Collection] B2: several other B2 test classes also DROP+reapply `ast_test` -> grouped into 1 collection
@@ -14,7 +14,7 @@ namespace AST.Modules.IAM.Tests.Integration;
 [Collection(TestSupport.AstTestDatabaseCollection.Name)]
 public sealed class SchemaBootstrapSmokeTests : IAsyncLifetime
 {
-    private const int CurrentSchemaVersion = 9;
+    private const int CurrentSchemaVersion = 10;
 
     private static readonly string[] ExpectedTables =
     [
@@ -177,7 +177,7 @@ public sealed class SchemaBootstrapSmokeTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task SchemaVersion_IsSeeded_UpTo9_WithVersionAsPrimaryKey()
+    public async Task SchemaVersion_IsSeeded_UpTo10_WithVersionAsPrimaryKey()
     {
         TestDatabase.SkipUnlessAvailable(_dbAvailable);
 

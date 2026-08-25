@@ -232,11 +232,12 @@ public class RoleDeclarationViewModelTests
             DateTime.UtcNow, "seed", null);
 
     private static RoleVersionDto Role(
-        long roleId, string code, string name, bool active = true, bool cancelled = false,
+        long roleId, string code, string name, bool active = true,
+        VersionLifecycleStatus status = VersionLifecycleStatus.Normal,
         DateOnly? from = null, DateOnly? to = null, VersionOperationKind? kind = VersionOperationKind.Add,
         long versionId = 10, bool isAdminRole = false) =>
         new(versionId, roleId, from ?? Today, to ?? Period.OpenEnd, active, code, name, isAdminRole,
-            DateTime.UtcNow, "tester", null, cancelled, kind);
+            DateTime.UtcNow, "tester", null, status, kind);
 
     private static RoleHistoryRow HistoryRow(
         long roleId = 1,
@@ -349,7 +350,7 @@ public class RoleDeclarationViewModelTests
         h.Permissions.ActiveGrants =
         [
             new RolePermissionVersionDto(1, 11, Today, Period.OpenEnd, true, 5, 1, ScopeLevel.Global,
-                DateTime.UtcNow, "tester", null, false, VersionOperationKind.Add),
+                DateTime.UtcNow, "tester", null, VersionLifecycleStatus.Normal, VersionOperationKind.Add),
         ];
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginEditCommand.Execute();
@@ -509,7 +510,7 @@ public class RoleDeclarationViewModelTests
         h.Permissions.ActiveGrants =
         [
             new RolePermissionVersionDto(1, 11, Today, Period.OpenEnd, true, 5, 1, ScopeLevel.Global,
-                DateTime.UtcNow, "tester", null, false, VersionOperationKind.Add),
+                DateTime.UtcNow, "tester", null, VersionLifecycleStatus.Normal, VersionOperationKind.Add),
         ];
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginEditCommand.Execute();
@@ -574,7 +575,7 @@ public class RoleDeclarationViewModelTests
         h.Permissions.ActiveGrants =
         [
             new RolePermissionVersionDto(1, 11, Today, Period.OpenEnd, true, 5, 1, ScopeLevel.Global,
-                DateTime.UtcNow, "tester", null, false, VersionOperationKind.Add),
+                DateTime.UtcNow, "tester", null, VersionLifecycleStatus.Normal, VersionOperationKind.Add),
         ];
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginEditCommand.Execute();
@@ -614,7 +615,7 @@ public class RoleDeclarationViewModelTests
         h.Permissions.ActiveGrants =
         [
             new RolePermissionVersionDto(1, 11, Today, Period.OpenEnd, true, 5, 1, ScopeLevel.Global,
-                DateTime.UtcNow, "tester", null, false, VersionOperationKind.Add),
+                DateTime.UtcNow, "tester", null, VersionLifecycleStatus.Normal, VersionOperationKind.Add),
         ];
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginEditCommand.Execute();
@@ -880,7 +881,7 @@ public class RoleDeclarationViewModelTests
         var h = Build();
         h.Roles.InScopeResult =
         [
-            Role(9, "clerk_role", "Đã hủy vai trò", active: false, cancelled: true),
+            Role(9, "clerk_role", "Đã hủy vai trò", active: false, status: VersionLifecycleStatus.Cancelled),
         ];
         h.Vm.BeginAddCommand.Execute();
         h.Vm.RoleCode = "clerk_role";
@@ -1136,14 +1137,14 @@ public class RoleDeclarationViewModelTests
             // no-predecessor path, so labelling it "the moment this was carried out" would misattribute
             // the cancel to the creator. Must render BLANK.
             new RolePermissionVersionDto(1, 11, Today, Period.OpenEnd, false, 5, 1, ScopeLevel.Global,
-                cancelledTime, "creator", null, true, VersionOperationKind.Add),
+                cancelledTime, "creator", null, VersionLifecycleStatus.Cancelled, VersionOperationKind.Add),
             // B5/MED-5: a NON-cancelled Close remnant — CloseVersionAsync inserts a fresh remnant row with
             // the real actor/moment, so this one must NOT be blanked (the old test never covered this row
             // kind, so it would stay green even if a future change blanked revoke timestamps too).
             new RolePermissionVersionDto(3, 13, Today, Today.AddDays(30), false, 5, 3, ScopeLevel.OwnOrgUnit,
-                revokeTime, "closer", null, false, VersionOperationKind.Close),
+                revokeTime, "closer", null, VersionLifecycleStatus.Normal, VersionOperationKind.Close),
             new RolePermissionVersionDto(2, 12, Today, Period.OpenEnd, true, 5, 2, ScopeLevel.Self,
-                activeTime, "tester", null, false, VersionOperationKind.Add),
+                activeTime, "tester", null, VersionLifecycleStatus.Normal, VersionOperationKind.Add),
         ];
 
         await h.Vm.LoadAsync(5, Today);

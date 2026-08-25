@@ -32,7 +32,7 @@ internal sealed class OrgUnitVersionEntity : IVersionRow
     public string? Phone { get; init; }
     public string? Fax { get; init; }
     public string? Email { get; init; }
-    public bool Cancelled { get; init; }
+    public VersionLifecycleStatus Status { get; init; }
     public VersionOperationKind? OperationKind { get; init; }
     public DateTime RecordedAt { get; init; }
     public string RecordedBy { get; init; } = string.Empty;

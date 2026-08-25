@@ -93,7 +93,7 @@ public sealed class OrgUnitHistoryOperationKindTests : IamRepositoryTestBase
         var history = await OrgUnits.GetHistoryInScopeAsync(GlobalScope, id);
 
         // The target row (the cancelled future plan) keeps whatever kind it was CREATED as (Edit) -- the
-        // cancel UPDATE (isactive=0, cancelled=1) never overwrites operation_kind.
+        // cancel UPDATE (isactive=0, status='cancelled') never overwrites operation_kind.
         var targetRow = history.Single(r => r.Id == future.Value.NewVersionId);
         Assert.Equal(VersionOperationKind.Edit, targetRow.OperationKind);
 

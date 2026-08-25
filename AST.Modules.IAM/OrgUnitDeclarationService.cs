@@ -511,7 +511,7 @@ internal sealed class OrgUnitDeclarationService(
     // on the org_unit_version row this points at, which is their authoritative home. The trim is safe HERE
     // specifically because an Add's own version row records recorded_by, reason and operation_kind='Add'
     // itself, and no later operation rewrites its business columns: a cut or split soft-deactivates it and
-    // inserts new rows, and a cancel only flips isactive/cancelled. Contrast the CANCEL branch, where
+    // inserts new rows, and a cancel only flips isactive/status. Contrast the CANCEL branch, where
     // VersionedRepository.CancelVersionCoreAsync's no-predecessor path leaves the CREATOR's recorded_by
     // untouched -- there the audit row is the ONLY record of who acted, so nothing may be trimmed from it.
     //

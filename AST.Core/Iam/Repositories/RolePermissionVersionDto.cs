@@ -15,5 +15,5 @@ public sealed record RolePermissionVersionDto(
     DateTime RecordedAt,
     string RecordedBy,
     string? Reason,
-    bool Cancelled,
+    VersionLifecycleStatus Status,
     VersionOperationKind? OperationKind = null);

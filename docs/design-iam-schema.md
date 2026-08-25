@@ -60,10 +60,15 @@ CREATE TABLE `org_unit_version` (
   org_reserve_1            VARCHAR(255) NULL,
   org_reserve_2            VARCHAR(255) NULL,
   org_reserve_3            VARCHAR(255) NULL,
-  -- durable "cancelled plan" discriminator: a future version closed while still pending gets isactive=0 AND cancelled=1 --
-  cancelled                TINYINT(1)   NOT NULL DEFAULT 0,
-  -- per-row action recorded on write (Add/Edit/Close/Cancel) -- Phase 4d history-grid read; nullable, no backfill
-  -- for pre-4d rows; enum persisted verbatim via ToString()/Enum.Parse (no other enum-to-column precedent exists).
+  -- durable lifecycle marker (V010, replaced a `cancelled` TINYINT). AST.Core.Data.VersionLifecycleStatus.
+  -- COLLATE _as_cs is load-bearing: under the tables' default _ai_ci, `status = 'cancelled'` also matches
+  -- 'Cancelled' and 'cancelléd', which pass the CHECK and then fail to materialize as an enum name.
+  status                   VARCHAR(10)  COLLATE utf8mb4_0900_as_cs NOT NULL DEFAULT 'normal',
+  -- set only on a `replaced` row, and required there: FK -> org_unit(id), the successor IDENTITY.
+  replaced_by_org_unit_id  BIGINT UNSIGNED NULL,
+  -- per-row action recorded on write (Add/Edit/Close/Cancel/Replace) -- Phase 4d history-grid read; nullable,
+  -- no backfill for pre-4d rows; enum persisted verbatim via ToString()/Enum.Parse (no other enum-to-column
+  -- precedent exists). NO CHECK constraint -- VARCHAR(10) is the only limit.
   operation_kind           VARCHAR(10)  NULL,
   effective_from           DATE NOT NULL,
   effective_to             DATE NOT NULL DEFAULT '9999-12-31',
@@ -81,7 +86,8 @@ CREATE TABLE `org_unit_version` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 ```
 > **Field set finalized 2026-07-22** for the org-unit declaration screen (rename `ma→org_code`, `ten→org_name_full_vn`, add `org_name_short_vn` + the supplemental catalog + the `cancelled` marker). Source of the requirement: the IAM declaration-screens business analysis §2.2/§2.4/§2.6. Applied to `migrations/V001__org_unit.sql`. `role` was renamed too (`ma→role_code`, `ten→role_name`, 2026-08-08, see §1.2) — `user`/`function` still keep `ma`/`ten` until their own screens.
-> **`operation_kind` added 2026-07-31 (Phase 4d)** — per-row action (Add/Edit/Close/Cancel) so the history grid can show WHICH action produced each version row, without heuristically inferring it from the 8-case algebra outcome. See 2026-07-31 and `AST.Core.Data.VersionOperationKind`. Base-repo opt-in flag: `VersionedRepository.RecordsOperationKind` (mirrors `SupportsCancellation`'s pattern) — `org_unit_version`, `role_version`, and `role_permission_version` have this column (2026-08-08).
+> **V010 (2026-08-24) replaced the `cancelled` TINYINT with a `status` VARCHAR(10) on all three version tables**, plus `replaced_by_org_unit_id` on `org_unit_version` only. One column, not two: a boolean beside an enum carrying the same value admits rows that are both and rows that are neither, with no rule saying which wins (design spec §14.3). The invariant `cancelled|replaced ⟹ isactive = 0` is now a row-level `CHECK` (`chk_ouv_status` / `chk_rv_status` / `chk_rpv_status`), **not a promise made by a write path** — that distinction is the whole point of the migration (spec §15.2). `'replaced'` is admitted by `chk_ouv_status` ONLY; role and role-permission versions cannot legally carry it in v1. The `status` columns carry **`COLLATE utf8mb4_0900_as_cs`**, without which the tables' accent- and case-insensitive default would let `'Cancelled'`/`'cancelléd'` satisfy the CHECK and then fail to parse as an enum name (AI Agent `144`/F-02, proven by a run). V010 is arranged in **four phases** — legacy-domain gate, add, backfill + CHECK, and only then destroy — because MySQL implicitly COMMITs each DDL statement, so an abort in any earlier phase must leave `cancelled` intact on all three tables (AI Agent `144`/F-01). ⚠️ DESTRUCTIVE — see V010's own header for the shutdown requirement and the manual recovery path.
+> **`operation_kind` added 2026-07-31 (Phase 4d)** — per-row action (Add/Edit/Close/Cancel; **`Replace` added 2026-08-24**, five values) so the history grid can show WHICH action produced each version row, without heuristically inferring it from the 8-case algebra outcome. See 2026-07-31 and `AST.Core.Data.VersionOperationKind`. Base-repo opt-in flag: `VersionedRepository.RecordsOperationKind` (mirrors `SupportsCancellation`'s pattern) — `org_unit_version`, `role_version`, and `role_permission_version` have this column (2026-08-08).
 - FK points to the **identity**: both `org_unit_id` and `parent_id` → `org_unit(id)` (a live link, D3/§2). `parent_id` NULL = the tree's root unit.
 - `parent_id` sits on the **version** (per the §1 template) → changing the parent = a new version (re-parenting over time). This is why the subtree must resolve the parent by date (§4).
 - **[Q1 settled] `parent_id` is a STRICT temporal-FK edge:** a child `org_unit_version`'s period must be continuously covered end-to-end by parent org-unit versions; the edge is registered in the temporal-FK edge registry (§1.6, §3). The root unit (`parent_id IS NULL`) is exempt from the check.
@@ -99,8 +105,10 @@ CREATE TABLE `role_version` (
   role_code      VARCHAR(20)  NOT NULL,          -- natural key (P6)
   role_name      VARCHAR(100) NOT NULL,
   is_admin_role  TINYINT(1) NOT NULL DEFAULT 0,  -- version-level; <=1 admin-flag role active per day (N-14)
-  cancelled      TINYINT(1) NOT NULL DEFAULT 0,  -- future-plan cancellation marker (N6)
-  operation_kind VARCHAR(10) NULL,               -- Add/Edit/Close/Cancel (Phase 4d history)
+  status         VARCHAR(10) NOT NULL DEFAULT 'normal',  -- lifecycle marker (V010, replaced `cancelled`);
+                                                 -- chk_rv_status: 'normal' OR ('cancelled' AND isactive=0).
+                                                 -- 'replaced' is NOT admitted here -- org-unit only in v1.
+  operation_kind VARCHAR(10) NULL,               -- Add/Edit/Close/Cancel/Replace (Phase 4d history)
   effective_from DATE NOT NULL,
   effective_to   DATE NOT NULL DEFAULT '9999-12-31',
   isactive       TINYINT(1) NOT NULL DEFAULT 1,
@@ -208,7 +216,8 @@ CREATE TABLE `role_permission_version` (
   role_id            BIGINT UNSIGNED NOT NULL,    -- FK -> role(id) (IDENTITY)     — temporal-FK parent
   function_id        BIGINT UNSIGNED NOT NULL,    -- FK -> function(id) (IDENTITY) — temporal-FK parent
   scope_level        TINYINT UNSIGNED NOT NULL,   -- 1..4 = ScopeLevel
-  cancelled          TINYINT(1) NOT NULL DEFAULT 0,
+  status             VARCHAR(10) NOT NULL DEFAULT 'normal',  -- V010, replaced `cancelled`;
+                                     -- chk_rpv_status: 'normal' OR ('cancelled' AND isactive=0). No 'replaced'.
   operation_kind     VARCHAR(10) NULL,
   effective_from     DATE NOT NULL,
   effective_to       DATE NOT NULL DEFAULT '9999-12-31',
@@ -229,7 +238,7 @@ CREATE TABLE `role_permission_version` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 ```
 > **Field set updated 2026-08-08** — add `cancelled`, `operation_kind`; Model 2 wording locked (one write identity per grant). Applied to `migrations/V005__role_permission.sql`.
-- **App-level invariant (Model 2, tightened 2026-08-12):** each grant action creates its own `role_permission` identity, which carries ONE version for life — `(role_id, function_id)` AND `scope_level` are all fixed once written; only the period's END moves, and only to end the grant. A second version on an existing grant identity is a defect, not a supported edit. **ENFORCED at the repository boundary (2026-08-13), on both writers.** The PERIOD half: both grant `Upsert` writers reject bounded ends and any start other than the operation date (no unchanged-start carve-out survives on either entity — the `role` one went 2026-08-13 with the ruling that a role edit takes effect from today rather than rewriting the running version). The IDENTITY half: `RolePermissionRepository.ValidateUpsertAsync` rejects an upsert on an identity that already has ANY version row with `RolePermission.IdentityAlreadyVersioned`. The probe is existence-**any**, not as-of-today and not `isactive = 1`, and the two filters fail on different shapes: an as-of-today read calls a REVOKED identity empty (its remnant ends yesterday), while an `isactive = 1` read still finds that remnant but calls a CANCELLED-only identity empty (its sole version is `isactive = 0, cancelled = 1`, with no predecessor to restore). Either filter would let such an identity be re-granted in place. It runs under the identity's named lock on both paths (see the `VersionedRepository` row in `docs/shared-components.md` for why the seam sits at the top of `ApplyUpsertPlanAsync`), so two cooperating writers racing on one fresh identity produce exactly one version. That lock does not serialise direct SQL, which the §12 duplicate-natural-key sweep still backstops. Two identities for the same `(role_id, function_id)` may not have overlapping active periods (D6-style, validated at the app level + §12 duplicate-natural-key sweep on `(role_id, function_id)`).
+- **App-level invariant (Model 2, tightened 2026-08-12):** each grant action creates its own `role_permission` identity, which carries ONE version for life — `(role_id, function_id)` AND `scope_level` are all fixed once written; only the period's END moves, and only to end the grant. A second version on an existing grant identity is a defect, not a supported edit. **ENFORCED at the repository boundary (2026-08-13), on both writers.** The PERIOD half: both grant `Upsert` writers reject bounded ends and any start other than the operation date (no unchanged-start carve-out survives on either entity — the `role` one went 2026-08-13 with the ruling that a role edit takes effect from today rather than rewriting the running version). The IDENTITY half: `RolePermissionRepository.ValidateUpsertAsync` rejects an upsert on an identity that already has ANY version row with `RolePermission.IdentityAlreadyVersioned`. The probe is existence-**any**, not as-of-today and not `isactive = 1`, and the two filters fail on different shapes: an as-of-today read calls a REVOKED identity empty (its remnant ends yesterday), while an `isactive = 1` read still finds that remnant but calls a CANCELLED-only identity empty (its sole version is `isactive = 0, status = 'cancelled'`, with no predecessor to restore). Either filter would let such an identity be re-granted in place. It runs under the identity's named lock on both paths (see the `VersionedRepository` row in `docs/shared-components.md` for why the seam sits at the top of `ApplyUpsertPlanAsync`), so two cooperating writers racing on one fresh identity produce exactly one version. That lock does not serialise direct SQL, which the §12 duplicate-natural-key sweep still backstops. Two identities for the same `(role_id, function_id)` may not have overlapping active periods (D6-style, validated at the app level + §12 duplicate-natural-key sweep on `(role_id, function_id)`).
 - **STRICT temporal-FK (D8):** saving `role_permission_version [F,T]` → `role_id` (via `role_version`) AND `function_id` (via `function_version`) must continuously cover the entire `[F,T]`. The `function` epoch `2000-01-01` ensures the function edge covers almost always; the role edge depends on the role's period.
 - `scope_level` maps to the scope level: 1=Self, 2=OwnOrgUnit, 3=OwnOrgUnitAndDescendants, 4=Global.
 

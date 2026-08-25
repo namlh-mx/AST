@@ -837,7 +837,7 @@ public sealed class RoleRepositoryTests : IamRepositoryTestBase
         await using var connection = new MySqlConnection(ConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         return await connection.QuerySingleAsync<VersionFlags>(
-            "SELECT isactive AS IsActive, cancelled AS Cancelled FROM role_version WHERE id = @versionId",
+            "SELECT isactive AS IsActive, (status = 'cancelled') AS Cancelled FROM role_version WHERE id = @versionId",
             new { versionId });
     }
 

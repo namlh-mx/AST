@@ -651,7 +651,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             EffectiveTo = IsUndetermined ? null : dto.EffectiveTo;
             ParentId = dto.ParentId;
             IsRoot = dto.ParentId is null;
-            Status = VersionStatusResolver.Resolve(dto.IsActive, dto.Cancelled, dto.EffectiveFrom, dto.EffectiveTo, _dates.Today);
+            Status = VersionStatusResolver.Resolve(dto.IsActive, dto.Status, dto.EffectiveFrom, dto.EffectiveTo, _dates.Today);
             Reason = string.Empty;
             Supplemental = dto.Supplemental;
             StatusMessage = null;
@@ -689,7 +689,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // Read-only enforcement: Mode is left at ReadOnly by Clear() below, same as any other view. CanEdit/
     // CanClose are gated on Status (`Mode == ReadOnly && Status is Effective or Pending`) -- and Status here
     // is the row's OWN computed status (MapHistoryRow, via VersionStatusResolver on that row's own
-    // isactive/dates). This is NOT restricted to Expired/Cancelled rows: a future-dated PLAN row is
+    // isactive/status/dates). This is NOT restricted to Expired/Cancelled/Replaced rows: a future-dated PLAN row is
     // isactive=1, is not the version the card resolves at today, yet still resolves to Pending here -- and
     // CanEdit/CanClose being reachable for it is intentional (cancelling a pending plan from its own history
     // row is a real operation, same as reaching it via the tree). What this path guarantees is narrower:
@@ -867,7 +867,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             ? string.Empty
             : $"{dto.ParentOrgCodeAsOf} — {dto.ParentOrgNameFullVnAsOf}";
 
-        var status = VersionStatusResolver.Resolve(dto.IsActive, dto.Cancelled, dto.EffectiveFrom, dto.EffectiveTo, _dates.Today);
+        var status = VersionStatusResolver.Resolve(dto.IsActive, dto.Status, dto.EffectiveFrom, dto.EffectiveTo, _dates.Today);
 
         return new OrgUnitHistoryRow(
             Id: dto.Id,

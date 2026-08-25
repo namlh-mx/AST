@@ -17,7 +17,7 @@ public sealed record OrgUnitVersionDto(
     string RecordedBy,
     string? Reason,
     OrgUnitSupplementalDto Supplemental,
-    bool Cancelled,
+    VersionLifecycleStatus Status,
     // Nullable: pre-4d rows in a real DB would have NULL (today's DB is pre-release/empty, so this is
     // theoretical) -- also null on every read path except GetHistoryInScopeAsync (see OrgUnitVersionEntity).
     VersionOperationKind? OperationKind = null,

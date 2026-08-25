@@ -11,7 +11,8 @@ namespace AST.Modules.IAM.Tests.TestSupport;
 
 // TEST-ONLY double for Seam-2 gap F3 (Cancel + P11 auto-cut). Originally written because no PRODUCTION
 // entity had both `SupportsCancellation` AND a declared `ExclusivelyOwnedDependents` edge; Role has had
-// BOTH since brief 058 (`cancelled` column — migrations/V002__role.sql; `role_permission_version`
+// BOTH since brief 058 (a cancellable lifecycle state — migrations/V002__role.sql added it as a `cancelled`
+// column, V010 replaced that with `status`; `role_permission_version`
 // exclusively owned by role — RoleRepository.cs), and Cancel + P11 together is now also proven end-to-end
 // against the PRODUCTION `RoleRepository` (AST.Modules.IAM.Tests/Integration/AutoCutDependentTests.cs,
 // `CancelRole_*` tests). This subclass reuses org_unit_version's REAL schema/columns (no new migration,
@@ -37,8 +38,8 @@ internal sealed class SelfOwningOrgUnitRepository(
 
     protected override IReadOnlyList<AutoCutDependent> ExclusivelyOwnedDependents =>
     [
-        // DependentSupportsCancellation: false — deliberate, even though org_unit_version HAS a
-        // `cancelled` column (V001__org_unit.sql:37). This double exists to give the shared engine a
+        // DependentSupportsCancellation: false — deliberate, even though org_unit_version CAN record a
+        // cancelled state (its `status` column, V010). This double exists to give the shared engine a
         // second, differently-shaped edge to auto-cut against, and its two Cancel tests pin the
         // shrink-only outcome. Keeping it opted OUT (a) preserves exactly what those tests were
         // written to prove, and (b) makes this the suite's only live proof that the new flag GATES

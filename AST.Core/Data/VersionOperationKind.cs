@@ -6,4 +6,4 @@ namespace AST.Core.Data;
 // the new period plus a remnant row that ALSO carries the same Edit kind, since both are consequences of the
 // same action). Persisted verbatim via `ToString()`/`Enum.Parse` (no other enum-to-DB-column precedent exists
 // in this codebase to follow -- VersionStatus is resolved at read time, never persisted).
-public enum VersionOperationKind { Add, Edit, Close, Cancel }
+public enum VersionOperationKind { Add, Edit, Close, Cancel, Replace }

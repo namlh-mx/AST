@@ -15,7 +15,7 @@ internal sealed class RolePermissionVersionEntity : IVersionRow
     public long RoleId { get; init; }
     public long FunctionId { get; init; }
     public ScopeLevel ScopeLevel { get; init; }
-    public bool Cancelled { get; init; }
+    public VersionLifecycleStatus Status { get; init; }
     public VersionOperationKind? OperationKind { get; init; }
     public DateTime RecordedAt { get; init; }
     public string RecordedBy { get; init; } = string.Empty;

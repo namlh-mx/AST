@@ -103,7 +103,7 @@ public abstract class VersionedRepository<TVersion> : IVersionedWriteTarget wher
     protected virtual string GapBlockErrorCode => $"{VersionTable}.GapNotAllowed";
 
     // Opt-in: entity supports canceling a version with no completed effective day (starting today or later, N6). Default false —
-    // other IAM repos have no `cancelled` column; SELECT includes it only when overridden true.
+    // other IAM repos have no `status` column; SELECT includes it only when overridden true.
     protected virtual bool SupportsCancellation => false;
 
     // Opt-in: entity records WHICH user-facing action (Add/Edit/Close/Cancel) produced each written row
@@ -451,7 +451,7 @@ public abstract class VersionedRepository<TVersion> : IVersionedWriteTarget wher
     // CANCEL a version that has NOT completed a single effective day (N6): the target must be an isactive=1
     // version whose EffectiveFrom is >= business "today" — i.e. a still-pending future plan OR one that only
     // starts today (requester decision D1, 2026-08-10: such a version "never really counted"). Sets
-    // isactive=0 AND cancelled=1 — distinct from CloseVersionAsync, which retires a version that has already
+    // isactive=0 AND status='cancelled' — distinct from CloseVersionAsync, which retires a version that has already
     // been effective for at least one full day by shrinking its coverage.
     //
     // Predecessor-coverage restore: creating a future plan commonly OVERLAP-CUTS
@@ -622,7 +622,7 @@ public abstract class VersionedRepository<TVersion> : IVersionedWriteTarget wher
         }
 
         await connection.ExecuteAsync(
-            $"UPDATE {VersionTable} SET isactive = 0, cancelled = 1 WHERE id = @id", new { id = versionId }, transaction);
+            $"UPDATE {VersionTable} SET isactive = 0, status = 'cancelled' WHERE id = @id", new { id = versionId }, transaction);
 
         if (predecessor is not null)
         {
@@ -1177,7 +1177,7 @@ public abstract class VersionedRepository<TVersion> : IVersionedWriteTarget wher
                     }
 
                     await connection.ExecuteAsync(
-                        $"UPDATE {dep.DependentVersionTable} SET isactive = 0, cancelled = 1 WHERE id = @id",
+                        $"UPDATE {dep.DependentVersionTable} SET isactive = 0, status = 'cancelled' WHERE id = @id",
                         new { id = (long)row.Id },
                         transaction);
 
@@ -1206,7 +1206,7 @@ public abstract class VersionedRepository<TVersion> : IVersionedWriteTarget wher
                     // still shrunk, not cancelled. The cancel branch above is the only place a dependent is
                     // cancelled, and it deliberately leaves the row's operation_kind alone — exactly as
                     // CancelVersionCoreAsync leaves the TARGET version's kind alone and records the fact in
-                    // `cancelled` instead.
+                    // `status` instead.
                     VersionOperationKind.Close);
 
                 outcomes.Add(new AutoCutOutcome(
@@ -1244,7 +1244,7 @@ public abstract class VersionedRepository<TVersion> : IVersionedWriteTarget wher
               AND TABLE_NAME = @table
               AND COLUMN_NAME NOT IN (
                   'id', 'effective_from', 'effective_to', 'isactive',
-                  'recorded_at', 'recorded_by', 'reason', 'cancelled')
+                  'recorded_at', 'recorded_by', 'reason', 'status', 'replaced_by_org_unit_id')
             ORDER BY ORDINAL_POSITION
             """,
             new { table = versionTable },
@@ -1290,7 +1290,7 @@ public abstract class VersionedRepository<TVersion> : IVersionedWriteTarget wher
         };
         if (SupportsCancellation)
         {
-            common.Add(("cancelled", "Cancelled"));
+            common.Add(("status", "Status"));
         }
 
         return string.Join(", ", common.Concat(BusinessColumns).Select(c => $"{Alias}.{c.Column} AS {c.Property}"));

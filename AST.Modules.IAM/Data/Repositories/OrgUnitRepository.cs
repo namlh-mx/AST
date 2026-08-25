@@ -31,7 +31,7 @@ internal sealed class OrgUnitRepository(
     protected override bool GapIsBlocking => true;
     protected override string GapBlockErrorCode => "OrgUnit.GapNotAllowed";
 
-    // N6: future-plan cancellation ("Bị hủy") — SELECT includes `cancelled` only when opted in.
+    // N6: future-plan cancellation ("Bị hủy") — SELECT includes `status` only when opted in.
     protected override bool SupportsCancellation => true;
 
     // Phase 4d: org-unit history grid needs to know WHICH action (Add/Edit/Close/Cancel) produced each row.
@@ -358,7 +358,7 @@ internal sealed class OrgUnitRepository(
                    recorded_at AS RecordedAt,
                    recorded_by AS RecordedBy,
                    reason AS Reason,
-                   cancelled AS Cancelled,
+                   status AS Status,
                    {businessSelect}
             FROM org_unit_version
             WHERE isactive = 1 AND org_unit_id = @orgUnitId
@@ -402,7 +402,7 @@ internal sealed class OrgUnitRepository(
                    h.recorded_at AS RecordedAt,
                    h.recorded_by AS RecordedBy,
                    h.reason AS Reason,
-                   h.cancelled AS Cancelled,
+                   h.status AS Status,
                    h.operation_kind AS OperationKind,
                    p.org_code AS ParentOrgCodeAsOf,
                    p.org_name_full_vn AS ParentOrgNameFullVnAsOf,
@@ -529,7 +529,7 @@ internal sealed class OrgUnitRepository(
                 e.Phone,
                 e.Fax,
                 e.Email),
-            e.Cancelled,
+            e.Status,
             e.OperationKind,
             e.ParentOrgCodeAsOf,
             e.ParentOrgNameFullVnAsOf);

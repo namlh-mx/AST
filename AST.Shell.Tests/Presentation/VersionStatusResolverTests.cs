@@ -1,60 +1,79 @@
+using AST.Core.Data;
 using AST.Core.EffectivePeriod;
 using AST.Core.Presentation;
+using FluentAssertions;
 
 namespace AST.Shell.Tests.Presentation;
 
-// §2.7.3 status-label table, exhaustively: isactive/cancelled/dates -> the shared 4-state VersionStatus.
+// §2.7.3 status-label table, exhaustively: isactive/status/dates -> the shared VersionStatus.
 // Cancelled (N6) must win over date-based inference even when the dates alone would look "effective" --
-// the durable `cancelled` marker is the ONLY discriminator, never inferred from dates (§8 #10).
+// the durable lifecycle marker is the ONLY discriminator, never inferred from dates (§8 #10).
 public class VersionStatusResolverTests
 {
     private static readonly DateOnly Today = new(2026, 7, 24);
 
     [Fact]
     public void Inactive_Cancelled_IsBiHuy()
-        => Assert.Equal(
-            VersionStatus.Cancelled,
-            VersionStatusResolver.Resolve(isActive: false, cancelled: true, Today.AddDays(10), EffectivePeriod.OpenEnd, Today));
+        => VersionStatusResolver.Resolve(
+                isActive: false, status: VersionLifecycleStatus.Cancelled,
+                Today.AddDays(10), EffectivePeriod.OpenEnd, Today)
+            .Should().Be(VersionStatus.Cancelled);
 
     [Fact]
     public void Inactive_NotCancelled_IsHetHieuLuc()
-        => Assert.Equal(
-            VersionStatus.Expired,
-            VersionStatusResolver.Resolve(isActive: false, cancelled: false, Today.AddDays(-30), Today.AddDays(-1), Today));
+        => VersionStatusResolver.Resolve(
+                isActive: false, status: VersionLifecycleStatus.Normal,
+                Today.AddDays(-30), Today.AddDays(-1), Today)
+            .Should().Be(VersionStatus.Expired);
 
     [Fact]
     public void Active_EndedBeforeToday_IsHetHieuLuc()
-        => Assert.Equal(
-            VersionStatus.Expired,
-            VersionStatusResolver.Resolve(isActive: true, cancelled: false, Today.AddDays(-30), Today.AddDays(-1), Today));
+        => VersionStatusResolver.Resolve(
+                isActive: true, status: VersionLifecycleStatus.Normal,
+                Today.AddDays(-30), Today.AddDays(-1), Today)
+            .Should().Be(VersionStatus.Expired);
 
     [Fact]
     public void Active_CoveringToday_IsHieuLuc()
-        => Assert.Equal(
-            VersionStatus.Effective,
-            VersionStatusResolver.Resolve(isActive: true, cancelled: false, Today.AddDays(-10), Today.AddDays(10), Today));
+        => VersionStatusResolver.Resolve(
+                isActive: true, status: VersionLifecycleStatus.Normal,
+                Today.AddDays(-10), Today.AddDays(10), Today)
+            .Should().Be(VersionStatus.Effective);
 
     [Fact]
     public void Active_StartsExactlyToday_IsHieuLuc()
-        => Assert.Equal(
-            VersionStatus.Effective,
-            VersionStatusResolver.Resolve(isActive: true, cancelled: false, Today, Today.AddDays(10), Today));
+        => VersionStatusResolver.Resolve(
+                isActive: true, status: VersionLifecycleStatus.Normal,
+                Today, Today.AddDays(10), Today)
+            .Should().Be(VersionStatus.Effective);
 
     [Fact]
     public void Active_EndsExactlyToday_IsHieuLuc()
-        => Assert.Equal(
-            VersionStatus.Effective,
-            VersionStatusResolver.Resolve(isActive: true, cancelled: false, Today.AddDays(-10), Today, Today));
+        => VersionStatusResolver.Resolve(
+                isActive: true, status: VersionLifecycleStatus.Normal,
+                Today.AddDays(-10), Today, Today)
+            .Should().Be(VersionStatus.Effective);
 
     [Fact]
     public void Active_StartsInTheFuture_IsChoHieuLuc()
-        => Assert.Equal(
-            VersionStatus.Pending,
-            VersionStatusResolver.Resolve(isActive: true, cancelled: false, Today.AddDays(1), EffectivePeriod.OpenEnd, Today));
+        => VersionStatusResolver.Resolve(
+                isActive: true, status: VersionLifecycleStatus.Normal,
+                Today.AddDays(1), EffectivePeriod.OpenEnd, Today)
+            .Should().Be(VersionStatus.Pending);
 
     [Fact]
     public void Inactive_Cancelled_TakesPrecedenceEvenIfDatesLookCurrentlyEffective()
-        => Assert.Equal(
-            VersionStatus.Cancelled,
-            VersionStatusResolver.Resolve(isActive: false, cancelled: true, Today.AddDays(-5), Today.AddDays(5), Today));
+        => VersionStatusResolver.Resolve(
+                isActive: false, status: VersionLifecycleStatus.Cancelled,
+                Today.AddDays(-5), Today.AddDays(5), Today)
+            .Should().Be(VersionStatus.Cancelled);
+
+    [Fact]
+    public void Resolve_ReplacedRow_ReturnsReplaced()
+    {
+        VersionStatusResolver.Resolve(
+                isActive: false, status: VersionLifecycleStatus.Replaced,
+                Today.AddDays(-30), Today.AddDays(30), Today)
+            .Should().Be(VersionStatus.Replaced);
+    }
 }

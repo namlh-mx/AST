@@ -14,6 +14,10 @@ public static class VersionOperationKindPresentation
         VersionOperationKind.Edit => "Sửa",
         VersionOperationKind.Close => "Đóng",
         VersionOperationKind.Cancel => "Hủy",
+        VersionOperationKind.Replace => "Thay thế",
+        // A label map is called at render time — throwing would turn a missing label into a crashed screen.
+        // The reflection test in VersionOperationKindPresentationTests is the mechanical guard that catches
+        // a missing label at test time instead; a guard, not a promise.
         _ => string.Empty,
     };
 }

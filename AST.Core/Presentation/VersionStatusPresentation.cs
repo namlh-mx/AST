@@ -10,6 +10,7 @@ public static class VersionStatusPresentation
     public static string DisplayText(VersionStatus status) => status switch
     {
         VersionStatus.Cancelled => "Bị hủy",
+        VersionStatus.Replaced => "Bị thay thế",
         VersionStatus.Expired => "Hết hiệu lực",
         VersionStatus.Effective => "Hiệu lực",
         VersionStatus.Pending => "Chờ hiệu lực",
@@ -23,6 +24,9 @@ public static class VersionStatusPresentation
         VersionStatus.Effective => "AstSuccessBrush",
         VersionStatus.Pending => "AstAccentLinkBrush",
         VersionStatus.Cancelled => "AstErrorBrush",
+        // Deliberately matches Expired's muted treatment: a replaced row is isactive = 0 and today
+        // already renders muted via the `_` fallthrough, so this is a no-visual-change choice, not a new colour.
+        VersionStatus.Replaced => "AstTextSecondaryBrush",
         _ => "AstTextSecondaryBrush",
     };
 }

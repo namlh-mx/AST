@@ -558,7 +558,7 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
             // instead, which re-reads the row fresh; they resolve correctly through the date-coverage
             // route because they are isactive=1 as of today.
             //
-            // Expired/Cancelled rows are NOT actionable (CanEdit/CanClose already exclude them), so
+            // Expired/Cancelled/Replaced rows are NOT actionable (CanEdit/CanClose already exclude them), so
             // staleness cannot hurt them here -- and they are exactly the rows LoadAsync's date-resolved
             // route gets WRONG for a lapsed identity (defect A): GetByIdentityAsync/EffectivePeriodResolver
             // requires SOME version to cover a date, which a superseded (isactive=0) or fully-lapsed

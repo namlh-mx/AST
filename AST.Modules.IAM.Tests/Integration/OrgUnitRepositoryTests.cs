@@ -161,7 +161,7 @@ public sealed class OrgUnitRepositoryTests : IamRepositoryTestBase
         Assert.False(cancel.IsError, DescribeErrors(cancel.Errors));
 
         var history = await OrgUnits.GetHistoryInScopeAsync(GlobalScope, id);
-        Assert.Contains(history, r => r.Id == future.Value.NewVersionId && r.Cancelled && !r.IsActive);
+        Assert.Contains(history, r => r.Id == future.Value.NewVersionId && r.Status == VersionLifecycleStatus.Cancelled && !r.IsActive);
     }
 
     // Ordering changed (requester-approved) from EffectiveFrom-descending to RecordedAt (audit

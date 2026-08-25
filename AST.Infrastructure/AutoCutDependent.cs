@@ -25,7 +25,8 @@ namespace AST.Infrastructure;
 //   DependentVersionTable  — e.g. "role_permission_version"
 //   DependentParentColumn  — the column on the dependent pointing back at this parent identity, e.g. "role_id"
 //   DependentIdentityColumn— the dependent's own identity column, e.g. "role_permission_id"
-//   DependentSupportsCancellation — whether that table has a `cancelled` column, i.e. whether the
+//   DependentSupportsCancellation — whether that table can record a cancelled lifecycle state (its
+//       `status` column, V010 — this said "a `cancelled` column" until that migration dropped it), i.e. whether the
 //       engine may cancel a dependent that can never take effect (B1, 2026-08-15) instead of failing
 //       the parent's write. Declared per edge, not inferred: the parent repository cannot see the
 //       dependent repository's SupportsCancellation, and guessing from INFORMATION_SCHEMA would make

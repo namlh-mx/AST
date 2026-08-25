@@ -63,7 +63,7 @@ public interface IOrgUnitRepository
     Task<ErrorOr<UpsertResult>> DeleteVersionAsync(long orgUnitId, long versionId);
 
     // Cancels a version that has NOT completed a single effective day (N6, requester decision D1
-    // 2026-08-10): isactive=0 AND cancelled=1. `operationDate` is the CALLER-supplied operation date
+    // 2026-08-10): isactive=0 AND status='cancelled'. `operationDate` is the CALLER-supplied operation date
     // (design-effective-period.md §3 -- captured ONCE by the caller for this whole operation, e.g.
     // IOrgUnitDeclarationService's derived-branch date; TASK 0, 2026-08-11), NOT re-read from any
     // engine-internal clock -- the boundary is the caller-supplied operation date, not "business

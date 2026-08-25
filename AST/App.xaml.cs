@@ -25,8 +25,8 @@ namespace AST;
 
 public partial class App : PrismApplication
 {
-    // V001..V009 currently exist -> the app expects schema version 9 (re-verify when adding a migration).
-    private const int ExpectedSchemaVersion = 9;
+    // V001..V010 currently exist -> the app expects schema version 10 (re-verify when adding a migration).
+    private const int ExpectedSchemaVersion = 10;
 
     // Last line of defense (rule-platform-infra #1): every async void handler in this app is expected to
     // try/catch itself, but there is otherwise NO app-level net -- an exception escaping any of them (or a

@@ -221,7 +221,8 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     private static OrgUnitVersionDto Dto(
-        long orgUnitId, long? parentId, DateOnly from, DateOnly to, bool isActive = true, bool cancelled = false, long id = 1,
+        long orgUnitId, long? parentId, DateOnly from, DateOnly to, bool isActive = true,
+        VersionLifecycleStatus status = VersionLifecycleStatus.Normal, long id = 1,
         OrgUnitSupplementalDto? supplemental = null, string orgCode = "ABC", string orgNameFullVn = "Đon vị đầy đủ",
         string orgNameShortVn = "Đon vị", VersionOperationKind? operationKind = null, string? parentOrgCodeAsOf = null,
         string? parentOrgNameFullVnAsOf = null) =>
@@ -229,7 +230,7 @@ public class OrgUnitDeclarationViewModelTests
             Id: id, OrgUnitId: orgUnitId, EffectiveFrom: from, EffectiveTo: to, IsActive: isActive,
             OrgCode: orgCode, OrgNameFullVn: orgNameFullVn, OrgNameShortVn: orgNameShortVn,
             ParentId: parentId, RecordedAt: DateTime.UtcNow, RecordedBy: "tester", Reason: "seed",
-            Supplemental: supplemental ?? new OrgUnitSupplementalDto(), Cancelled: cancelled,
+            Supplemental: supplemental ?? new OrgUnitSupplementalDto(), Status: status,
             OperationKind: operationKind, ParentOrgCodeAsOf: parentOrgCodeAsOf, ParentOrgNameFullVnAsOf: parentOrgNameFullVnAsOf);
 
     private sealed class FakeAuthorizationService : IAuthorizationService
@@ -758,27 +759,31 @@ public class OrgUnitDeclarationViewModelTests
         Assert.True(vm.IsDirty);
     }
 
-    // Card context -> (isActive, cancelled, effectiveFrom, parentId) crafted so VersionStatusResolver naturally
+    // Card context -> (isActive, status, effectiveFrom, parentId) crafted so VersionStatusResolver naturally
     // produces the row's §2.7.3 status via the real LoadAsync path — no reflection, no bypassing the resolver.
     public static IEnumerable<object?[]> ButtonMatrixCases()
     {
-        // name, isActive, cancelled, effectiveFrom (offset days from Today as string, or null), parentId, canAdd, canEdit, canClose
+        // name, isActive, status, effectiveFrom (offset days from Today as string, or null), parentId, canAdd, canEdit, canClose
         // object?[] + IEnumerable<object?[]>: bare null under NRT+TreatWarningsAsErrors (brief's [] form is CS8625).
-        yield return new object?[] { "Bi huy", false, true, null, 5L, true, false, false };
-        yield return new object?[] { "Het hieu luc", false, false, null, 5L, true, false, false };
-        yield return new object?[] { "Hieu luc non-root", true, false, "-1", 5L, true, true, true };
-        yield return new object?[] { "Hieu luc root", true, false, "-1", null, true, true, false };
-        yield return new object?[] { "Cho hieu luc", true, false, "1", 5L, true, true, true };
+        yield return new object?[] { "Bi huy", false, VersionLifecycleStatus.Cancelled, null, 5L, true, false, false };
+        yield return new object?[] { "Het hieu luc", false, VersionLifecycleStatus.Normal, null, 5L, true, false, false };
+        // Bi thay the: the claim that a fifth VersionStatus changes no gate answer was, until this row,
+        // carried only by prose in a report (AI Agent MED-4, 2026-08-24). It drives the real resolver,
+        // so it fails for real if Replaced ever starts resolving to Effective or Pending.
+        yield return new object?[] { "Bi thay the", false, VersionLifecycleStatus.Replaced, null, 5L, true, false, false };
+        yield return new object?[] { "Hieu luc non-root", true, VersionLifecycleStatus.Normal, "-1", 5L, true, true, true };
+        yield return new object?[] { "Hieu luc root", true, VersionLifecycleStatus.Normal, "-1", null, true, true, false };
+        yield return new object?[] { "Cho hieu luc", true, VersionLifecycleStatus.Normal, "1", 5L, true, true, true };
     }
 
     [Theory]
     [MemberData(nameof(ButtonMatrixCases))]
     public async Task ButtonMatrix_MatchesSpec2710(
-        string _, bool isActive, bool cancelled, string? fromOffsetDays, long? parentId, bool canAdd, bool canEdit, bool canClose)
+        string _, bool isActive, VersionLifecycleStatus status, string? fromOffsetDays, long? parentId, bool canAdd, bool canEdit, bool canClose)
     {
         var (vm, repo) = Build();
         var from = fromOffsetDays is null ? Today.AddDays(-30) : Today.AddDays(int.Parse(fromOffsetDays));
-        repo.ByIdentityResult = Dto(1, parentId, from, EffectivePeriod.OpenEnd, isActive, cancelled);
+        repo.ByIdentityResult = Dto(1, parentId, from, EffectivePeriod.OpenEnd, isActive, status);
 
         await vm.LoadAsync(1, Today);
 
@@ -3054,7 +3059,7 @@ public class OrgUnitDeclarationViewModelTests
             new FakeAuthorizationService(), confirm, new FakeBreakGlassPolicy());
         repo.ByIdentityResult = Dto(1, parentId: 5, Today, EffectivePeriod.OpenEnd, id: 88);
         repo.ByIdentityResultAfterClose = Dto(
-            1, parentId: 5, Today.AddDays(-30), Today.AddDays(-1), id: 55, isActive: false, cancelled: true);
+            1, parentId: 5, Today.AddDays(-30), Today.AddDays(-1), id: 55, isActive: false, status: VersionLifecycleStatus.Cancelled);
         await vm.LoadAsync(1, Today);
         vm.BeginCloseCommand.Execute();
         vm.Reason = "hủy cùng ngày hiệu lực";

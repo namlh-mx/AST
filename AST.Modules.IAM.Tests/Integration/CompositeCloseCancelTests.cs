@@ -96,7 +96,7 @@ public sealed class CompositeCloseCancelTests : IamRepositoryTestBase
 
     // ---------------------------------------------------------------------------------------
     // Parity — CancelVersionAsync(context, ...) vs CancelVersionAsync(...), via the test-only
-    // SelfOwningOrgUnitRepository (only org_unit_version has `cancelled`, and CancelPlanAsync there
+    // SelfOwningOrgUnitRepository (org_unit_version records the cancelled state in `status`, and CancelPlanAsync there
     // wraps the protected base call, same shape as OrgUnitRepository.CancelPlanAsync).
     // ---------------------------------------------------------------------------------------
 
@@ -400,7 +400,7 @@ public sealed class CompositeCloseCancelTests : IamRepositoryTestBase
         await using var connection = new MySqlConnection(ConnectionString);
         await connection.OpenAsync();
         return await connection.ExecuteScalarAsync<bool>(
-            "SELECT cancelled FROM org_unit_version WHERE id = @versionId", new { versionId });
+            "SELECT (status = 'cancelled') FROM org_unit_version WHERE id = @versionId", new { versionId });
     }
 
     private async Task<long> CountVersionRowsAsync(string versionTable, string identityColumn, long identityId)

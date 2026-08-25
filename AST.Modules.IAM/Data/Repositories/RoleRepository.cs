@@ -361,7 +361,7 @@ internal sealed class RoleRepository(
                    h.recorded_at AS RecordedAt,
                    h.recorded_by AS RecordedBy,
                    h.reason AS Reason,
-                   h.cancelled AS Cancelled,
+                   h.status AS Status,
                    h.operation_kind AS OperationKind,
                    {businessSelect}
             FROM role_version h
@@ -497,5 +497,5 @@ internal sealed class RoleRepository(
     private static RoleVersionDto ToDto(RoleVersionEntity e) =>
         new(e.Id, e.IdentityId, e.EffectiveFrom, e.EffectiveTo, e.IsActive,
             e.RoleCode, e.RoleName, e.IsAdminRole, e.RecordedAt, e.RecordedBy, e.Reason,
-            e.Cancelled, e.OperationKind);
+            e.Status, e.OperationKind);
 }

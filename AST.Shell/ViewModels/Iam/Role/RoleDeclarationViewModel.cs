@@ -826,7 +826,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
             RaisePropertyChanged(nameof(IsAdminRole));
             Note = dto.Reason ?? string.Empty;
             Status = VersionStatusResolver.Resolve(
-                dto.IsActive, dto.Cancelled, dto.EffectiveFrom, dto.EffectiveTo, _dates.Today);
+                dto.IsActive, dto.Status, dto.EffectiveFrom, dto.EffectiveTo, _dates.Today);
             Mode = RoleCardMode.ReadOnly;
 
             var period = new Period(dto.EffectiveFrom, dto.EffectiveTo);
@@ -878,7 +878,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
             RaisePropertyChanged(nameof(IsAdminRole));
             RaisePropertyChanged(nameof(GrantsGridOverlayText));
             Note = row.Note;
-            // Row's own Status from MapHistoryRow (IsActive/Cancelled) — do not re-resolve as-of today.
+            // Row's own Status from MapHistoryRow (IsActive/Status) — do not re-resolve as-of today.
             Status = row.Status;
             Mode = RoleCardMode.ReadOnly;
 
@@ -984,7 +984,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
                             // creator, so it renders BLANK rather than the creator's timestamp. Revoke rows
                             // are unaffected (CloseVersionAsync inserts a fresh remnant row with the real
                             // actor/moment).
-                            h.Cancelled
+                            h.Status == VersionLifecycleStatus.Cancelled
                                 ? string.Empty
                                 : h.RecordedAt.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture),
                             h.RecordedBy,
@@ -1158,7 +1158,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
                 return;
 
             var status = VersionStatusResolver.Resolve(
-                hit.IsActive, hit.Cancelled, hit.EffectiveFrom, hit.EffectiveTo, today);
+                hit.IsActive, hit.Status, hit.EffectiveFrom, hit.EffectiveTo, today);
             if (status is not (VersionStatus.Effective or VersionStatus.Pending))
                 return;
 
@@ -1201,7 +1201,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
     private RoleHistoryRow MapHistoryRow(RoleVersionDto dto)
     {
         var status = VersionStatusResolver.Resolve(
-            dto.IsActive, dto.Cancelled, dto.EffectiveFrom, dto.EffectiveTo, _dates.Today);
+            dto.IsActive, dto.Status, dto.EffectiveFrom, dto.EffectiveTo, _dates.Today);
         return new RoleHistoryRow(
             dto.RoleId,
             dto.Id,

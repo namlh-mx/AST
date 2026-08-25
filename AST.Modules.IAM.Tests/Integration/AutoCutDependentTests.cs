@@ -87,7 +87,7 @@ public sealed class AutoCutDependentTests : IamRepositoryTestBase
     // B1 that grant has not completed a single effective day when the role closes at CutAt (Today-1),
     // so it is now CANCELLED with the role instead of blocking the whole close — this test's every
     // assertion not about that changed behaviour (unchanged role row shape) survives, and "auto-cut is
-    // entered, not bypassed" now reads directly off `cancelled = 1` rather than an error code (the
+    // entered, not bypassed" now reads directly off the durable cancelled marker rather than an error code (the
     // original test never pinned a code either — see Step 1's report).
     [Fact]
     public async Task CloseRole_ExclusivelyOwnedGrant_ThatNeverTookEffect_IsCancelledWithRole()
@@ -245,7 +245,7 @@ public sealed class AutoCutDependentTests : IamRepositoryTestBase
         var history = await Roles.GetHistoryAsync(role);
         var targetRow = history.Should().ContainSingle(h => h.Id == futureVersionId).Subject;
         targetRow.IsActive.Should().BeFalse();
-        targetRow.Cancelled.Should().BeTrue();
+        targetRow.Status.Should().Be(VersionLifecycleStatus.Cancelled);
 
         // The grant's coverage spans the predecessor/plan boundary untouched -- proves
         // AutoCutExclusivelyOwnedAsync ran (in the same transaction as the restore + reverse-FK check)
@@ -268,7 +268,7 @@ public sealed class AutoCutDependentTests : IamRepositoryTestBase
     // walk. A role whose FIRST-AND-ONLY version starts today, with a grant scheduled together with it,
     // has neither completed a single effective day when the plan is cancelled, so instead of BLOCKing
     // (the pre-B1 answer) the grant is now CANCELLED with the role. "Auto-cut is entered, not
-    // bypassed" survives as cancelled = 1 -- a stronger witness than the old error code: a plain,
+    // bypassed" survives as the durable cancelled marker -- a stronger witness than the old error code: a plain,
     // non-P11 implementation (bare reverse-FK only) could never have let this cancel SUCCEED at all.
     [Fact]
     public async Task CancelRole_NoPredecessor_ExclusivelyOwnedGrantScheduledUnderPlan_IsCancelledWithRole()
@@ -377,7 +377,7 @@ public sealed class AutoCutDependentTests : IamRepositoryTestBase
         (await CountActiveAsync("role_permission_version", "role_permission_id", grant)).Should().Be(
             0, "the grant never had an effective day, so it is cancelled with the role, not left active");
         (await CountCancelledAsync("role_permission_version", "role_permission_id", grant)).Should().Be(
-            1, "a cancelled grant is marked cancelled = 1, not merely deactivated -- the journal must be able to say which it was");
+            1, "a cancelled grant carries the durable cancelled marker, not merely deactivated -- the journal must be able to say which it was");
         (await CountRowsAsync("role_permission_version", "role_permission_id", grant)).Should().Be(
             1, "cancelling writes no remnant row -- there is no surviving period to remnant");
     }
@@ -766,5 +766,5 @@ public sealed class AutoCutDependentTests : IamRepositoryTestBase
         CountWhereAsync(table, identityColumn, identityId, "isactive = 1");
 
     private Task<int> CountCancelledAsync(string table, string identityColumn, long identityId) =>
-        CountWhereAsync(table, identityColumn, identityId, "cancelled = 1");
+        CountWhereAsync(table, identityColumn, identityId, "status = 'cancelled'");
 }

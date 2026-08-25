@@ -119,7 +119,7 @@ public sealed class OrgUnitEditAlgebraTests : IamRepositoryTestBase
         Assert.False(r.IsError, DescribeErrors(r.Errors));
     }
 
-    // N6/§8 #10: closing a FUTURE (not-yet-effective) version cancels that plan -- isactive=0 AND cancelled=1 --
+    // N6/§8 #10: closing a FUTURE (not-yet-effective) version cancels that plan -- isactive=0 AND status='cancelled' --
     // while the identity's currently-EFFECTIVE version is untouched and still resolves normally.
     [Fact]
     public async Task CancelPlanAsync_FutureVersion_DeactivatesAndMarksCancelled_IdentitySurvives()
@@ -551,7 +551,7 @@ public sealed class OrgUnitEditAlgebraTests : IamRepositoryTestBase
     // day", so a version whose coverage STARTS TODAY is cancellable; one that started yesterday is not.
     // These 3 tests pin the boundary day-by-day around business today (IamRepositoryTestBase.Today).
 
-    // D1-a: EffectiveFrom == today -> cancel SUCCEEDS (isactive=0, cancelled=1).
+    // D1-a: EffectiveFrom == today -> cancel SUCCEEDS (isactive=0, status='cancelled').
     [Fact]
     public async Task CancelPlanAsync_VersionStartingToday_SUCCEEDS()
     {
@@ -709,7 +709,7 @@ public sealed class OrgUnitEditAlgebraTests : IamRepositoryTestBase
         await using var connection = new MySqlConnection(ConnectionString);
         await connection.OpenAsync();
         return await connection.QuerySingleAsync<VersionFlags>(
-            "SELECT isactive AS IsActive, cancelled AS Cancelled FROM org_unit_version WHERE id = @versionId",
+            "SELECT isactive AS IsActive, (status = 'cancelled') AS Cancelled FROM org_unit_version WHERE id = @versionId",
             new { versionId });
     }
 }

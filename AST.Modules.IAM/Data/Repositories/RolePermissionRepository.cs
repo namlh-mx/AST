@@ -117,7 +117,7 @@ internal sealed class RolePermissionRepository(
                    h.recorded_at AS RecordedAt,
                    h.recorded_by AS RecordedBy,
                    h.reason AS Reason,
-                   h.cancelled AS Cancelled,
+                   h.status AS Status,
                    h.operation_kind AS OperationKind,
                    {businessSelect}
             FROM role_permission_version h
@@ -148,7 +148,7 @@ internal sealed class RolePermissionRepository(
                        recorded_at AS RecordedAt,
                        recorded_by AS RecordedBy,
                        reason AS Reason,
-                       cancelled AS Cancelled,
+                       status AS Status,
                        operation_kind AS OperationKind,
                        {businessSelect}
                 FROM role_permission_version
@@ -334,7 +334,7 @@ internal sealed class RolePermissionRepository(
     // a safe simplification: an "effective today" read calls a REVOKED identity empty (its remnant
     // ends yesterday, though that remnant is still `isactive = 1`), while an `isactive = 1` read finds
     // that remnant but calls a CANCELLED-only identity empty (its sole version is `isactive = 0,
-    // cancelled = 1`, with no predecessor to restore). Either would let the identity be re-granted in
+    // status = 'cancelled'`, with no predecessor to restore). Either would let the identity be re-granted in
     // place — exactly the restoration §1.5 forbids.
     //
     // Runs on the ambient connection/transaction under the identity's named lock (see the base hook),
@@ -370,5 +370,5 @@ internal sealed class RolePermissionRepository(
     private static RolePermissionVersionDto ToDto(RolePermissionVersionEntity e) => new(
         e.Id, e.IdentityId, e.EffectiveFrom, e.EffectiveTo, e.IsActive,
         e.RoleId, e.FunctionId, e.ScopeLevel, e.RecordedAt, e.RecordedBy, e.Reason,
-        e.Cancelled, e.OperationKind);
+        e.Status, e.OperationKind);
 }

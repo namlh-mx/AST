@@ -770,8 +770,8 @@ public sealed class RoleDeclarationServiceTests : IamRepositoryTestBase
         var history = await Roles.GetHistoryAsync(role);
         var targetRow = history.Should().ContainSingle(h => h.Id == futureVersionId).Subject;
         targetRow.IsActive.Should().BeFalse();
-        targetRow.Cancelled.Should().BeTrue(
-            "the future-dated branch must go through RoleRepository.CancelPlanAsync (sets cancelled=1), not CloseVersionAsync");
+        targetRow.Status.Should().Be(VersionLifecycleStatus.Cancelled,
+            "the future-dated branch must go through RoleRepository.CancelPlanAsync (sets status='cancelled'), not CloseVersionAsync");
     }
 
     // TASK 0 (2026-08-11) — Step 1, RED-first: pins design-effective-period.md §3 ("a single business
@@ -787,7 +787,7 @@ public sealed class RoleDeclarationServiceTests : IamRepositoryTestBase
     // own SECOND (rolled-over) read would see it as "already started" and wrongly BLOCK with
     // VersionedRepository.NotAFuturePlan. Before the fix this test is RED for that reason; after the fix
     // (the engine takes the caller-captured `operationDate` instead of re-reading its own clock) it is
-    // GREEN and the cancel persists (cancelled = 1, isactive = 0).
+    // GREEN and the cancel persists (status = 'cancelled', isactive = 0).
     [Fact]
     public async Task CloseRoleDeclarationAsync_MidnightRolloverBetweenServiceAndEngineReads_CancelSucceeds()
     {
@@ -831,7 +831,7 @@ public sealed class RoleDeclarationServiceTests : IamRepositoryTestBase
         var history = await Roles.GetHistoryAsync(role);
         var targetRow = history.Should().ContainSingle(h => h.Id == newVersionId).Subject;
         targetRow.IsActive.Should().BeFalse();
-        targetRow.Cancelled.Should().BeTrue();
+        targetRow.Status.Should().Be(VersionLifecycleStatus.Cancelled);
     }
 
     // Guard branch not explicitly enumerated in the brief (server-side version lookup can miss) — rule-testing invariant 6.
@@ -883,7 +883,7 @@ public sealed class RoleDeclarationServiceTests : IamRepositoryTestBase
 
         var historyAfter = await Roles.GetHistoryAsync(role);
         var targetRow = historyAfter.Should().ContainSingle(h => h.Id == futureVersionId).Subject;
-        targetRow.Cancelled.Should().BeTrue("the version's cancelled state must remain unchanged by the rejected re-submission");
+        targetRow.Status.Should().Be(VersionLifecycleStatus.Cancelled, "the version's cancelled state must remain unchanged by the rejected re-submission");
         targetRow.IsActive.Should().BeFalse();
     }
 
@@ -895,19 +895,19 @@ public sealed class RoleDeclarationServiceTests : IamRepositoryTestBase
         SkipUnlessDbAvailable();
 
         // Seed a version that already starts today so the save (which derives [today, OpenEnd]) is an
-        // exact-match re-edit and supersedes it (isactive=0, cancelled=0). A 2020 seed would instead be
+        // exact-match re-edit and supersedes it (isactive=0, status='normal'). A 2020 seed would instead be
         // closed at yesterday and left active, which is not the superseded-id surface this test pins.
         var role = await CreateRoleAsync("B060F3-R2", "Vai trò", new EffectivePeriod(Today, EffectivePeriod.OpenEnd));
         var originalVersionId = (await Roles.GetByIdentityAsync(role, Today)).Value.Id;
 
-        // Exact-match re-edit fully replaces the original version — isactive=0, cancelled=0.
+        // Exact-match re-edit fully replaces the original version — isactive=0, status='normal'.
         var edit = await EditSaveRequestAsync(role, "B060F3-R2", "Vai trò đã sửa", reason: "edit");
         (await BuildService().SaveRoleDeclarationAsync(edit)).IsError.Should().BeFalse();
 
         var historyBeforeRetry = await Roles.GetHistoryAsync(role);
         var originalRow = historyBeforeRetry.Should().ContainSingle(h => h.Id == originalVersionId).Subject;
         originalRow.IsActive.Should().BeFalse("the exact-match edit must have superseded the original version");
-        originalRow.Cancelled.Should().BeFalse("superseded is a different concept than cancelled");
+        originalRow.Status.Should().Be(VersionLifecycleStatus.Normal, "superseded is a different concept than cancelled");
 
         var request = new CloseRoleDeclarationRequest(role, originalVersionId, "retire stale");
 
@@ -994,7 +994,7 @@ public sealed class RoleDeclarationServiceTests : IamRepositoryTestBase
 
         // No adjacent predecessor exists for this plan (OpenFrom2020's version does not end the day
         // before 2027-01-01) — the exact hole F2 identified: the cancel path's ONLY DB write on this
-        // no-predecessor branch is `UPDATE role_version SET isactive=0, cancelled=1 ...`, which never
+        // no-predecessor branch is `UPDATE role_version SET isactive=0, status='cancelled' ...`, which never
         // touches recorded_by, so without an audit_log row there is ZERO record of who cancelled it.
         const string canceller = "canceller";
         var request = new CloseRoleDeclarationRequest(role, futureVersionId, "cancel plan");
@@ -1460,14 +1460,14 @@ public sealed class RoleDeclarationServiceTests : IamRepositoryTestBase
         var newGrantId = result.Value.AddedRolePermissionIds[0];
 
         // R2 — THE DISCRIMINATOR: a grant whose own EffectiveFrom == today has not completed a single
-        // effective day, so revoking it must CANCEL it outright (cancelled=1, isactive=0), not close it
+        // effective day, so revoking it must CANCEL it outright (status='cancelled', isactive=0), not close it
         // to a date before its own start (there is no such date — VersionClose.CloseDateInPast territory).
         // The revoked identity must therefore have NO row still resolvable today — a cancel-plan never
         // appends a successor "closed" version (mirrors RoleRepository.CancelPlanAsync's no-append shape
         // for the analogous role-close case), unlike a Retire which appends a shortened successor row.
         var retiredHistory = await RolePermissions.GetHistoryAsync(grantToRevoke);
         retiredHistory.Should().Contain(
-            h => h.Cancelled && !h.IsActive,
+            h => h.Status == VersionLifecycleStatus.Cancelled && !h.IsActive,
             "R2: a revoked grant whose own EffectiveFrom is today or later must be CANCELLED, not retired to a date before its own start");
         var revokedResolvedToday = await RolePermissions.GetByIdentityAsync(grantToRevoke, Today);
         revokedResolvedToday.IsError.Should().BeTrue(
@@ -2606,5 +2606,5 @@ public sealed class RoleDeclarationServiceTests : IamRepositoryTestBase
     }
 
     private Task<long> CountCancelledAsync(string table, string identityColumn, long identityId) =>
-        CountWhereAsync(table, identityColumn, identityId, "cancelled = 1");
+        CountWhereAsync(table, identityColumn, identityId, "status = 'cancelled'");
 }

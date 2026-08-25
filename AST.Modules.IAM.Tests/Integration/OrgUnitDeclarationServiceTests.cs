@@ -155,7 +155,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
     // -- the org-unit service has the identical "capture today once, engine re-reads it independently"
     // pairing, so it must not be left as the surviving instance of design-effective-period.md §3's
     // violation. Pre-fix, this test is RED with VersionedRepository.NotAFuturePlan; after the fix it is
-    // GREEN and the cancel persists (cancelled = 1, isactive = 0).
+    // GREEN and the cancel persists (status = 'cancelled', isactive = 0).
     [Fact]
     public async Task CloseOrgUnitDeclarationAsync_MidnightRolloverBetweenServiceAndEngineReads_CancelSucceeds()
     {
@@ -189,7 +189,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
         var history = await OrgUnits.GetHistoryInScopeAsync(new DataScope(ScopeLevel.Global, null, Actor), org);
         var targetRow = history.Should().ContainSingle(h => h.Id == sameDay.Value.NewVersionId).Subject;
         targetRow.IsActive.Should().BeFalse();
-        targetRow.Cancelled.Should().BeTrue();
+        targetRow.Status.Should().Be(VersionLifecycleStatus.Cancelled);
     }
 
     // =========================================================================================
@@ -350,7 +350,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
     }
 
     // =========================================================================================
-    // C12 -- happy cancel-plan: isactive=0, cancelled=1; exactly one audit row, branch=cancel, close
+    // C12 -- happy cancel-plan: isactive=0, status='cancelled'; exactly one audit row, branch=cancel, close
     // date null. No-adjacent-predecessor shape: the version row's OWN recorded_by never changes on this
     // branch, so the audit row is the only place that records WHO cancelled it.
     // =========================================================================================
@@ -380,7 +380,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
         var history = await OrgUnits.GetHistoryInScopeAsync(new DataScope(ScopeLevel.Global, null, canceller), org);
         var targetRow = history.Should().ContainSingle(h => h.Id == futureVersionId).Subject;
         targetRow.IsActive.Should().BeFalse();
-        targetRow.Cancelled.Should().BeTrue();
+        targetRow.Status.Should().Be(VersionLifecycleStatus.Cancelled);
         targetRow.RecordedBy.Should().Be(
             Actor,
             "the org_unit_version row itself still shows the CREATOR on a no-predecessor cancel -- proving the " +
@@ -563,7 +563,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
         var history = await OrgUnits.GetHistoryInScopeAsync(new DataScope(ScopeLevel.Global, null, Actor), org);
         var targetRow = history.Should().ContainSingle(h => h.Id == futureVersionId).Subject;
         targetRow.IsActive.Should().BeTrue("the cancel must roll back together with the failed audit write");
-        targetRow.Cancelled.Should().BeFalse();
+        targetRow.Status.Should().Be(VersionLifecycleStatus.Normal, "the cancel must have rolled back entirely, leaving the version's status untouched");
         (await CountAllAuditRowsAsync()).Should().Be(0);
     }
 
@@ -1271,7 +1271,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
 
         var history = await OrgUnits.GetHistoryInScopeAsync(new DataScope(ScopeLevel.Global, null, Actor), root);
         var cancelled = history.Should().ContainSingle(h => h.Id == versionId).Subject;
-        cancelled.Cancelled.Should().BeTrue();
+        cancelled.Status.Should().Be(VersionLifecycleStatus.Cancelled);
 
         var target = $"org_unit_version:{versionId}";
         (await ReadAuditEventTypesForTargetAsync(target)).Should().BeEquivalentTo(

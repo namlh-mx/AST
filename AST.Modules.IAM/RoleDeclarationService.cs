@@ -323,7 +323,7 @@ internal sealed class RoleDeclarationService(
     //
     // Corrected (was: "No audit_log row here ... the journal stays complete without a new audit
     // row" — FALSE for the no-adjacent-predecessor cancel case): RoleRepository.CancelVersionCoreAsync's
-    // no-predecessor path only flips isactive=0/cancelled=1 on the EXISTING row, never touching
+    // no-predecessor path only flips isactive=0/status='cancelled' on the EXISTING row, never touching
     // recorded_by — so cancelling a brand-new role's sole future plan left ZERO record of WHO cancelled
     // it (the cancelled row still shows the CREATOR). Both branches below route through ONE
     // CompositeWrite (same shape as SaveRoleDeclarationAsync above) so the version write and every
@@ -367,9 +367,10 @@ internal sealed class RoleDeclarationService(
         // must fail with THIS service's own Role.VersionNotFound, not fall through to the branch logic
         // below and surface a different code from deep inside the engine (VersionedRepository.VersionNotFound,
         // which also leaks the physical table name).
-        // `IsActive` alone is the "still in force" definition here — `cancelled = 1` is
-        // only ever set together with `isactive = 0` (RoleRepository never cancels an active row), so a
-        // separate `!v.Cancelled` conjunct would be redundant, not an independent condition.
+        // AI Agent LOW-1: `IsActive` alone is the "still in force" definition here — a durable lifecycle
+        // marker is only ever set together with `isactive = 0`, so a separate `v.Status` conjunct would be
+        // redundant, not an independent condition. Since V010 that is a database CHECK (chk_*_status), not
+        // merely a property of RoleRepository's write path, which is what the claim used to rest on.
         var history = await roleRepository.GetHistoryAsync(request.RoleId);
         var version = history.FirstOrDefault(v => v.Id == request.VersionId && v.IsActive);
         if (version is null)

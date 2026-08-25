@@ -37,7 +37,8 @@
 | tên đầy đủ (đơn vị) | full name (VN) | `org_unit_version.org_name_full_vn`, legal profile name |
 | tên viết tắt (đơn vị) | short name (VN) | `org_unit_version.org_name_short_vn`, internal-management name |
 | thông tin bổ sung (đơn vị) | supplemental fields | optional org-unit columns (`org_business_number`, address, EN names, phone/fax/email, reserves) — catalog in declaration-screens spec §2.4 |
-| bị hủy (kế hoạch tương lai) | cancelled (plan) | `org_unit_version.cancelled = 1` + `isactive = 0`: a future version closed before it took effect (distinct from a naturally-ended/superseded version) |
+| bị hủy (kế hoạch tương lai) | cancelled (plan) | `org_unit_version.status = 'cancelled'` + `isactive = 0` (was a `cancelled` column until V010): a future version closed before it took effect (distinct from a naturally-ended/superseded version) |
+| bị thay thế | replaced | `org_unit_version.status = 'replaced'` + `isactive = 0` + a non-null `replaced_by_org_unit_id`: a version retired by a replacement gesture, told apart from a naturally-ended one only by that durable marker. Org-unit only in v1 — `chk_rv_status`/`chk_rpv_status` do not admit the value at all |
 | vai trò | role | `role` |
 | mã vai trò | role code | `role_version.role_code`, business code / natural key (P6) |
 | tên vai trò | role name | `role_version.role_name` |

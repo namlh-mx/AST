@@ -16,7 +16,7 @@ design, not the argument.
 
 State changes today that record **no actor**: a Cancel (`VersionedRepository.CancelVersionCoreAsync`),
 a cascaded dependent cancel (`AutoCutExclusivelyOwnedAsync`) and `DeleteVersionAsync` all change a row
-by flipping `isactive` / `cancelled`, and the flipped row keeps the *creator's* `recorded_by`. Nothing
+by flipping `isactive` / `status`, and the flipped row keeps the *creator's* `recorded_by`. Nothing
 in any version table records **which rows moved together**: `RoleDeclarationService` mints an operation
 id per gesture and writes it only into `audit_log`'s `detail` JSON. `audit_log` has zero readers, so
 today's history screen cannot answer "who cancelled this, and what else did that same Save touch?".
@@ -184,7 +184,7 @@ a row can play — per table in the aggregate:
 SELECT o.id AS operation_id, o.occurred_at, o.operation_date, o.username, o.kind, o.note,
        'role_version' AS source_table,          -- REQUIRED: see the uniqueness note below
        v.id AS version_id, v.operation_kind, v.reason,
-       v.effective_from, v.effective_to, v.isactive, v.cancelled,
+       v.effective_from, v.effective_to, v.isactive, v.status,
        'created' AS row_role
   FROM operation o JOIN role_version v ON v.created_by_operation_id = o.id
  WHERE v.role_id = @identityId
@@ -309,15 +309,18 @@ All in `AST.Infrastructure/VersionedRepository.cs`.
 | `InsertRemnantOnTableAsync` | same, for a dependent table | `created_by` — **see the trap below** |
 | `CloseVersionCoreAsync` | `isactive = 0` on the closed version | `superseded_by` |
 | `DeleteVersionAsync` | `isactive = 0` | `superseded_by` |
-| `CancelVersionCoreAsync` (target) | `isactive = 0, cancelled = 1` | `superseded_by` |
+| `CancelVersionCoreAsync` (target) | `isactive = 0, status = 'cancelled'` | `superseded_by` |
 | `CancelVersionCoreAsync` (predecessor) | `isactive = 0` before re-inserting it | `superseded_by` |
 | `ApplyUpsertPlanAsync` (SoftDeactivate) | `isactive = 0` | `superseded_by` |
-| `AutoCutExclusivelyOwnedAsync` (cancel) | `isactive = 0, cancelled = 1` on a dependent | `superseded_by` |
+| `AutoCutExclusivelyOwnedAsync` (cancel) | `isactive = 0, status = 'cancelled'` on a dependent | `superseded_by` |
 | `AutoCutExclusivelyOwnedAsync` (cut) | `isactive = 0` on a dependent | `superseded_by` |
 
 **Trap — `InsertRemnantOnTableAsync` builds its copy list from `INFORMATION_SCHEMA`**, excluding a
 hard-coded set (`id`, `effective_from`, `effective_to`, `isactive`, `recorded_at`, `recorded_by`,
-`reason`, `cancelled`) and removing `operation_kind`. Both new columns MUST be added to that exclusion
+`reason`, `status`, `replaced_by_org_unit_id`) and removing `operation_kind`. ⚠️ Verified against the code
+2026-08-24: the exclusion set reads `'status', 'replaced_by_org_unit_id'` since V010 — it said `'cancelled'`
+until then, and this doc still said so, which is exactly the drift a copied SQL snippet propagates.
+Both new columns MUST be added to that exclusion
 set, and `created_by_operation_id` set explicitly. Left alone, the generic copy carries the *source
 row's* provenance into a row the current gesture created — a silent lie, green tests, and the worst
 possible failure mode for a provenance mechanism.

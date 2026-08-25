@@ -240,6 +240,37 @@ public sealed class CancelAutoCutTests : IamRepositoryTestBase
     }
 
     // ---------------------------------------------------------------------------------------
+    // 9 — V010/Task 2: the durable lifecycle marker moved from the dropped `cancelled` boolean to the
+    // `status` column. Asserts the RAW column (not the DTO): the mapping (Task 2 Step 4/6) and the
+    // write (this test) are two different claims, and a DTO-only assertion would pass even if the
+    // write itself still wrote the old shape and only the mapping happened to compensate.
+    // ---------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task CancelVersionAsync_WritesCancelledStatusAndInactive()
+    {
+        SkipUnlessDbAvailable();
+
+        // Same arrange shape as case 4 above: a brand-new org unit whose ONLY version is a future
+        // plan -> no predecessor, so CancelPlanAsync cancels it outright.
+        var org = await CreateOrgUnitAsync("F3-V010", "Đơn vị", "F3-V010", null, FuturePlan2027);
+        var targetVersionId = await GetActiveVersionIdAsync("org_unit_version", "org_unit_id", org);
+
+        var result = await OrgUnits.CancelPlanAsync(org, targetVersionId, Today, "canceller", "hủy kế hoạch");
+
+        result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
+
+        await using var connection = new MySqlConnection(ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        var row = await connection.QuerySingleAsync<(bool IsActive, string Status)>(
+            "SELECT isactive AS IsActive, status AS Status FROM org_unit_version WHERE id = @versionId",
+            new { versionId = targetVersionId });
+
+        row.IsActive.Should().BeFalse();
+        row.Status.Should().Be("cancelled");
+    }
+
+    // ---------------------------------------------------------------------------------------
 
     private SelfOwningOrgUnitRepository BuildRepo() =>
         new(
@@ -274,7 +305,7 @@ public sealed class CancelAutoCutTests : IamRepositoryTestBase
         await connection.OpenAsync();
         var rows = await connection.QueryAsync<OrgUnitVersionRow>(
             """
-            SELECT id AS Id, isactive AS IsActive, cancelled AS Cancelled,
+            SELECT id AS Id, isactive AS IsActive, (status = 'cancelled') AS Cancelled,
                    effective_from AS EffectiveFrom, effective_to AS EffectiveTo,
                    recorded_by AS RecordedBy, reason AS Reason
             FROM org_unit_version WHERE org_unit_id = @orgUnitId
