@@ -82,8 +82,13 @@ public sealed class PeriodEditor : IPeriodEditor
         // The scope stays deliberately narrow -- only the two boundaries this edit touches, never the whole
         // timeline. VersionedRepository.ComputeGapWarnings walks the WHOLE remaining coverage, which is
         // correct for a coverage-REDUCING write that only warns; applying it here would let a pre-existing
-        // hole (left by an earlier Cancel or Delete, which warn without blocking) refuse every later edit
-        // of the same identity. The two questions are not the same question.
+        // hole refuse every later edit of the same identity. The two questions are not the same question.
+        //
+        // On how such a hole ARISES, corrected 2026-08-26 after the first wording over-claimed it: Cancel
+        // does not perforate a timeline, it HEALS one (CancelVersionCoreAsync extends the adjacent
+        // predecessor over the cancelled range). DeleteVersionAsync does leave an interior hole and only
+        // warns -- but it has NO production caller, so no screen can reach the state today. The scope
+        // choice here bounds a shape the engine permits; it is not a response to a hole operators make.
         //
         // newPeriod is in this list and can never be SELECTED from it, because neither `p.To < newPeriod.From`
         // nor `p.From > newPeriod.To` can hold for newPeriod itself once From <= To -- which the guard at the

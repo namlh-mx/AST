@@ -321,6 +321,14 @@ public class PeriodEditorTests
         var result = Editor.PlanUpsert([c, b], newPeriod);
 
         result.IsError.Should().BeFalse();
+
+        // Pins the named subject: a tail remnant is generated and fills the span to the untouched successor.
+        // Mutation that would keep Warnings empty while removing the subject: newPeriod.To = 2025-12-31 (exact match).
+        var tail = result.Value.Operations.Should().ContainSingle(o =>
+            o.Kind == VersionOpKind.Insert && o.CarriesOldBusinessData).Subject;
+        tail.Period.From.Should().Be(EP.NextDay(newPeriod.To)!.Value);
+        EP.NextDay(tail.Period.To).Should().Be(b.EffectiveFrom);
+
         result.Value.Warnings.Should().BeEmpty();
     }
 
@@ -336,10 +344,26 @@ public class PeriodEditorTests
         var a = new FakeVersionRow(1, 100, D(2020, 1, 1), D(2020, 6, 30));
         var c = new FakeVersionRow(2, 100, D(2020, 7, 1), D(2025, 12, 31));
         var newPeriod = new EP(D(2023, 1, 1), D(2024, 12, 31));
+        IVersionRow[] existing = [a, c];
 
-        var result = Editor.PlanUpsert([a, c], newPeriod);
+        var result = Editor.PlanUpsert(existing, newPeriod);
 
         result.IsError.Should().BeFalse();
+
+        // Pins the named subject: a head remnant is generated AND an untouched predecessor exists for it to abut.
+        // Mutation that would keep Warnings empty while removing the subject: drop `a` from the fixture array.
+        var deactivatedIds = result.Value.Operations
+            .Where(o => o.Kind == VersionOpKind.SoftDeactivate)
+            .Select(o => o.ExistingVersionId)
+            .ToHashSet();
+        var head = result.Value.Operations.Should().ContainSingle(o =>
+            o.Kind == VersionOpKind.Insert
+            && o.CarriesOldBusinessData
+            && o.Period.To == EP.PreviousDay(newPeriod.From)!.Value).Subject;
+        var untouched = existing.Where(v => !deactivatedIds.Contains(v.Id)).ToList();
+        untouched.Should().ContainSingle();
+        EP.NextDay(untouched[0].EffectiveTo).Should().Be(head.Period.From);
+
         result.Value.Warnings.Should().BeEmpty();
     }
 
@@ -347,8 +371,15 @@ public class PeriodEditorTests
     // The hole [2026-01-01, 2026-01-31] sits beyond the edited version C -- immediately BEFORE B, which
     // starts 2026-02-01 -- and existed before this edit; the edit neither
     // creates nor closes it. Today it is reported (with the wrong bounds) on every later edit, which
-    // makes an org unit carrying such a hole permanently un-editable -- a Cancel or Delete can leave one
-    // WITHOUT blocking, so the state is reachable.
+    // makes an org unit carrying such a hole permanently un-editable.
+    //
+    // ON REACHABILITY, corrected 2026-08-26 -- this comment first claimed "a Cancel or Delete can leave
+    // one WITHOUT blocking, so the state is reachable", and that was not measured. Cancel HEALS (it
+    // extends the adjacent predecessor over the cancelled range); DeleteVersionAsync does leave an
+    // interior hole and only warns, but it has NO production caller. So the state is reachable through
+    // this repository's API and through fixtures -- including OrgUnitEditAlgebraTests, which uses
+    // DeleteVersionAsync precisely to manufacture a gap -- and NOT through any screen today. The
+    // widening is still worth pinning: it bounds a shape the engine permits.
     [Fact]
     public void PreExistingGapBeyondTheEditedVersion_IsNotReported()
     {
@@ -359,6 +390,13 @@ public class PeriodEditorTests
         var result = Editor.PlanUpsert([c, b], newPeriod);
 
         result.IsError.Should().BeFalse();
+
+        // Pins the named subject: a pre-existing hole really sits beyond the generated tail remnant.
+        // Mutation that would keep Warnings empty while removing the subject: b.From = 2026-01-01.
+        var tail = result.Value.Operations.Should().ContainSingle(o =>
+            o.Kind == VersionOpKind.Insert && o.CarriesOldBusinessData).Subject;
+        EP.GapBetween(tail.Period.To, b.EffectiveFrom).Should().NotBeNull();
+
         result.Value.Warnings.Should().BeEmpty();
     }
 
@@ -379,6 +417,15 @@ public class PeriodEditorTests
         var result = Editor.PlanUpsert([left, cut, next], newPeriod);
 
         result.IsError.Should().BeFalse();
+
+        // Pins the named subject: an overlap-cut on the after side really produces a remnant.
+        // Mutation that would keep the left-gap warning while removing the subject:
+        // newPeriod = [2021-01-01, 2025-12-31] (exact match — no remnant).
+        var tail = result.Value.Operations.Should().ContainSingle(o =>
+            o.Kind == VersionOpKind.Insert && o.CarriesOldBusinessData).Subject;
+        tail.Period.From.Should().Be(EP.NextDay(newPeriod.To)!.Value);
+        EP.NextDay(tail.Period.To).Should().Be(next.EffectiveFrom);
+
         result.Value.Warnings.Should().ContainSingle()
             .Which.Should().Be(new GapWarning(D(2020, 7, 1), D(2020, 12, 31)));
     }
@@ -406,6 +453,15 @@ public class PeriodEditorTests
         // three rows, this test would quietly become a duplicate of the head-remnant case.
         result.Value.Operations.Count(o => o.Kind == VersionOpKind.SoftDeactivate).Should().Be(3);
 
+        // Pins the named subject the SoftDeactivate count does not cover: a head remnant of the outermost
+        // overlapped version fills the span to newPeriod. Mutation that keeps SoftDeactivate==3 while
+        // removing the subject: newPeriod.From = 2020-07-01 (r1 engulfs with no head remnant).
+        var head = result.Value.Operations.Should().ContainSingle(o =>
+            o.Kind == VersionOpKind.Insert
+            && o.CarriesOldBusinessData
+            && o.Period.To == EP.PreviousDay(newPeriod.From)!.Value).Subject;
+        EP.NextDay(a.EffectiveTo).Should().Be(head.Period.From);
+
         result.Value.Warnings.Should().BeEmpty();
     }
 
@@ -426,6 +482,41 @@ public class PeriodEditorTests
         var result = Editor.PlanUpsert([a, c], newPeriod);
 
         result.IsError.Should().BeFalse();
+
+        // Pins the named subject: a pre-existing hole really sits before the generated head remnant.
+        // Mutation that would keep Warnings empty while removing the subject: a.EffectiveTo = 2020-12-31.
+        var head = result.Value.Operations.Should().ContainSingle(o =>
+            o.Kind == VersionOpKind.Insert
+            && o.CarriesOldBusinessData
+            && o.Period.To == EP.PreviousDay(newPeriod.From)!.Value).Subject;
+        EP.GapBetween(a.EffectiveTo, head.Period.From).Should().NotBeNull();
+
+        result.Value.Warnings.Should().BeEmpty();
+    }
+
+    // docs/design-effective-period.md §4a rule 2's second worked case: a pre-existing hole is not reported
+    // because an ordinary untouched version stands between it and newPeriod — no remnant is involved.
+    [Fact]
+    public void PreExistingGapSeparatedByUntouchedVersion_WithNoRemnant_IsNotReported()
+    {
+        var a = new FakeVersionRow(1, 100, D(2019, 1, 1), D(2019, 12, 31));
+        var b = new FakeVersionRow(2, 100, D(2021, 1, 1), D(2021, 12, 31));
+        var c = new FakeVersionRow(3, 100, D(2022, 1, 1), D(2025, 12, 31));
+        var newPeriod = new EP(D(2022, 1, 1), D(2024, 12, 31));
+
+        var result = Editor.PlanUpsert([a, b, c], newPeriod);
+
+        result.IsError.Should().BeFalse();
+
+        // Pins the named subject: the A–B hole is real, and no head remnant exists (C.From == newPeriod.From).
+        // Mutation that removes "no head remnant" while keeping Warnings empty: newPeriod.From = 2023-01-01.
+        EP.GapBetween(a.EffectiveTo, b.EffectiveFrom).Should().NotBeNull();
+        result.Value.Operations.Should().NotContain(o =>
+            o.Kind == VersionOpKind.Insert
+            && o.CarriesOldBusinessData
+            && o.Period.To == EP.PreviousDay(newPeriod.From)!.Value);
+        EP.NextDay(b.EffectiveTo).Should().Be(newPeriod.From);
+
         result.Value.Warnings.Should().BeEmpty();
     }
 
@@ -434,7 +525,9 @@ public class PeriodEditorTests
     // shrunk from the front, leaving a head remnant that abuts the new period) and the REAL gap is on
     // the AFTER side: nothing fills [2026-01-01, 2026-06-30] between the new period and `next`.
     // Without this, a mutation that suppressed warnings whenever a head remnant exists would pass all
-    // six earlier controls while letting an org-unit save cross a genuine gap.
+    // earlier controls while letting an org-unit save cross a genuine gap. The head remnant's existence
+    // is pinned below — without that pin, newPeriod.From := cut.EffectiveFrom keeps ContainSingle green
+    // while removing the subject the test is named for.
     [Fact]
     public void RealGapOnTheAfterSide_WithAHeadRemnantOnTheBefore_WarnsExactlyTheRealGap()
     {
@@ -446,6 +539,15 @@ public class PeriodEditorTests
         var result = Editor.PlanUpsert([a, cut, next], newPeriod);
 
         result.IsError.Should().BeFalse();
+
+        // Pins the named subject: a head remnant is generated and untouched `a` abuts it.
+        // Mutation that keeps ContainSingle green while removing the subject: newPeriod.From = cut.EffectiveFrom.
+        var head = result.Value.Operations.Should().ContainSingle(o =>
+            o.Kind == VersionOpKind.Insert
+            && o.CarriesOldBusinessData
+            && o.Period.To == EP.PreviousDay(newPeriod.From)!.Value).Subject;
+        EP.NextDay(a.EffectiveTo).Should().Be(head.Period.From);
+
         result.Value.Warnings.Should().ContainSingle()
             .Which.Should().Be(new GapWarning(D(2026, 1, 1), D(2026, 6, 30)));
     }

@@ -139,8 +139,27 @@ Two rules follow, and both are load-bearing:
    about to fill — and for an entity with `GapIsBlocking` that was a refusal to write a legal edit.
 2. **Only the nearest period on each side is examined; the scan never walks the timeline.** A hole is
    reported **only when it lies between `newPeriod` and that nearest neighbour**. Anything further out
-   is out of scope, deliberately: widening this to the whole coverage would let one old hole — a Cancel
-   or a Delete can leave one *without* blocking — refuse every later edit of that identity forever.
+   is out of scope, deliberately: widening this to the whole coverage would let one old hole refuse
+   every later edit of that identity forever.
+
+   ⚠️ **How reachable such a hole is was OVER-STATED when this section was written, and the correction
+   is measured (2026-08-26).** The original sentence read *"a Cancel or a Delete can leave one without
+   blocking"*. Half of that is false:
+   - **Cancel does NOT open a hole — it HEALS.** `VersionedRepository.CancelVersionCoreAsync` finds the
+     version whose `EffectiveTo` is the day before the cancelled one's `EffectiveFrom` and **extends it
+     to cover the cancelled range**. With no adjacent predecessor it drops the version, which shortens
+     the timeline rather than perforating it. Cancel cannot create the first hole.
+   - **Delete CAN, and does not block on it.** `VersionedRepository.DeleteVersionAsync` removes an
+     interior version, computes the gap warnings and **returns them**; its only guards are
+     `BaseVersionRequired` and the reverse temporal-FK check.
+   - ⚠️ **But `DeleteVersionAsync` has NO production caller** (`find_referencing_symbols`, 2026-08-26:
+     all five references are tests, one of which uses it precisely to *manufacture* a hole for a
+     fixture). **So today no screen or service can perforate an org unit's timeline.** The engine
+     tolerates the shape; nothing in the running system produces it.
+
+   The design decision stands unchanged — a whole-coverage scan would still be the wrong scope for the
+   Add/Edit question — but it rests on **bounding the blast radius of a shape the engine permits**, not
+   on a hole that operators actually create today.
 
    ⚠️ **Two restatements of this rule are WRONG, in opposite directions, and both were written and
    corrected on 2026-08-26.** It is neither *"a hole the edit does not touch is not reported"* (too
