@@ -72,21 +72,48 @@ public sealed class PeriodEditor : IPeriodEditor
             newPeriod,
             CarriesOldBusinessData: false));
 
-        // Gap warning (D7): only consider the 2 nearest untouched neighbors on both sides of newPeriod.
-        var before = untouched
-            .Where(v => v.EffectiveTo < newPeriod.From)
-            .OrderByDescending(v => v.EffectiveTo)
+        // Gap warning (D7): the nearest neighbour on each side of newPeriod, drawn from the coverage this
+        // plan LEAVES BEHIND -- the untouched versions PLUS every period this plan inserts (head/tail
+        // remnants and newPeriod itself). Reading `untouched` alone reported a gap the plan's own remnant
+        // was about to fill: cutting a version that ABUTTED its neighbour yields a remnant landing exactly
+        // in the reported "gap". For org-unit that is not a spurious warning, it is a refusal to write a
+        // legal edit (GapIsBlocking). See spec 2026-08-22-orgunit-edit-close-code-reuse-shaping section 18.1.
+        //
+        // The scope stays deliberately narrow -- only the two boundaries this edit touches, never the whole
+        // timeline. VersionedRepository.ComputeGapWarnings walks the WHOLE remaining coverage, which is
+        // correct for a coverage-REDUCING write that only warns; applying it here would let a pre-existing
+        // hole (left by an earlier Cancel or Delete, which warn without blocking) refuse every later edit
+        // of the same identity. The two questions are not the same question.
+        //
+        // newPeriod is in this list and can never be SELECTED from it, because neither `p.To < newPeriod.From`
+        // nor `p.From > newPeriod.To` can hold for newPeriod itself once From <= To -- which the guard at the
+        // top of this method has already enforced. Loosening either filter to <= / >= would break that -- but
+        // only for a SINGLE-DAY newPeriod (From == To), which would then satisfy its own filter, win the pick
+        // and suppress that side's warning. A multi-day period is unaffected by the loosening, which is
+        // exactly what would make such a defect hide for a long time.
+        var resultingCoverage = untouched
+            .Select(v => new EffectivePeriod(v.EffectiveFrom, v.EffectiveTo))
+            .Concat(operations
+                .Where(o => o.Kind == VersionOpKind.Insert)
+                .Select(o => o.Period))
+            .ToList();
+
+        var before = resultingCoverage
+            .Where(p => p.To < newPeriod.From)
+            .OrderByDescending(p => p.To)
+            .Cast<EffectivePeriod?>()
             .FirstOrDefault();
-        if (before is not null && EffectivePeriod.GapBetween(before.EffectiveTo, newPeriod.From) is { } gapBefore)
+        if (before is { } left && EffectivePeriod.GapBetween(left.To, newPeriod.From) is { } gapBefore)
         {
             warnings.Add(gapBefore);
         }
 
-        var after = untouched
-            .Where(v => v.EffectiveFrom > newPeriod.To)
-            .OrderBy(v => v.EffectiveFrom)
+        var after = resultingCoverage
+            .Where(p => p.From > newPeriod.To)
+            .OrderBy(p => p.From)
+            .Cast<EffectivePeriod?>()
             .FirstOrDefault();
-        if (after is not null && EffectivePeriod.GapBetween(newPeriod.To, after.EffectiveFrom) is { } gapAfter)
+        if (after is { } right && EffectivePeriod.GapBetween(newPeriod.To, right.From) is { } gapAfter)
         {
             warnings.Add(gapAfter);
         }

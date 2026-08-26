@@ -513,8 +513,16 @@ public sealed class OrgUnitEditAlgebraTests : IamRepositoryTestBase
     {
         SkipUnlessDbAvailable();
 
-        // Built as a fully ADJACENT chain (case 2 at every step, never an overlap-cut) so GapIsBlocking's
-        // nearest-untouched-neighbor check never sees a phantom gap -- x/mid/y/target all directly abut.
+        // OBSOLETE WORKAROUND, kept only until this fixture is rewritten (plan 2026-08-25-orgunit-phantom-gap
+        // Task 4). It read: "Built as a fully ADJACENT chain (case 2 at every step, never an overlap-cut) so
+        // GapIsBlocking's nearest-untouched-neighbor check never sees a phantom gap." That check no longer
+        // reads `untouched` alone and the phantom gap no longer exists, so the adjacency is EXPECTED to be no
+        // longer forced -- see docs/design-effective-period.md section 4a. EXPECTED, not demonstrated: no
+        // integration test on this path has been run against a non-adjacent chain yet, and proving it is part
+        // of Task 4's job, not a fact this comment may assert. The chain below is left untouched on purpose:
+        // rewriting it with a real overlap-cut is Task 4's job, and this test's assertions must not move in
+        // the same commit that changed the mechanism they are meant to hold still against.
+        // x/mid/y/target all directly abut.
         var x = new EffectivePeriod(new DateOnly(2020, 1, 1), new DateOnly(2020, 6, 30));
         var mid = new EffectivePeriod(new DateOnly(2020, 7, 1), new DateOnly(2020, 12, 31));
         var y = new EffectivePeriod(new DateOnly(2021, 1, 1), new DateOnly(2026, 12, 31));

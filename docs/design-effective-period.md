@@ -17,7 +17,7 @@
 - **D4 — Time unit:** **DAY** (`DATE`, format `yyyy-mm-dd`), **both ends of `[F,T]` inclusive**; open period = `effective_to = 9999-12-31` (UI shows **"Not yet determined"**).
 - **D5 — Resolution:** **PERMISSIONS & SCOPE resolve by TODAY**; **business-parameter VALUES resolve by the TRANSACTION DATE D** (the business flow passes `D` in).
 - **D6 — Core invariant:** for a given identity, on any given day ↔ **at most 1 active version** (`isactive=1` versions **never overlap in period**). MySQL has no `WITHOUT OVERLAPS` → enforce at the app layer + **named lock**.
-- **D7 — Editing a period:** follows the **8-case algebra** (Part II §4), producing remnants, soft-deleting the old version, inserting the new one. **A date gap = a WARNING** (does NOT block).
+- **D7 — Editing a period:** follows the **8-case algebra** (Part II §4), producing remnants, soft-deleting the old version, inserting the new one. **A date gap = a WARNING** (does NOT block *by default* — an entity may set `GapIsBlocking`, and org unit does). **WHICH gaps warn is Part II §4a**, and it is not "any hole anywhere": only the two boundaries this edit touches, measured against the coverage the plan leaves behind.
 - **D8 — Temporal-FK, STRICT level:** the parent must cover the child's **entire period continuously**; a missing/gapped coverage, or narrowing/closing the parent such that the child loses coverage = **BLOCKED**; **the parent must be declared before the child**; checked edge-by-edge across multiple levels. (IAM: `user` ⊂ (`org unit`, `role`); `role_permission` ⊂ (`role`, `function`).)
 - **D9 — Missing coverage at business-run time:** **STOP + report clearly** ("Parameter 'X' has no effective value on date dd/mm/yyyy"). ABSOLUTELY no falling back to a default/other period.
 - **D10 — Declaration rights:** declaration screens (org unit/role/user/permission/parameter) are **admin-only**; regular users only perform operational tasks.
@@ -119,6 +119,50 @@ New period `[F,T]` compared to each existing active period `[a,b]` (business sou
 - **Closing an open period:** an open period `[x, 9999-12-31]` + a following period `[F,…]` with `F>x` → falls into an overlap case → the app auto-sets the old version's `effective_to` = `F−1` (via a remnant/cut), keeping the original version at `isactive=0`.
 - **The `9999-12-31` boundary** (addition): treat it as "infinity"; the `b+1`/`T+1` operations special-case this boundary (no overflow arithmetic). There is no `b+1` when `b=9999-12-31`.
 - All of this logic is gathered into **one shared engine** — the period-editing engine (`AST.Core/EffectivePeriod/`) — so no entity re-implements it on its own.
+
+### 4a. WHICH gaps warn — the two boundaries this edit touches, on the coverage the plan LEAVES BEHIND
+
+D7 says a date gap is a warning. It does not say which gaps, and the codebase holds **two different
+gap questions** that must not be merged:
+
+| Question | Who asks it | Scope | Blocks? |
+|---|---|---|---|
+| *"Does this edit leave a hole at either boundary it touches?"* | `PeriodEditor.PlanUpsert` (Add/Edit, this §4) | the **two** boundaries immediately around the new period | per-entity: `GapIsBlocking` |
+| *"Does any hole remain anywhere in this identity's coverage?"* | `VersionedRepository.ComputeGapWarnings` (Close / Cancel / Delete) | the **whole** remaining coverage | never — warns only |
+
+Two rules follow, and both are load-bearing:
+
+1. **The neighbour on each side is drawn from the coverage the plan LEAVES BEHIND** — the untouched
+   versions **plus every period the plan inserts** (head/tail remnants and the new period itself),
+   never from the untouched versions alone. A cut whose remnant abuts its neighbour opens no hole, so
+   it must produce no warning. Reading `untouched` alone reported a gap the plan's own remnant was
+   about to fill — and for an entity with `GapIsBlocking` that was a refusal to write a legal edit.
+2. **Only the nearest period on each side is examined; the scan never walks the timeline.** A hole is
+   reported **only when it lies between `newPeriod` and that nearest neighbour**. Anything further out
+   is out of scope, deliberately: widening this to the whole coverage would let one old hole — a Cancel
+   or a Delete can leave one *without* blocking — refuse every later edit of that identity forever.
+
+   ⚠️ **Two restatements of this rule are WRONG, in opposite directions, and both were written and
+   corrected on 2026-08-26.** It is neither *"a hole the edit does not touch is not reported"* (too
+   wide) nor *"suppression needs a remnant this plan generates"* (too narrow). What stands between the
+   hole and `newPeriod` may be a generated remnant **or** an ordinary untouched version — the rule asks
+   only which period is *nearest*, never *what kind* it is. Three worked cases, all traced against
+   `PeriodEditor.PlanUpsert`:
+
+   | Fixture | Edit | Outcome |
+   |---|---|---|
+   | `C[2020-01-01, 2025-12-31]`, `B[2026-02-01, …]`, hole `[2026-01-01, 2026-01-31]` | `C` → `[2020-01-01, 2023-12-31]` | **Not reported** — the tail remnant `[2024-01-01, 2025-12-31]` is nearest, the hole is beyond it |
+   | `A[2019]`, hole `[2020]`, `B[2021]`, `C[2022-01-01, 2025-12-31]` | `C` → `[2022-01-01, 2024-12-31]` | **Not reported** — nearest before is untouched `B`, which abuts `newPeriod`. **No remnant is involved at all** |
+   | `A[2019]`, hole `[2020]`, `C[2021-01-01, 2025-12-31]` | `C` → `[2021-01-01, 2024-12-31]` | **Reported, and for org unit a refusal** — `C.From == newPeriod.From` ⇒ no head remnant, nothing else in front, so `A` is nearest and the hole lies between them |
+
+⚠️ **`GapIsBlocking` is per entity and D7's "does not block" is the default, not a universal.** Org
+unit sets it **true** (`AST.Modules.IAM/.../OrgUnitRepository.cs`), so for org unit a gap warning IS a
+refusal; role, user, function and role-permission leave it false and only warn.
+
+⚠️ Do **not** reuse `ComputeGapWarnings` for the Add/Edit question. It is correct for its own
+question — whole-coverage, after a coverage REDUCTION, never blocking — and merging the two is a
+regression, not a tidy-up. Rationale + the measurement: spec
+`2026-08-22-orgunit-edit-close-code-reuse-shaping.md` §18.1, §19.5.
 
 ## 5. Temporal referential integrity (D8 — STRICT level)
 - **Coverage check:** saving a child `[F,T]` → every parent (per the relevant relationship) must **continuously cover the entire `[F,T]`** with valid active versions (may be covered by **multiple parent periods** as long as there is no gap). Missing/gapped → **BLOCKED**: "Parent parameter '…' has no declared effective period for the range [d1–d2]."
