@@ -186,7 +186,7 @@ for a WPF-UI control MUST derive from the default:
 <Style x:Key="AstInlineIconButton"
        TargetType="ui:Button"
        BasedOn="{StaticResource {x:Type ui:Button}}">
-  <!-- only override the chrome (Appearance, Border, hover/pressed brushes, Cursor) -->
+  <!-- only override the chrome (Appearance, Border, hover/pressed brushes, the mouse-pointer property) -->
 </Style>
 ```
 
