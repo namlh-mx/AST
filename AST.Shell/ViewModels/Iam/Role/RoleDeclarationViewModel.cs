@@ -85,10 +85,13 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
     // FormatCloseError (Close/Cancel admin-flag denial) — same code, same UX, never branch on message
     // text. Public because no AST.Shell.Tests InternalsVisibleTo exists on AST.Shell.csproj and adding
     // one is out of this round's Scope (VM + tests only).
-    public const string AdminFlagChangeNotAuthorizedMessage =
-        "Bạn không có đủ thẩm quyền để thay đổi cờ quản trị (admin) của vai trò này — cần quyền break-glass.";
+    // Brief 163 FR1: permission-family sentence. Public AdminFlag alias kept for tests / same-code UX.
+    private const string PermissionDeniedMessage = "Người dùng không được cấp quyền.";
 
-    private const string StaleCardReloadMessage = "Dữ liệu đã thay đổi — vui lòng tải lại.";
+    public const string AdminFlagChangeNotAuthorizedMessage = PermissionDeniedMessage;
+
+    private const string StaleCardReloadMessage =
+        "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.";
     private const string CloseSuccessMessage = "Đã cập nhật hiệu lực vai trò.";
 
     private static readonly Regex RoleCodePattern = new(@"^[a-z0-9_]{5,20}$", RegexOptions.Compiled);
@@ -327,7 +330,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
         {
             GrantsReadiness.Resolved => null,
             GrantsReadiness.Loading => "Đang tải danh sách quyền...",
-            GrantsReadiness.Failed => "Không tải được danh sách quyền.",
+            GrantsReadiness.Failed => "Ứng dụng không tải được danh sách quyền.",
             _ => "Danh sách quyền chưa sẵn sàng.",
         };
 
@@ -593,14 +596,14 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
     {
         if (_roleId is null)
         {
-            StatusMessage = "Không có vai trò đang mở để sửa.";
+            StatusMessage = "Người dùng chọn vai trò trước khi sửa.";
             Severity = StatusSeverity.Error;
             return;
         }
 
         if (_currentVersionId is null)
         {
-            StatusMessage = "Không có phiên bản vai trò đang mở để sửa.";
+            StatusMessage = "Người dùng chọn vai trò trước khi sửa.";
             Severity = StatusSeverity.Error;
             return;
         }
@@ -636,7 +639,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
             return;
         if (outcome == CardLoadOutcome.Failed || Severity == StatusSeverity.Error)
         {
-            StatusMessage = "Đã lưu nhưng không tải lại được, vui lòng làm mới.";
+            StatusMessage = "Đã lưu. Dữ liệu hiển thị chưa cập nhật.";
             Severity = StatusSeverity.Warning;
             return;
         }
@@ -724,7 +727,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
         await RefreshHistoryAsync();
         if (Severity == StatusSeverity.Error)
         {
-            StatusMessage = "Đã lưu nhưng không tải lại được danh sách, vui lòng làm mới.";
+            StatusMessage = "Đã lưu. Dữ liệu hiển thị chưa cập nhật.";
             Severity = StatusSeverity.Warning;
         }
         else
@@ -739,35 +742,49 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
     // unmapped code must not silently vanish) but every code below must be reached before it.
     private string FormatCloseError(Error error) => error.Code switch
     {
-        VersionCloseRules.Codes.CloseDateRequired =>
-            StaleCardReloadMessage,
-        VersionCloseRules.Codes.CloseDateInPast =>
-            StaleCardReloadMessage,
-        VersionCloseRules.Codes.CloseDateEqualsVersionEnd =>
-            StaleCardReloadMessage,
-        VersionCloseRules.Codes.CloseDateOutsideVersionPeriod =>
-            StaleCardReloadMessage,
+        // VersionClose date-rule codes are unreachable on this screen: CloseRoleDeclarationRequest
+        // carries no date; the service derives null (CancelPlan) or today-1 (Retire). Fall to R-SYS.
         VersionCloseRules.Codes.VersionAlreadyEnded =>
-            "Phiên bản này đã hết hiệu lực — không thể đóng lại. Chọn phiên bản còn hiệu lực.",
-        VersionCloseRules.Codes.CloseDateNotApplicableToCancelPlan =>
-            StaleCardReloadMessage,
+            "Vai trò đã hết hiệu lực.",
         "Role.VersionNotFound" or "VersionedRepository.VersionNotFound" =>
             "Không tìm thấy phiên bản vai trò để đóng/hủy.",
         "Role.AdminFlagChangeNotAuthorized" =>
             AdminFlagChangeNotAuthorizedMessage,
         "VersionedRepository.BaseVersionRequired" =>
+            "Kỳ hiệu lực của quyền không phù hợp với kỳ hiệu lực của vai trò.",
+        "VersionedRepository.DependentSetChanged" =>
+            "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
+        "VersionedRepository.DependentNotEnlisted" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "VersionedRepository.NotAFuturePlan" =>
             StaleCardReloadMessage,
-        "VersionedRepository.DependentNotEnlisted" or "VersionedRepository.DependentSetChanged" =>
-            "Hệ thống đang bận, vui lòng thử lại.",
+        "VersionedRepository.LockTimeout" =>
+            "Dữ liệu đang được người dùng khác khai báo.",
+        // Reachability unsettled (FR4-2): implementer measured Close→CloseVersionAsync/AutoCut;
+        // external review concluded close validates the date before the repository. Arm kept pending probe.
+        "VersionedRepository.InvalidShrink" =>
+            "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
         "TemporalFk.DependentsUncovered" =>
-            "Không thể đóng vai trò: vẫn còn người dùng được gán vai trò này.",
+            "Vai trò không được đóng do còn người dùng phụ thuộc.",
         "Authz.ScopeInsufficient" =>
-            "Bạn không có đủ phạm vi quyền để đóng/hủy vai trò này.",
+            PermissionDeniedMessage,
+        "Authz.NotGranted" =>
+            PermissionDeniedMessage,
+        "Function.DuplicateKey" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "User.DuplicateUsername" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "RolePermission.DuplicateGrant" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "Role.CascadeGrantNotProbed" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "CompositeWrite.NotEnlisted" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "AuditLogWriter.NoAmbientConnection" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
         _ when error.Code.StartsWith("Authz.", StringComparison.Ordinal) =>
-            string.IsNullOrWhiteSpace(error.Description)
-                ? "Bạn không có quyền thực hiện thao tác này."
-                : error.Description,
-        _ => error.Description,
+            PermissionDeniedMessage,
+        _ => "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
     };
 
     // Test-only public wrapper (Fix Round 1 §6): the VersionCloseRules.Codes.All coverage test needs to
@@ -782,12 +799,81 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
     private static string FormatSaveError(Error error) => error.Code switch
     {
         "Role.AdminFlagChangeNotAuthorized" => AdminFlagChangeNotAuthorizedMessage,
+        "Role.CodeInUse" or "Role.CodeOwnedByAnotherIdentity" =>
+            "Mã vai trò đã được sử dụng.",
+        "Role.CodeIdentityAmbiguous" =>
+            "Mã vai trò bị trùng lặp với mã vai trò trong lịch sử do lỗi dữ liệu.",
+        "Role.CodeOwnerNotDormant" =>
+            "Mã vai trò bị trùng lặp với mã vai trò sẽ được sử dụng trong tương lai.",
+        "RolePermission.OverlappingGrant" =>
+            "Chức năng bị trùng lặp.",
+        "TemporalFk.ParentGap" =>
+            "Kỳ hiệu lực của quyền vượt ngoài kỳ hiệu lực của vai trò hoặc chức năng.",
+        "EffectivePeriod.NoCoverage" =>
+            "Quyền cần thu hồi đã hết hiệu lực.",
+        // Reachability unsettled (FR4-2): save-path construction vs engine raise — two readings disagree; arm kept pending probe.
+        "EffectivePeriod.InvalidRange" =>
+            "Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực.",
+        "EffectivePeriod.OverlappingVersions" =>
+            "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
+        "Authz.ScopeInsufficient" =>
+            PermissionDeniedMessage,
+        "Authz.NotGranted" =>
+            PermissionDeniedMessage,
+        "VersionedRepository.LockTimeout" =>
+            "Dữ liệu đang được người dùng khác khai báo.",
+        // Reachability unsettled (FR4-2): implementer measured Upsert/grant CloseVersionAsync;
+        // external review concluded save builds valid periods and does no parent auto-cut. Arm kept pending probe.
+        "VersionedRepository.InvalidShrink" =>
+            "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
+        "Role.CodeOwnershipChanged" or "Role.VersionOutOfDate" or "Role.ExpectedCodeMismatch"
+            // Reachability unsettled (FR4-2) for NotAFuturePlan on this map — disputed; arm kept pending probe.
+            or "VersionedRepository.NotAFuturePlan" or "VersionedRepository.VersionNotFound" =>
+            "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
+        "VersionedRepository.DependentSetChanged" =>
+            "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
+        "VersionedRepository.DependentNotEnlisted" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        // Reachability unsettled (FR4-2): review held invalid dependent auto-cut reports this rather than InvalidShrink;
+        // implementer reading differed. Arm kept pending probe.
+        "VersionedRepository.BaseVersionRequired" =>
+            "Kỳ hiệu lực của quyền không phù hợp với kỳ hiệu lực của vai trò.",
+        "RolePermission.NotOwnedByRole" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "RolePermission.IdentityAlreadyVersioned" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "Function.DuplicateKey" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "User.DuplicateUsername" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "RolePermission.DuplicateGrant" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "CompositeWrite.NotEnlisted" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "AuditLogWriter.NoAmbientConnection" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        // Role.CodeNotAscii: unreachable — ValidateFields RoleCodePattern excludes non-ASCII before
+        // the service is called (brief 163 step 6). No arm.
         _ when error.Code.StartsWith("Authz.", StringComparison.Ordinal) =>
-            string.IsNullOrWhiteSpace(error.Description)
-                ? "Bạn không có quyền thực hiện thao tác này."
-                : error.Description,
-        _ => error.Description,
+            PermissionDeniedMessage,
+        _ => "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
     };
+
+    // Test-only public wrapper — FormatSaveError completeness + fall-through without InternalsVisibleTo.
+    public string FormatSaveErrorPublic(Error error) => FormatSaveError(error);
+
+    // Card load map: GetByIdentityAsync → EffectivePeriodResolver only (NoCoverage / OverlappingVersions).
+    // No Authz.* on this path. Measured brief 163 Part 2.
+    private static string FormatLoadError(Error error) => error.Code switch
+    {
+        "EffectivePeriod.NoCoverage" =>
+            "Vai trò không hiệu lực tại ngày đã chọn.",
+        "EffectivePeriod.OverlappingVersions" =>
+            "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
+        _ => "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+    };
+
+    public string FormatLoadErrorPublic(Error error) => FormatLoadError(error);
 
     public async Task<CardLoadOutcome> LoadAsync(long roleId, DateOnly asOf)
     {
@@ -808,7 +894,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
 
         if (result.IsError)
         {
-            StatusMessage = string.Join("; ", result.Errors.Select(e => e.Description));
+            StatusMessage = string.Join("; ", result.Errors.Select(FormatLoadError));
             Severity = StatusSeverity.Error;
             return CardLoadOutcome.Failed;
         }
@@ -934,7 +1020,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
                 _functionCatalog = [];
                 RefreshFunctionPicker();
                 GrantsReadiness = GrantsReadiness.Failed;
-                StatusMessage = "Không tải được danh sách quyền.";
+                StatusMessage = "Ứng dụng không tải được danh sách quyền.";
                 Severity = StatusSeverity.Error;
             }
 
@@ -1002,7 +1088,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
             if (generation == _cardLoadGeneration)
             {
                 PermissionJournal = [];
-                StatusMessage = "Không tải được nhật ký quyền.";
+                StatusMessage = "Ứng dụng không tải được nhật ký quyền.";
                 Severity = StatusSeverity.Warning;
             }
         }
@@ -1039,7 +1125,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
             // OrgUnitDeclarationViewModel.RefreshParentCandidatesAsync's own catch+generation guard).
             if (generation == _functionCatalogGeneration)
             {
-                StatusMessage = "Không tải được danh mục chức năng.";
+                StatusMessage = "Ứng dụng không tải được danh mục chức năng.";
                 Severity = StatusSeverity.Error;
                 if (ownsCardReadiness)
                     GrantsReadiness = GrantsReadiness.Failed;
@@ -1192,7 +1278,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
         {
             if (generation == _historyLoadGeneration)
             {
-                StatusMessage = "Không tải được lịch sử khai báo.";
+                StatusMessage = "Ứng dụng không tải được dữ liệu lịch sử.";
                 Severity = StatusSeverity.Error;
             }
         }

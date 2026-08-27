@@ -109,7 +109,7 @@ public sealed class ConfigAuditHistoryViewModel : BindableBase
         if (!integrity.ChainValid)
         {
             Severity = StatusSeverity.Error;
-            IntegrityMessage = $"Nhật ký cấu hình bị đứt chuỗi hỏng tại bản ghi {integrity.FirstBrokenSeq}.";
+            IntegrityMessage = "Nhật ký cấu hình không toàn vẹn.";
             return;
         }
         if (!integrity.TipSignatureValid)

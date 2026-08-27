@@ -3,6 +3,7 @@ using AST.Core.Presentation;
 using AST.Shell.Session;
 using AST.Shell.ViewModels.Platform;
 using ErrorOr;
+using FluentAssertions;
 
 namespace AST.Shell.Tests.ViewModels;
 
@@ -125,7 +126,7 @@ public class ConfigAuditHistoryViewModelTests
         vm.VerifyCommand.Execute();
 
         Assert.Equal(StatusSeverity.Error, vm.Severity);
-        Assert.Contains("3", vm.IntegrityMessage);
+        vm.IntegrityMessage.Should().Be("Nhật ký cấu hình không toàn vẹn.");
     }
 
     [Fact]

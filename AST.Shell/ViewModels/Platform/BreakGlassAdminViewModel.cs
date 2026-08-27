@@ -124,7 +124,7 @@ public sealed class BreakGlassAdminViewModel : BindableBase
             Severity = StatusSeverity.Error;
             StatusMessage = Health == BreakGlassHealth.Tampered
                 ? "Danh sách bị sửa đổi."
-                : "Không đọc được danh sách.";
+                : "Ứng dụng không tải được danh sách người cứu hộ.";
         }
     }
 
@@ -153,7 +153,7 @@ public sealed class BreakGlassAdminViewModel : BindableBase
         if (WindowsUsernameNormalizer.Normalize(user) == WindowsUsernameNormalizer.Normalize(_currentUser.Username))
         {
             Severity = StatusSeverity.Warning;
-            StatusMessage = "Bạn vừa xóa user của mình.";
+            StatusMessage = "Người dùng đã xóa tài khoản của chính mình.";
         }
         SaveCommand.RaiseCanExecuteChanged();
     }

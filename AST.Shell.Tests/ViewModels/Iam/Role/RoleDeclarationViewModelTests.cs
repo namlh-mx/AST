@@ -649,7 +649,7 @@ public class RoleDeclarationViewModelTests
         h.Vm.BeginAddCommand.Execute();
 
         h.Vm.Severity.Should().Be(StatusSeverity.Error);
-        h.Vm.StatusMessage.Should().Be("Không tải được danh mục chức năng.");
+        h.Vm.StatusMessage.Should().Be("Ứng dụng không tải được danh mục chức năng.");
     }
 
     [Fact]
@@ -759,8 +759,7 @@ public class RoleDeclarationViewModelTests
 
         await act.Should().NotThrowAsync(
             "a grants-read failure during the post-save reload must degrade to the locked Warning banner, not crash Save");
-        h.Vm.StatusMessage.Should().Be("Đã lưu nhưng không tải lại được, vui lòng làm mới.",
-            "the existing post-write reload-fail Warning wording is a locked precedent — must not change");
+        h.Vm.StatusMessage.Should().Be("Đã lưu. Dữ liệu hiển thị chưa cập nhật.");
         h.Vm.Severity.Should().Be(StatusSeverity.Warning);
         h.Vm.BeginEditCommand.CanExecute().Should().BeFalse(
             "a partially-reloaded card (grants failed) must not be editable regardless of banner severity — " +
@@ -923,7 +922,7 @@ public class RoleDeclarationViewModelTests
         await h.Vm.LoadAllHistoryAsync();
 
         h.Vm.Severity.Should().Be(StatusSeverity.Error);
-        h.Vm.StatusMessage.Should().Be("Không tải được lịch sử khai báo.");
+        h.Vm.StatusMessage.Should().Be("Ứng dụng không tải được dữ liệu lịch sử.");
     }
 
     [Fact]
@@ -1058,7 +1057,7 @@ public class RoleDeclarationViewModelTests
         await h.Vm.SaveCommand.Execute();
 
         h.Vm.Severity.Should().Be(StatusSeverity.Error);
-        h.Vm.StatusMessage.Should().Be("Không thể đóng vai trò: vẫn còn người dùng được gán vai trò này.");
+        h.Vm.StatusMessage.Should().Be("Vai trò không được đóng do còn người dùng phụ thuộc.");
     }
 
     [Fact]
@@ -1076,32 +1075,30 @@ public class RoleDeclarationViewModelTests
     }
 
     [Fact]
-    public void FormatCloseErrorPublic_CoversEveryVersionCloseRulesCode()
+    public void FormatCloseErrorPublic_DateCodesFallThrough_OnlyVersionAlreadyEndedIsMapped()
     {
         var h = Build();
-        const string stale = "Dữ liệu đã thay đổi — vui lòng tải lại.";
+        const string rSys = "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.";
+        // Five date-rule codes are unreachable: CloseRoleDeclarationRequest carries no date;
+        // service derives null (CancelPlan) or today-1 (Retire). VersionAlreadyEnded is the only
+        // VersionCloseRules code that can surface on this screen.
         var expected = new Dictionary<string, string>
         {
-            [VersionCloseRules.Codes.CloseDateNotApplicableToCancelPlan] = stale,
-            [VersionCloseRules.Codes.VersionAlreadyEnded] =
-                "Phiên bản này đã hết hiệu lực — không thể đóng lại. Chọn phiên bản còn hiệu lực.",
-            [VersionCloseRules.Codes.CloseDateRequired] = stale,
-            [VersionCloseRules.Codes.CloseDateInPast] = stale,
-            [VersionCloseRules.Codes.CloseDateEqualsVersionEnd] = stale,
-            [VersionCloseRules.Codes.CloseDateOutsideVersionPeriod] = stale,
+            [VersionCloseRules.Codes.CloseDateNotApplicableToCancelPlan] = rSys, // unreachable: CancelPlan always passes null date
+            [VersionCloseRules.Codes.VersionAlreadyEnded] = "Vai trò đã hết hiệu lực.",
+            [VersionCloseRules.Codes.CloseDateRequired] = rSys, // unreachable: Retire always passes today-1
+            [VersionCloseRules.Codes.CloseDateInPast] = rSys, // unreachable: derived date is exactly the floor
+            [VersionCloseRules.Codes.CloseDateEqualsVersionEnd] = rSys, // unreachable: VersionAlreadyEnded reports first when To < today
+            [VersionCloseRules.Codes.CloseDateOutsideVersionPeriod] = rSys, // unreachable: derived today-1 + branch cutover
         };
 
         foreach (var code in VersionCloseRules.Codes.All)
         {
-            var retired = "Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực.";
-            var error = Error.Validation(code, retired);
+            const string seed = "SEED-DESCRIPTION-MUST-NOT-LEAK";
+            var error = Error.Validation(code, seed);
             var message = h.Vm.FormatCloseErrorPublic(error);
             message.Should().Be(expected[code], $"code '{code}' must map to the exact Immediate-screen string");
-            message.Should().NotBe(retired);
-            message.Contains("ngày kết thúc", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
-            message.Contains("Ngày Đến", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
-            message.Contains("để trống ngày", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
-            message.Contains("chọn ngày", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
+            message.Should().NotBe(seed);
         }
     }
 
@@ -1114,11 +1111,39 @@ public class RoleDeclarationViewModelTests
         h.Vm.FormatCloseErrorPublic(Error.Forbidden("Role.AdminFlagChangeNotAuthorized", "raw"))
             .Should().Be(RoleDeclarationViewModel.AdminFlagChangeNotAuthorizedMessage);
         h.Vm.FormatCloseErrorPublic(Error.Forbidden("Authz.ScopeInsufficient", "raw"))
-            .Should().Be("Bạn không có đủ phạm vi quyền để đóng/hủy vai trò này.");
+            .Should().Be("Người dùng không được cấp quyền.");
         h.Vm.FormatCloseErrorPublic(Error.Failure("VersionedRepository.DependentSetChanged", "raw"))
-            .Should().NotBe("raw");
+            .Should().Be("Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.");
+        h.Vm.FormatCloseErrorPublic(Error.Failure("VersionedRepository.DependentNotEnlisted", "raw"))
+            .Should().Be("Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.");
         h.Vm.FormatCloseErrorPublic(Error.Validation("VersionedRepository.BaseVersionRequired", "raw"))
-            .Should().NotBe("raw");
+            .Should().Be("Kỳ hiệu lực của quyền không phù hợp với kỳ hiệu lực của vai trò.");
+    }
+
+
+    // Brief 160 → 161: BaseVersionRequired on close is reachable via AutoCutExclusivelyOwnedAsync;
+    // the map must show the settled grant/role period sentence, not a stale-reload hint.
+    [Fact]
+    public async Task Close_BaseVersionRequired_StatusMessageIsSettledGrantPeriodSentence()
+    {
+        var h = Build();
+        h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
+        await h.Vm.LoadAsync(5, Today);
+        h.Vm.BeginCloseCommand.Execute();
+
+        const string engineDescription =
+            "Không thể auto-cut 'role_permission_version' identity=9: " +
+            "ngày cắt 23/07/2026 không nằm trong phiên bản active [20/07/2026, 31/12/9999).";
+        h.Declaration.CloseResult = Error.Validation(
+            "VersionedRepository.BaseVersionRequired", engineDescription);
+
+        await h.Vm.SaveCommand.Execute();
+
+        h.Vm.Severity.Should().Be(StatusSeverity.Error);
+        h.Vm.StatusMessage.Should().Be(
+            "Kỳ hiệu lực của quyền không phù hợp với kỳ hiệu lực của vai trò.");
+        h.Vm.StatusMessage.Should().NotContain("role_permission_version");
+        h.Vm.StatusMessage.Should().NotBe(engineDescription);
     }
 
     // ---- Permission journal cancelled-row blank cell (§5) ----
@@ -1313,7 +1338,7 @@ public class RoleDeclarationViewModelTests
         h.Vm.GrantsReadiness.Should().Be(GrantsReadiness.Failed);
         h.Vm.BeginEditCommand.CanExecute().Should().BeFalse();
         h.Vm.CanClose.Should().BeTrue();
-        h.Vm.GrantsGridOverlayText.Should().Contain("Không tải được");
+        h.Vm.GrantsGridOverlayText.Should().Be("Ứng dụng không tải được danh sách quyền.");
     }
 
     [Fact]
@@ -1329,7 +1354,7 @@ public class RoleDeclarationViewModelTests
         h.Vm.BeginEditCommand.CanExecute().Should().BeTrue();
         h.Vm.CanMutateGrants.Should().BeFalse();
         h.Vm.Severity.Should().Be(StatusSeverity.Warning);
-        h.Vm.StatusMessage.Should().Be("Không tải được nhật ký quyền.");
+        h.Vm.StatusMessage.Should().Be("Ứng dụng không tải được nhật ký quyền.");
     }
 
     [Fact]
@@ -1686,5 +1711,383 @@ public class RoleDeclarationViewModelTests
         h.Vm.StatusMessage.Should().NotBe("Đã cập nhật hiệu lực vai trò.");
         h.Vm.RoleName.Should().Be("Quản trị viên");
         h.Vm.Mode.Should().Be(RoleCardMode.ReadOnly);
+    }
+
+    // Brief 161 — FormatCloseError / FormatSaveError completeness. Deliberately manual lists: a new
+    // raise-site code is NOT caught until someone adds it HERE; the list therefore cannot catch an
+    // unmapped code that still lands on the catch-all.
+    private const string OperatorFallThroughMessage =
+        "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.";
+
+    private const string DependentSetChangedMessage =
+        "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.";
+
+    [Fact]
+    public void FormatCloseErrorPublic_CoversEverySettledCode_ReturnsExactSentence()
+    {
+        var h = Build();
+        var seed = "SEED-DESCRIPTION-MUST-NOT-LEAK";
+        var expected = new Dictionary<string, string>
+        {
+            ["VersionedRepository.BaseVersionRequired"] =
+                "Kỳ hiệu lực của quyền không phù hợp với kỳ hiệu lực của vai trò.",
+            ["VersionedRepository.DependentSetChanged"] = DependentSetChangedMessage,
+            ["VersionedRepository.DependentNotEnlisted"] = OperatorFallThroughMessage,
+            ["VersionedRepository.NotAFuturePlan"] = DependentSetChangedMessage,
+            ["VersionedRepository.LockTimeout"] = "Dữ liệu đang được người dùng khác khai báo.",
+            ["VersionedRepository.InvalidShrink"] =
+                "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
+            ["Authz.NotGranted"] = "Người dùng không được cấp quyền.",
+            ["Authz.ScopeInsufficient"] =
+                "Người dùng không được cấp quyền.",
+            ["Role.AdminFlagChangeNotAuthorized"] =
+                "Người dùng không được cấp quyền.", // literal — not AdminFlagChangeNotAuthorizedMessage (FR3-2)
+            [VersionCloseRules.Codes.VersionAlreadyEnded] = "Vai trò đã hết hiệu lực.",
+            ["TemporalFk.DependentsUncovered"] =
+                "Vai trò không được đóng do còn người dùng phụ thuộc.",
+            ["Function.DuplicateKey"] = OperatorFallThroughMessage,
+            ["User.DuplicateUsername"] = OperatorFallThroughMessage,
+            ["RolePermission.DuplicateGrant"] = OperatorFallThroughMessage,
+            ["Role.CascadeGrantNotProbed"] = OperatorFallThroughMessage,
+            ["CompositeWrite.NotEnlisted"] = OperatorFallThroughMessage,
+            ["AuditLogWriter.NoAmbientConnection"] = OperatorFallThroughMessage,
+        };
+
+        foreach (var (code, sentence) in expected)
+        {
+            var message = h.Vm.FormatCloseErrorPublic(Error.Validation(code, seed));
+            message.Should().Be(sentence, $"code '{code}' must map to its settled operator sentence");
+        }
+    }
+
+    [Fact]
+    public void FormatCloseErrorPublic_UnmappedCode_ReturnsFallThrough_DoesNotThrow()
+    {
+        var h = Build();
+        var act = () => h.Vm.FormatCloseErrorPublic(
+            Error.Failure("Totally.UnknownCode", "English developer sentence"));
+        act.Should().NotThrow();
+        act().Should().Be(OperatorFallThroughMessage);
+    }
+
+    [Fact]
+    public void FormatCloseErrorPublic_PermissionFamily_DedicatedArmsDistinctFromPrefix_Control()
+    {
+        const string permission = "Người dùng không được cấp quyền.";
+        const string seedDedicated = "SEED-DEDICATED-ARM-MUST-NOT-LEAK";
+        const string seedPrefix = "SEED-PREFIX-ARM-MUST-NOT-LEAK";
+        var h = Build();
+
+        h.Vm.FormatCloseErrorPublic(Error.Forbidden("Authz.NotGranted", seedDedicated))
+            .Should().Be(permission).And.NotContain(seedDedicated);
+        h.Vm.FormatCloseErrorPublic(Error.Forbidden("Authz.OnlyViaPrefixControl", seedPrefix))
+            .Should().Be(permission).And.NotContain(seedPrefix);
+
+        // Scope to FormatCloseError only — whole-file scan would match FormatSaveError's twin arms.
+        var closeRegion = SliceRoleMapSource(
+            "private string FormatCloseError(Error error)",
+            "public string FormatCloseErrorPublic");
+        AssertAuthzDedicatedArmsInRegion(closeRegion, nameof(FormatCloseErrorPublic_PermissionFamily_DedicatedArmsDistinctFromPrefix_Control));
+    }
+
+    [Fact]
+    public void FormatSaveErrorPublic_PermissionFamily_DedicatedArmsDistinctFromPrefix_Control()
+    {
+        const string permission = "Người dùng không được cấp quyền.";
+        const string seedDedicated = "SEED-DEDICATED-ARM-MUST-NOT-LEAK";
+        const string seedPrefix = "SEED-PREFIX-ARM-MUST-NOT-LEAK";
+        var h = Build();
+
+        h.Vm.FormatSaveErrorPublic(Error.Forbidden("Authz.NotGranted", seedDedicated))
+            .Should().Be(permission).And.NotContain(seedDedicated);
+        h.Vm.FormatSaveErrorPublic(Error.Forbidden("Authz.OnlyViaPrefixControl", seedPrefix))
+            .Should().Be(permission).And.NotContain(seedPrefix);
+
+        var saveRegion = SliceRoleMapSource(
+            "private static string FormatSaveError(Error error)",
+            "public string FormatSaveErrorPublic");
+        AssertAuthzDedicatedArmsInRegion(saveRegion, nameof(FormatSaveErrorPublic_PermissionFamily_DedicatedArmsDistinctFromPrefix_Control));
+    }
+
+    private static string SliceRoleMapSource(string startMarker, string endMarker)
+    {
+        var src = System.IO.File.ReadAllText(
+            System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppContext.BaseDirectory, "..", "..", "..", "..",
+                "AST.Shell", "ViewModels", "Iam", "Role", "RoleDeclarationViewModel.cs")));
+        var start = src.IndexOf(startMarker, StringComparison.Ordinal);
+        start.Should().BeGreaterThanOrEqualTo(0, $"missing start marker '{startMarker}'");
+        var end = src.IndexOf(endMarker, start, StringComparison.Ordinal);
+        end.Should().BeGreaterThan(start, $"missing end marker '{endMarker}'");
+        return src[start..end];
+    }
+
+    private static void AssertAuthzDedicatedArmsInRegion(string region, string because)
+    {
+        System.Text.RegularExpressions.Regex.Matches(region, "(?m)^\\s*\"Authz\\.NotGranted\"\\s*=>")
+            .Count.Should().Be(1, $"{because}: Format region must keep exactly one NotGranted arm");
+        System.Text.RegularExpressions.Regex.Matches(region, "(?m)^\\s*\"Authz\\.ScopeInsufficient\"\\s*=>")
+            .Count.Should().Be(1, $"{because}: Format region must keep exactly one ScopeInsufficient arm");
+        region.Should().Contain("StartsWith(\"Authz.\"", because);
+        // Catch-all-identical sentence — output asserts cannot discriminate deletion (FR4-1).
+        System.Text.RegularExpressions.Regex.Matches(
+                region, "(?m)^\\s*\"VersionedRepository\\.DependentNotEnlisted\"\\s*=>")
+            .Count.Should().Be(1, $"{because}: Format region must keep exactly one DependentNotEnlisted arm");
+    }
+
+    [Fact]
+    public void FormatCloseErrorPublic_NeverSurfacesDescription()
+    {
+        var h = Build();
+        const string seed = "SEED-DESCRIPTION-MUST-NOT-LEAK";
+        foreach (var code in new[]
+                 {
+                     VersionCloseRules.Codes.VersionAlreadyEnded,
+                     "Authz.ScopeInsufficient",
+                     "Function.DuplicateKey",
+                     "Totally.UnknownCode",
+                 })
+        {
+            h.Vm.FormatCloseErrorPublic(Error.Validation(code, seed))
+                .Should().NotContain(seed, $"code '{code}'");
+        }
+    }
+
+    [Fact]
+    public void FormatSaveErrorPublic_CoversEverySettledCode_ReturnsExactSentence()
+    {
+        var h = Build();
+        var seed = "SEED-DESCRIPTION-MUST-NOT-LEAK";
+        var expected = new Dictionary<string, string>
+        {
+            ["Role.AdminFlagChangeNotAuthorized"] =
+                "Người dùng không được cấp quyền.", // literal — not AdminFlagChangeNotAuthorizedMessage (FR3-2)
+            ["Role.CodeInUse"] = "Mã vai trò đã được sử dụng.",
+            ["Role.CodeOwnedByAnotherIdentity"] = "Mã vai trò đã được sử dụng.",
+            ["Role.CodeIdentityAmbiguous"] =
+                "Mã vai trò bị trùng lặp với mã vai trò trong lịch sử do lỗi dữ liệu.",
+            ["Role.CodeOwnerNotDormant"] =
+                "Mã vai trò bị trùng lặp với mã vai trò sẽ được sử dụng trong tương lai.",
+            ["RolePermission.OverlappingGrant"] = "Chức năng bị trùng lặp.",
+            ["TemporalFk.ParentGap"] =
+                "Kỳ hiệu lực của quyền vượt ngoài kỳ hiệu lực của vai trò hoặc chức năng.",
+            ["EffectivePeriod.NoCoverage"] = "Quyền cần thu hồi đã hết hiệu lực.",
+            ["EffectivePeriod.InvalidRange"] =
+                "Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực.",
+            ["EffectivePeriod.OverlappingVersions"] =
+                "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
+            ["Authz.ScopeInsufficient"] =
+                "Người dùng không được cấp quyền.",
+            ["Authz.NotGranted"] = "Người dùng không được cấp quyền.",
+            ["VersionedRepository.LockTimeout"] = "Dữ liệu đang được người dùng khác khai báo.",
+            ["VersionedRepository.InvalidShrink"] =
+                "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
+            ["Role.CodeOwnershipChanged"] = DependentSetChangedMessage,
+            ["Role.VersionOutOfDate"] = DependentSetChangedMessage,
+            ["Role.ExpectedCodeMismatch"] = DependentSetChangedMessage,
+            ["VersionedRepository.NotAFuturePlan"] = DependentSetChangedMessage,
+            ["VersionedRepository.VersionNotFound"] = DependentSetChangedMessage,
+            ["VersionedRepository.DependentSetChanged"] = DependentSetChangedMessage,
+            ["VersionedRepository.DependentNotEnlisted"] = OperatorFallThroughMessage,
+            ["VersionedRepository.BaseVersionRequired"] =
+                "Kỳ hiệu lực của quyền không phù hợp với kỳ hiệu lực của vai trò.",
+            ["RolePermission.NotOwnedByRole"] = OperatorFallThroughMessage,
+            ["RolePermission.IdentityAlreadyVersioned"] = OperatorFallThroughMessage,
+            ["Function.DuplicateKey"] = OperatorFallThroughMessage,
+            ["User.DuplicateUsername"] = OperatorFallThroughMessage,
+            ["RolePermission.DuplicateGrant"] = OperatorFallThroughMessage,
+            ["CompositeWrite.NotEnlisted"] = OperatorFallThroughMessage,
+            ["AuditLogWriter.NoAmbientConnection"] = OperatorFallThroughMessage,
+        };
+
+        foreach (var (code, sentence) in expected)
+        {
+            var message = h.Vm.FormatSaveErrorPublic(Error.Validation(code, seed));
+            message.Should().Be(sentence, $"code '{code}' must map to its settled operator sentence");
+        }
+    }
+
+    [Fact]
+    public void FormatSaveErrorPublic_UnmappedCode_ReturnsFallThrough_DoesNotThrow()
+    {
+        var h = Build();
+        var act = () => h.Vm.FormatSaveErrorPublic(
+            Error.Failure("Totally.UnknownCode", "English developer sentence"));
+        act.Should().NotThrow();
+        act().Should().Be(OperatorFallThroughMessage);
+    }
+
+    [Fact]
+    public void FormatSaveErrorPublic_NeverSurfacesDescription()
+    {
+        var h = Build();
+        const string seed = "SEED-DESCRIPTION-MUST-NOT-LEAK";
+        foreach (var code in new[] { "Role.CodeInUse", "Authz.ScopeInsufficient", "Totally.UnknownCode" })
+        {
+            h.Vm.FormatSaveErrorPublic(Error.Validation(code, seed))
+                .Should().NotContain(seed, $"code '{code}'");
+        }
+    }
+
+    [Fact]
+    public void FormatLoadErrorPublic_CoversEverySettledCode_ReturnsExactSentence()
+    {
+        var h = Build();
+        const string seed = "SEED-DESCRIPTION-MUST-NOT-LEAK";
+        var expected = new Dictionary<string, string>
+        {
+            ["EffectivePeriod.NoCoverage"] = "Vai trò không hiệu lực tại ngày đã chọn.",
+            ["EffectivePeriod.OverlappingVersions"] =
+                "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
+        };
+
+        foreach (var (code, sentence) in expected)
+        {
+            h.Vm.FormatLoadErrorPublic(Error.Validation(code, seed))
+                .Should().Be(sentence, $"code '{code}'");
+        }
+    }
+
+    [Fact]
+    public void FormatLoadErrorPublic_UnmappedCode_ReturnsFallThrough_DoesNotThrow()
+    {
+        var h = Build();
+        var act = () => h.Vm.FormatLoadErrorPublic(
+            Error.Failure("Load.Unknown", "english only"));
+        act.Should().NotThrow();
+        act().Should().Be(OperatorFallThroughMessage);
+    }
+
+    [Fact]
+    public void FormatLoadErrorPublic_NeverSurfacesDescription()
+    {
+        var h = Build();
+        const string seed = "SEED-DESCRIPTION-MUST-NOT-LEAK";
+        h.Vm.FormatLoadErrorPublic(Error.NotFound("EffectivePeriod.NoCoverage", seed))
+            .Should().NotContain(seed);
+        h.Vm.FormatLoadErrorPublic(Error.Failure("Load.Unknown", seed))
+            .Should().NotContain(seed);
+    }
+
+    [Fact]
+    public async Task Save_Edit_DependentSetChanged_StatusMessageIsSettledSentence_OutsideWitness()
+    {
+        var h = Build();
+        h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên");
+        await h.Vm.LoadAsync(5, Today);
+        h.Vm.BeginEditCommand.Execute();
+        h.Declaration.SaveResult = Error.Conflict(
+            "VersionedRepository.DependentSetChanged",
+            "Có thay đổi khác vừa được ghi trong lúc thao tác này đang chuẩn bị. Vui lòng thử lại.");
+
+        await h.Vm.SaveCommand.Execute();
+
+        h.Vm.Severity.Should().Be(StatusSeverity.Error);
+        h.Vm.StatusMessage.Should().Be(DependentSetChangedMessage);
+    }
+
+    [Fact]
+    public async Task Close_VersionAlreadyEnded_StatusMessageIsSettledSentence_OutsideWitness()
+    {
+        var h = Build();
+        h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
+        await h.Vm.LoadAsync(5, Today);
+        h.Vm.BeginCloseCommand.Execute();
+        h.Declaration.CloseResult = Error.Validation(
+            VersionCloseRules.Codes.VersionAlreadyEnded, "SEED-DESCRIPTION-MUST-NOT-LEAK");
+
+        await h.Vm.SaveCommand.Execute();
+
+        h.Vm.Severity.Should().Be(StatusSeverity.Error);
+        h.Vm.StatusMessage.Should().Be("Vai trò đã hết hiệu lực.");
+    }
+
+    [Fact]
+    public async Task Save_Add_CodeInUse_StatusMessageIsSettledSentence_OutsideWitness()
+    {
+        var h = Build();
+        FillValidAddForm(h.Vm);
+        h.Declaration.SaveResult = Error.Validation("Role.CodeInUse", "SEED-DESCRIPTION-MUST-NOT-LEAK");
+
+        await h.Vm.SaveCommand.Execute();
+
+        h.Vm.Severity.Should().Be(StatusSeverity.Error);
+        h.Vm.StatusMessage.Should().Be("Mã vai trò đã được sử dụng.");
+        h.Vm.StatusMessage.Should().NotContain("SEED-DESCRIPTION-MUST-NOT-LEAK");
+    }
+
+    [Fact]
+    public async Task LoadAsync_NoCoverage_StatusMessageIsSettledSentence_OutsideWitness()
+    {
+        var h = Build();
+        h.Roles.ByIdentityResult = Error.NotFound(
+            "EffectivePeriod.NoCoverage", "Tham số 'RoleVersionRow' chưa có giá trị hiệu lực");
+
+        await h.Vm.LoadAsync(5, Today);
+
+        h.Vm.Severity.Should().Be(StatusSeverity.Error);
+        h.Vm.StatusMessage.Should().Be("Vai trò không hiệu lực tại ngày đã chọn.");
+        h.Vm.StatusMessage.Should().NotContain("RoleVersionRow");
+    }
+
+    // Brief 163 step 6: Role.CodeNotAscii is unreachable — client RoleCodePattern excludes non-ASCII
+    // before SaveRoleDeclarationAsync. Evidence shape: declaration never invoked (not merely that a
+    // guard fires).
+    [Fact]
+    public async Task Save_NonAsciiRoleCode_NeverInvokesDeclarationService_CodeNotAsciiUnreachable()
+    {
+        var h = Build();
+        h.Vm.BeginAddCommand.Execute();
+        h.Vm.RoleCode = "váitrò"; // non-ASCII letters — would be Role.CodeNotAscii if it reached the service
+        h.Vm.RoleName = "Tên hợp lệ đủ dài ký tự";
+
+        await h.Vm.SaveCommand.Execute();
+
+        h.Declaration.SaveCallCount.Should().Be(0,
+            "Role.CodeNotAscii must not reach FormatSaveError — ValidateFields blocks before the service call");
+        h.Vm.Severity.Should().Be(StatusSeverity.Error);
+    }
+
+    [Fact]
+    public async Task Save_Edit_MissingRoleId_ShowsP2S13()
+    {
+        var h = Build();
+        // BeginEditCommand.Execute bypasses CanExecute — Mode=Editing with no loaded role.
+        h.Vm.OverrideGrantsReadinessForTest(GrantsReadiness.Resolved);
+        h.Vm.BeginEditCommand.Execute();
+        h.Vm.RoleCode = "clerk_role";
+        h.Vm.RoleName = "Tên hợp lệ đủ dài ký tự";
+        await h.Vm.SaveCommand.Execute();
+        h.Vm.StatusMessage.Should().Be("Người dùng chọn vai trò trước khi sửa.");
+        // The _currentVersionId-null arm uses the identical P2-S13 literal (same source string);
+        // no public API can set role id without version id, so that arm is covered by source identity.
+    }
+
+    [Fact]
+    public async Task Save_Edit_ReloadFail_And_Close_HistoryFail_BothUseP2S2()
+    {
+        var h = Build();
+        h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên");
+        await h.Vm.LoadAsync(5, Today);
+        h.Vm.BeginEditCommand.Execute();
+        h.Vm.RoleName = "Tên mới đủ dài";
+        h.Permissions.ThrowOnGetActiveGrants = new InvalidOperationException("db down");
+
+        await h.Vm.SaveCommand.Execute();
+
+        h.Vm.StatusMessage.Should().Be("Đã lưu. Dữ liệu hiển thị chưa cập nhật.",
+            "FinishSaveSuccessAsync reload-fail site");
+
+        h.Permissions.ThrowOnGetActiveGrants = null;
+        h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
+        await h.Vm.LoadAsync(5, Today);
+        h.Vm.BeginCloseCommand.Execute();
+        h.Roles.ThrowOnGetHistory = new InvalidOperationException("history down");
+
+        await h.Vm.SaveCommand.Execute();
+
+        h.Vm.StatusMessage.Should().Be("Đã lưu. Dữ liệu hiển thị chưa cập nhật.",
+            "RefreshHistoryPreservingMessageAsync after close — same P2-S2 sentence");
+        h.Vm.Severity.Should().Be(StatusSeverity.Warning);
     }
 }

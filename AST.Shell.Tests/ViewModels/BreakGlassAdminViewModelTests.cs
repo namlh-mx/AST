@@ -5,6 +5,7 @@ using AST.Core.Presentation;
 using AST.Shell.Session;
 using AST.Shell.ViewModels.Platform;
 using ErrorOr;
+using FluentAssertions;
 
 namespace AST.Shell.Tests.ViewModels;
 
@@ -159,7 +160,7 @@ public class BreakGlassAdminViewModelTests
         vm.RemoveCommand.Execute("me");
 
         Assert.Equal(StatusSeverity.Warning, vm.Severity);
-        Assert.Equal("Bạn vừa xóa user của mình.", vm.StatusMessage);
+        vm.StatusMessage.Should().Be("Người dùng đã xóa tài khoản của chính mình.");
     }
 
     [Fact]
@@ -330,6 +331,6 @@ public class BreakGlassAdminViewModelTests
 
         vm.LoadCommand.Execute();
 
-        Assert.Equal("Không đọc được danh sách.", vm.StatusMessage);
+        vm.StatusMessage.Should().Be("Ứng dụng không tải được danh sách người cứu hộ.");
     }
 }

@@ -567,7 +567,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             // never populated with no diagnostic (prefer a clear failure over silent ambiguity).
             if (generation == _parentRefreshGeneration)
             {
-                StatusMessage = "Không tải được danh sách đơn vị cha khả dụng.";
+                StatusMessage = "Ứng dụng không tải được danh sách đơn vị cha.";
                 Severity = StatusSeverity.Error;
                 ParentEligibility = ParentEligibilityState.Failed;
             }
@@ -675,8 +675,11 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     private static string FormatLoadError(Error error) => error.Code switch
     {
         "EffectivePeriod.NoCoverage" =>
-            "Đơn vị này không có phiên bản hiệu lực tại ngày đã chọn.",
-        _ => error.Description,
+            "Đơn vị không hiệu lực tại ngày đã chọn.",
+        "EffectivePeriod.OverlappingVersions" =>
+            "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
+        // Authz.* cannot reach this map: callers are GetByIdentityAsync → resolver only (brief 162).
+        _ => "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
     };
 
     // §A (2026-08-10): History "Xem" is a ROW-IDENTIFIED read ("show THIS version"), not a date-resolved
@@ -747,7 +750,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             {
                 // FR3: fail closed — never leave a stale as-of behind after an auth/scope failure.
                 _lastTreeAsOf = null;
-                StatusMessage = "Không tải được cây đơn vị.";
+                StatusMessage = "Ứng dụng không tải được cây đơn vị.";
                 Severity = StatusSeverity.Error;
                 return;
             }
@@ -759,7 +762,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             if (generation == _treeLoadGeneration)
             {
                 _lastTreeAsOf = null;
-                StatusMessage = "Không tải được cây đơn vị.";
+                StatusMessage = "Ứng dụng không tải được cây đơn vị.";
                 Severity = StatusSeverity.Error;
             }
         }
@@ -837,7 +840,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         {
             if (generation == _historyLoadGeneration)
             {
-                StatusMessage = "Không tải được lịch sử.";
+                StatusMessage = "Ứng dụng không tải được dữ liệu lịch sử.";
                 Severity = StatusSeverity.Error;
             }
         }
@@ -930,7 +933,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         {
             if (refreshFailed)
             {
-                StatusMessage = "Đã lưu nhưng không tải lại được danh sách, vui lòng làm mới.";
+                StatusMessage = "Đã lưu. Dữ liệu hiển thị chưa cập nhật.";
                 Severity = StatusSeverity.Warning;
             }
             else
@@ -1166,7 +1169,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // while a date is visibly present — block with wording that matches what the operator sees.
         if (EffectiveTo == EffectivePeriod.OpenEnd)
         {
-            StatusMessage = "Ngày kết thúc không được là ngày không xác định.";
+            StatusMessage = CloseDateRequiredMessage;
             Severity = StatusSeverity.Error;
             return;
         }
@@ -1233,7 +1236,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     // Reused by both FormatWriteError's CloseDateRequired mapping and the VM-side retire-branch
     // null-date guard above — one wording, one home (rule-prefer-existing).
-    private const string CloseDateRequiredMessage = "Cần nhập ngày kết thúc để đóng đơn vị.";
+    private const string CloseDateRequiredMessage = "Ngày kết thúc hiệu lực chưa được khai báo.";
+
+    // Brief 163 FR1: one permission-family sentence for every Authz / scope / admin-flag denial on this screen.
+    private const string PermissionDeniedMessage = "Người dùng không được cấp quyền.";
 
     // Presentation map for the ErrorOr codes of BOTH service write paths, Add and close/cancel — codes are
     // the contract; VN wording is the VM's job. Reuse existing screen strings wherever an equivalent already
@@ -1243,42 +1249,40 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     {
         // ---- Add path (IOrgUnitDeclarationService.AddOrgUnitDeclarationAsync) ----
         "OrgUnit.AddRequiresGlobalScope" =>
-            "Bạn không có quyền tạo đơn vị mới (yêu cầu quyền toàn hệ thống).",
+            PermissionDeniedMessage,
         // N1 as amended 2026-08-17: the rule is about the PERIOD, not about "a root exists". A root that has
-        // been retired may be succeeded by a new one, so the old "Đã có đơn vị gốc" wording would now be
-        // wrong — it would tell the operator something is permanently impossible when only these dates are.
+        // been retired may be succeeded by a new one, so wording that said a root already exists permanently
+        // would be wrong — it would tell the operator something is permanently impossible when only these dates are.
         //
-        // It names BOTH remedies on purpose. This code is what an operator gets when they simply FORGOT to
-        // pick a parent while a root exists — the form has no "parent required" rule of its own, and it must
-        // not grow one, because deciding whether a root already exists is exactly the probe that moved
+        // It names BOTH remedies on purpose (QA Reviewer LOW-4, re-verified 2026-08-27): this code is what an
+        // operator gets when they simply FORGOT to pick a parent while a root exists — the form has no
+        // "parent required" rule of its own (ValidateFields / Add call the service with no parent check), and
+        // it must not grow one, because deciding whether a root already exists is exactly the probe that moved
         // server-side. Naming only the dates would send that operator to change the effective period, which
-        // is not their problem.
+        // is not their problem. Settled sentence (brief 163 FR2):
+        // "Đơn vị gốc bị trùng lặp, người dùng kiểm tra thông tin đơn vị cấp trên và kỳ hiệu lực."
         "OrgUnit.RootPeriodOverlaps" =>
-            "Đã có đơn vị gốc hiệu lực trong khoảng thời gian này — hãy chọn đơn vị cha, hoặc chọn kỳ hiệu lực khác.",
+            "Đơn vị gốc bị trùng lặp, người dùng kiểm tra thông tin đơn vị cấp trên và kỳ hiệu lực.",
         "OrgUnit.CodeInUse" =>
             "Mã đơn vị này đã được dùng cho một đơn vị khác trong khoảng thời gian trùng nhau.",
         "TemporalFk.ParentGap" =>
-            "Đơn vị cha không có hiệu lực trong suốt kỳ hiệu lực của đơn vị này — chọn đơn vị cha khác hoặc sửa kỳ hiệu lực.",
+            "Kỳ hiệu lực của đơn vị vượt ngoài kỳ hiệu lực của đơn vị cấp trên.",
         // ---- close/cancel path ----
         VersionCloseRules.Codes.CloseDateRequired =>
             CloseDateRequiredMessage,
-        // D2: the floor is `today - 1`. Requester wants the concrete
-        // date, not a relative word — formatted with the screen's own FormatDate convention.
+        // Brief 163: no data inside operator messages (requester 2026-08-26) — floor date not interpolated.
         VersionCloseRules.Codes.CloseDateInPast =>
-            $"Ngày kết thúc phải từ ngày {FormatDate(_dates.Today.AddDays(-1))}.",
+            "Ngày kết thúc hiệu lực không được khai báo trước ngày hôm qua.",
         VersionCloseRules.Codes.CloseDateEqualsVersionEnd =>
-            "Ngày kết thúc trùng ngày hết hiệu lực hiện tại — chọn ngày sớm hơn.",
+            "Ngày kết thúc hiệu lực đã được khai báo trước đó.",
         VersionCloseRules.Codes.CloseDateOutsideVersionPeriod =>
-            "Ngày kết thúc phải nằm trong kỳ hiệu lực của phiên bản đang đóng.",
+            "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
         VersionCloseRules.Codes.VersionAlreadyEnded =>
-            "Phiên bản này đã hết hiệu lực — không thể đóng lại. Chọn phiên bản còn hiệu lực.",
-        // D1: this branch now also covers a version effective FROM
-        // today, so "chưa hiệu lực" (not yet effective) is no longer always true — reworded to a
-        // constraint that holds for both cases.
+            "Đơn vị đã hết hiệu lực.",
         VersionCloseRules.Codes.CloseDateNotApplicableToCancelPlan =>
-            "Hủy hiệu lực không dùng ngày kết thúc — để trống ngày Đến.",
+            "Thao tác hủy kỳ hiệu lực không yêu cầu nhập ngày kết thúc hiệu lực.",
         "OrgUnit.NotInScope" =>
-            "Bạn không có quyền sửa/đóng đơn vị này (ngoài phạm vi quản lý của bạn).",
+            PermissionDeniedMessage,
         // Backlog 0.7: the parent a stale card echoed is not the one stored. There is no "chọn lại đơn vị
         // cha" advice to give -- the parent is immutable, so reloading is the only move.
         "OrgUnit.ParentMismatch" =>
@@ -1294,23 +1298,56 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         "OrgUnit.VersionNotFound" or "VersionedRepository.VersionNotFound" =>
             "Không tìm thấy phiên bản đơn vị cho thao tác này.",
         "VersionedRepository.NotAFuturePlan" =>
-            "Dữ liệu đã thay đổi — vui lòng tải lại.",
+            "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
+        "VersionedRepository.DependentSetChanged" =>
+            "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
+        "VersionedRepository.DependentNotEnlisted" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
         "VersionedRepository.LockTimeout" =>
-            "Hệ thống đang bận, vui lòng thử lại.",
+            "Dữ liệu đang được người dùng khác khai báo.",
         "VersionedRepository.InvalidShrink" =>
-            "Ngày kết thúc không hợp lệ với kỳ hiệu lực hiện tại — chọn ngày khác.",
+            "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
+        "OrgUnit.GapNotAllowed" =>
+            "Kỳ hiệu lực không liên tục.",
+        "OrgUnit.RootNotClosable" =>
+            "Không thể đóng hoặc hủy đơn vị gốc.",
+        "EffectivePeriod.OverlappingVersions" =>
+            "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
+        // Brief 160: unreachable on this screen's save path today; arm kept so a later route cannot
+        // re-open the Description leak. Not a claim that the route exists.
+        "EffectivePeriod.NoCoverage" =>
+            "Đơn vị không hiệu lực tại ngày đã chọn.",
+        // Brief 160: unreachable on this screen's save path today; arm kept so a later route cannot
+        // re-open the Description leak. Not a claim that the route exists.
+        "EffectivePeriod.InvalidRange" =>
+            "Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực.",
         "TemporalFk.DependentsUncovered" =>
-            "Không thể đóng đơn vị — vẫn còn đơn vị con hoặc người dùng thuộc đơn vị này. Hãy xử lý các phụ thuộc trước khi đóng.",
+            "Đơn vị không được đóng do còn đơn vị cấp dưới hoặc còn người dùng phụ thuộc.",
         "Authz.ScopeInsufficient" =>
-            "Bạn không có đủ phạm vi quyền cho thao tác này trên đơn vị này.",
-        // Authz.* with a real Description keep the service's wording; generic only when Description empty.
-        // ScopeInsufficient stays mapped above (English Description).
+            PermissionDeniedMessage,
+        "Authz.NotGranted" =>
+            PermissionDeniedMessage,
+        // Explicit R-SYS arms: reachable via DenyOrPropagate / CompositeWrite / audit (brief 162);
+        // completeness tests prove they are handled deliberately, not by accident.
+        "Function.DuplicateKey" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "User.DuplicateUsername" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "RolePermission.DuplicateGrant" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "CompositeWrite.NotEnlisted" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        "AuditLogWriter.NoAmbientConnection" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        // Any other Authz.* — generic only; never pass through Description (English raise sites exist).
         _ when error.Code.StartsWith("Authz.", StringComparison.Ordinal) =>
-            string.IsNullOrWhiteSpace(error.Description)
-                ? "Bạn không có quyền thực hiện thao tác này."
-                : error.Description,
-        _ => error.Description,
+            PermissionDeniedMessage,
+        _ => "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
     };
+
+    // Test-only public wrappers — completeness tests call the private maps without InternalsVisibleTo.
+    public string FormatWriteErrorPublic(Error error) => FormatWriteError(error);
+    public string FormatLoadErrorPublic(Error error) => FormatLoadError(error);
 
     // Edit write path: one call into IOrgUnitDeclarationService (backlog 0.7, 2026-08-21). The service owns
     // P7, the scope-membership check and the parent-immutability guard unbypassably -- this screen used to

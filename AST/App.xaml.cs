@@ -268,7 +268,10 @@ public partial class App : PrismApplication
         {
             await AstDialog.NoticeAsync(
                 dialogs,
-                "Đã xảy ra lỗi không mong muốn. Ứng dụng sẽ đóng để tránh dữ liệu bị sai lệch. Vui lòng mở lại ứng dụng.",
+                // Wording settled by the requester. Applied by the Main Agent rather than the
+                // Executor Agent: this file is the composition root, which is excluded from
+                // delegation regardless of how small the edit is.
+                "Ứng dụng tự động đóng do phát sinh yêu cầu xử lý về kỹ thuật. Người dùng mở lại ứng dụng sau.",
                 StatusSeverity.Error);
         }
         catch (Exception ex)

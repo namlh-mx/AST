@@ -546,7 +546,7 @@ public class OrgUnitDeclarationViewModelTests
         await vm.LoadAsync(1, Today);
 
         vm.Severity.Should().Be(StatusSeverity.Error);
-        vm.StatusMessage.Should().Be("Đơn vị này không có phiên bản hiệu lực tại ngày đã chọn.");
+        vm.StatusMessage.Should().Be("Đơn vị không hiệu lực tại ngày đã chọn.");
         vm.StatusMessage.Should().NotContain("OrgUnitVersionEntity");
         vm.StatusMessage.Should().NotContain("Tham số");
     }
@@ -1175,6 +1175,29 @@ public class OrgUnitDeclarationViewModelTests
         vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực.");
     }
 
+
+    // Brief 160 Q2 — EffectivePeriod.InvalidRange unreachable on the org-unit save path.
+    // Strengthens Save_Add_EffectiveToBeforeEffectiveFrom_BlocksWithTheRewordedMessage: the client
+    // guard must stop the declaration service (and therefore PeriodEditor.PlanUpsert) from running.
+    [Fact]
+    public async Task Save_Add_EffectiveToBeforeEffectiveFrom_DoesNotCallDeclarationService()
+    {
+        var declaration = new FakeOrgUnitDeclarationService();
+        var (vm, _, _) = BuildForSave(declaration);
+        vm.BeginAddCommand.Execute();
+        FillValidAddForm(vm);
+        vm.IsUndetermined = false;
+        vm.EffectiveFrom = Today;
+        vm.EffectiveTo = Today.AddDays(-1);
+
+        await vm.SaveCommand.Execute();
+
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực.");
+        declaration.AddCallCount.Should().Be(0,
+            "From > To must die in ValidateFields / HasRequiredIdentityFields before AddOrgUnitDeclarationAsync");
+    }
+
     // P7 for Add now runs INSIDE the service, so this screen no longer calls AuthorizeAsync on this branch
     // (same posture as the close branch). Fail-closed is still the screen's contract: a denial from the
     // service writes nothing and shows a Vietnamese sentence, never the English Description.
@@ -1192,7 +1215,7 @@ public class OrgUnitDeclarationViewModelTests
         await vm.SaveCommand.Execute();
 
         vm.Severity.Should().Be(StatusSeverity.Error);
-        vm.StatusMessage.Should().Be("Bạn không có quyền thực hiện thao tác này.");
+        vm.StatusMessage.Should().Be("Người dùng không được cấp quyền.");
         repo.CreateIdentityCallCount.Should().Be(0);
         auth.AuthorizeCallCount.Should().Be(0, "the VM must not re-authorize what the service already gates");
     }
@@ -1228,7 +1251,7 @@ public class OrgUnitDeclarationViewModelTests
     [InlineData("OrgUnit.CodeInUse", "Org code 'ABCD' is already in use by another org unit for an overlapping effective period.",
         "Mã đơn vị này đã được dùng cho một đơn vị khác trong khoảng thời gian trùng nhau.")]
     [InlineData("TemporalFk.ParentGap", "parent gap",
-        "Đơn vị cha không có hiệu lực trong suốt kỳ hiệu lực của đơn vị này — chọn đơn vị cha khác hoặc sửa kỳ hiệu lực.")]
+        "Kỳ hiệu lực của đơn vị vượt ngoài kỳ hiệu lực của đơn vị cấp trên.")]
     public async Task Save_Edit_WriteError_SurfacesVietnamese_NotTheEngineDescription(
         string code, string englishDescription, string expectedVietnamese)
     {
@@ -1254,7 +1277,7 @@ public class OrgUnitDeclarationViewModelTests
 
     // Reused by the two tests that assert this wording, so a reworded message fails in ONE place.
     private const string RootPeriodOverlapsMessage =
-        "Đã có đơn vị gốc hiệu lực trong khoảng thời gian này — hãy chọn đơn vị cha, hoặc chọn kỳ hiệu lực khác.";
+        "Đơn vị gốc bị trùng lặp, người dùng kiểm tra thông tin đơn vị cấp trên và kỳ hiệu lực.";
 
     [Fact]
     public async Task Save_Add_ServiceReportsRootPeriodOverlap_ShowsThePeriodWording_AndWritesNothing()
@@ -1334,7 +1357,7 @@ public class OrgUnitDeclarationViewModelTests
         vm.Severity.Should().Be(StatusSeverity.Error);
         vm.StatusMessage.Should().NotContain("parent gap");
         vm.StatusMessage.Should().Be(
-            "Đơn vị cha không có hiệu lực trong suốt kỳ hiệu lực của đơn vị này — chọn đơn vị cha khác hoặc sửa kỳ hiệu lực.");
+            "Kỳ hiệu lực của đơn vị vượt ngoài kỳ hiệu lực của đơn vị cấp trên.");
     }
 
     // Replaces Save_Add_RepositoryError_DeletesTheOrphanedIdentity (deleted 2026-08-17, backlog 0.4b): the
@@ -1574,10 +1597,9 @@ public class OrgUnitDeclarationViewModelTests
         await vm.SaveCommand.Execute();
 
         Assert.Equal(1, declaration.CloseCallCount);
-        // D2: the VN string now states the concrete floor date
-        // (today - 1), not the relative word "hôm qua" — pins the requester-directed wording change.
+        // Brief 163: S5 — no data inside operator messages; floor date is not interpolated.
         vm.Severity.Should().Be(StatusSeverity.Error);
-        vm.StatusMessage.Should().Be($"Ngày kết thúc phải từ ngày {Today.AddDays(-1).ToString("dd/MM/yyyy", CultureInfo.InvariantCulture)}.");
+        vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực không được khai báo trước ngày hôm qua.");
         Assert.Null(repo.LastCloseOrgUnitId);
     }
 
@@ -1802,7 +1824,7 @@ public class OrgUnitDeclarationViewModelTests
 
         await vm.LoadTreeAsync(Today);
 
-        Assert.Equal("Không tải được cây đơn vị.", vm.StatusMessage);
+        vm.StatusMessage.Should().Be("Ứng dụng không tải được cây đơn vị.");
         Assert.Equal(StatusSeverity.Error, vm.Severity);
     }
 
@@ -1933,7 +1955,7 @@ public class OrgUnitDeclarationViewModelTests
 
         await vm.LoadAllHistoryAsync();
 
-        Assert.Equal("Không tải được lịch sử.", vm.StatusMessage);
+        vm.StatusMessage.Should().Be("Ứng dụng không tải được dữ liệu lịch sử.");
         Assert.Equal(StatusSeverity.Error, vm.Severity);
     }
 
@@ -2247,7 +2269,7 @@ public class OrgUnitDeclarationViewModelTests
 
         Assert.Equal(callsBefore, repo.InScopeCallCount);
         Assert.Equal(StatusSeverity.Error, vm.Severity);
-        Assert.Equal("Không tải được cây đơn vị.", vm.StatusMessage);
+        vm.StatusMessage.Should().Be("Ứng dụng không tải được cây đơn vị.");
     }
 
     [Fact]
@@ -2295,7 +2317,7 @@ public class OrgUnitDeclarationViewModelTests
 
         vm.Severity.Should().Be(StatusSeverity.Error);
         vm.StatusMessage.Should().Be(
-            "Bạn không có quyền sửa/đóng đơn vị này (ngoài phạm vi quản lý của bạn).");
+            "Người dùng không được cấp quyền.");
         repo.LastUpsertOrgUnitId.Should().BeNull("nothing may reach the writer");
         declaration.EditCallCount.Should().Be(
             1, "the refusal must come from the service, not from a gate this screen kept");
@@ -2321,7 +2343,7 @@ public class OrgUnitDeclarationViewModelTests
         Assert.Equal(1, declaration.CloseCallCount);
         Assert.Equal(StatusSeverity.Error, vm.Severity);
         Assert.Equal(
-            "Bạn không có quyền sửa/đóng đơn vị này (ngoài phạm vi quản lý của bạn).",
+            "Người dùng không được cấp quyền.",
             vm.StatusMessage);
         Assert.Null(repo.LastCloseOrgUnitId);
         Assert.Equal(0, repo.CancelPlanCallCount);
@@ -2348,7 +2370,7 @@ public class OrgUnitDeclarationViewModelTests
         Assert.Null(declaration.LastRequest!.EffectiveThrough);
         Assert.Equal(StatusSeverity.Error, vm.Severity);
         Assert.Equal(
-            "Bạn không có quyền sửa/đóng đơn vị này (ngoài phạm vi quản lý của bạn).",
+            "Người dùng không được cấp quyền.",
             vm.StatusMessage);
         Assert.Equal(0, repo.CancelPlanCallCount);
         Assert.Null(repo.LastCancelOrgUnitId);
@@ -2375,7 +2397,7 @@ public class OrgUnitDeclarationViewModelTests
         await vm.SaveCommand.Execute();
 
         vm.Severity.Should().Be(StatusSeverity.Error);
-        vm.StatusMessage.Should().Be("Bạn không có quyền tạo đơn vị mới (yêu cầu quyền toàn hệ thống).");
+        vm.StatusMessage.Should().Be("Người dùng không được cấp quyền.");
         repo.CreateIdentityCallCount.Should().Be(0);
     }
 
@@ -2652,7 +2674,7 @@ public class OrgUnitDeclarationViewModelTests
 
         Assert.Equal(StatusSeverity.Error, vm.Severity);
         Assert.Equal(
-            "Không thể đóng đơn vị — vẫn còn đơn vị con hoặc người dùng thuộc đơn vị này. Hãy xử lý các phụ thuộc trước khi đóng.",
+            "Đơn vị không được đóng do còn đơn vị cấp dưới hoặc còn người dùng phụ thuộc.",
             vm.StatusMessage);
     }
 
@@ -2758,20 +2780,20 @@ public class OrgUnitDeclarationViewModelTests
 
     public static TheoryData<string, string> CloseErrorCodeToVnRows() => new()
     {
-        { VersionCloseRules.Codes.CloseDateRequired, "Cần nhập ngày kết thúc để đóng đơn vị." },
-        { VersionCloseRules.Codes.CloseDateInPast, $"Ngày kết thúc phải từ ngày {Today.AddDays(-1).ToString("dd/MM/yyyy", CultureInfo.InvariantCulture)}." },
-        { VersionCloseRules.Codes.CloseDateEqualsVersionEnd, "Ngày kết thúc trùng ngày hết hiệu lực hiện tại — chọn ngày sớm hơn." },
-        { VersionCloseRules.Codes.CloseDateOutsideVersionPeriod, "Ngày kết thúc phải nằm trong kỳ hiệu lực của phiên bản đang đóng." },
-        { VersionCloseRules.Codes.VersionAlreadyEnded, "Phiên bản này đã hết hiệu lực — không thể đóng lại. Chọn phiên bản còn hiệu lực." },
-        { VersionCloseRules.Codes.CloseDateNotApplicableToCancelPlan, "Hủy hiệu lực không dùng ngày kết thúc — để trống ngày Đến." },
-        { "OrgUnit.NotInScope", "Bạn không có quyền sửa/đóng đơn vị này (ngoài phạm vi quản lý của bạn)." },
+        { VersionCloseRules.Codes.CloseDateRequired, "Ngày kết thúc hiệu lực chưa được khai báo." },
+        { VersionCloseRules.Codes.CloseDateInPast, "Ngày kết thúc hiệu lực không được khai báo trước ngày hôm qua." },
+        { VersionCloseRules.Codes.CloseDateEqualsVersionEnd, "Ngày kết thúc hiệu lực đã được khai báo trước đó." },
+        { VersionCloseRules.Codes.CloseDateOutsideVersionPeriod, "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo." },
+        { VersionCloseRules.Codes.VersionAlreadyEnded, "Đơn vị đã hết hiệu lực." },
+        { VersionCloseRules.Codes.CloseDateNotApplicableToCancelPlan, "Thao tác hủy kỳ hiệu lực không yêu cầu nhập ngày kết thúc hiệu lực." },
+        { "OrgUnit.NotInScope", "Người dùng không được cấp quyền." },
         { "OrgUnit.VersionNotFound", "Không tìm thấy phiên bản đơn vị cho thao tác này." },
         { "VersionedRepository.VersionNotFound", "Không tìm thấy phiên bản đơn vị cho thao tác này." },
-        { "VersionedRepository.NotAFuturePlan", "Dữ liệu đã thay đổi — vui lòng tải lại." },
-        { "VersionedRepository.LockTimeout", "Hệ thống đang bận, vui lòng thử lại." },
-        { "VersionedRepository.InvalidShrink", "Ngày kết thúc không hợp lệ với kỳ hiệu lực hiện tại — chọn ngày khác." },
-        { "TemporalFk.DependentsUncovered", "Không thể đóng đơn vị — vẫn còn đơn vị con hoặc người dùng thuộc đơn vị này. Hãy xử lý các phụ thuộc trước khi đóng." },
-        { "Authz.ScopeInsufficient", "Bạn không có đủ phạm vi quyền cho thao tác này trên đơn vị này." },
+        { "VersionedRepository.NotAFuturePlan", "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật." },
+        { "VersionedRepository.LockTimeout", "Dữ liệu đang được người dùng khác khai báo." },
+        { "VersionedRepository.InvalidShrink", "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo." },
+        { "TemporalFk.DependentsUncovered", "Đơn vị không được đóng do còn đơn vị cấp dưới hoặc còn người dùng phụ thuộc." },
+        { "Authz.ScopeInsufficient", "Người dùng không được cấp quyền." },
     };
 
     [Theory]
@@ -2791,9 +2813,9 @@ public class OrgUnitDeclarationViewModelTests
 
         await vm.SaveCommand.Execute();
 
-        Assert.Equal(StatusSeverity.Error, vm.Severity);
-        Assert.Equal(expectedVn, vm.StatusMessage);
-        Assert.DoesNotContain("SEED-DESCRIPTION-MUST-NOT-SURFACE", vm.StatusMessage);
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be(expectedVn);
+        vm.StatusMessage.Should().NotContain("SEED-DESCRIPTION-MUST-NOT-SURFACE");
     }
 
     [Fact]
@@ -2801,7 +2823,7 @@ public class OrgUnitDeclarationViewModelTests
     {
         var declaration = new FakeOrgUnitDeclarationService
         {
-            CloseResult = Error.Forbidden("Authz.NotGranted", "Không được cấp quyền cho chức năng này."),
+            CloseResult = Error.Forbidden("Authz.NotGranted", "Người dùng không được cấp quyền."),
         };
         var (vm, repo, _) = BuildForEdit(declaration: declaration);
         repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
@@ -2811,7 +2833,7 @@ public class OrgUnitDeclarationViewModelTests
 
         await vm.SaveCommand.Execute();
 
-        Assert.Equal("Không được cấp quyền cho chức năng này.", vm.StatusMessage);
+        vm.StatusMessage.Should().Be("Người dùng không được cấp quyền.");
     }
 
     [Fact]
@@ -2886,7 +2908,7 @@ public class OrgUnitDeclarationViewModelTests
 
         Assert.Equal(0, declaration.CloseCallCount);
         Assert.Equal(StatusSeverity.Error, vm.Severity);
-        Assert.Equal("Ngày kết thúc không được là ngày không xác định.", vm.StatusMessage);
+        vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực chưa được khai báo.");
     }
 
     [Fact]
@@ -2977,11 +2999,11 @@ public class OrgUnitDeclarationViewModelTests
         declaration.CloseCallCount.Should().Be(0);
         confirm.WasCalled.Should().BeFalse();
         vm.Severity.Should().Be(StatusSeverity.Error);
-        vm.StatusMessage.Should().Be("Cần nhập ngày kết thúc để đóng đơn vị.");
+        vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực chưa được khai báo.");
     }
 
     [Fact]
-    public async Task Save_Close_AuthzEmptyDescription_UsesGenericFallback()
+    public async Task Save_Close_AuthzNotGranted_EmptyDescription_UsesNotGrantedSentence()
     {
         var declaration = new FakeOrgUnitDeclarationService
         {
@@ -2995,7 +3017,26 @@ public class OrgUnitDeclarationViewModelTests
 
         await vm.SaveCommand.Execute();
 
-        Assert.Equal("Bạn không có quyền thực hiện thao tác này.", vm.StatusMessage);
+        vm.StatusMessage.Should().Be("Người dùng không được cấp quyền.");
+    }
+
+    [Fact]
+    public async Task Save_Close_UnknownAuthzCode_UsesGenericAuthzFallback()
+    {
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            CloseResult = Error.Forbidden("Authz.FutureCode", "english leak"),
+        };
+        var (vm, repo, _) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        vm.BeginCloseCommand.Execute();
+        vm.EffectiveTo = Today;
+
+        await vm.SaveCommand.Execute();
+
+        vm.StatusMessage.Should().Be("Người dùng không được cấp quyền.");
+        vm.StatusMessage.Should().NotContain("english");
     }
 
     [Theory]
@@ -3695,5 +3736,226 @@ public class OrgUnitDeclarationViewModelTests
 
         vm.OrgCode.Should().Be("U2");
         raised.Should().Be(0);
+    }
+
+    // Brief 161 — completeness of FormatWriteError. Deliberately manual list (same shape as
+    // VersionStatusPresentationTests ExplicitlyMapped / Role FormatCloseErrorPublic_CoversEveryVersionCloseRulesCode):
+    // a new raise-site code is NOT caught until someone adds it HERE. It therefore cannot catch an
+    // unmapped code that still falls through to the catch-all.
+    private const string OperatorFallThroughMessage =
+        "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.";
+
+    private const string DependentSetChangedMessage =
+        "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.";
+
+    [Fact]
+    public void FormatWriteErrorPublic_CoversEverySettledCode_ReturnsExactSentence()
+    {
+        var (vm, _) = Build();
+        var seed = "SEED-DESCRIPTION-MUST-NOT-LEAK";
+        // Declared settled code set (brief 161 §1.1 + brief 163 S/R arms for this map).
+        var expected = new Dictionary<string, string>
+        {
+            ["OrgUnit.GapNotAllowed"] = "Kỳ hiệu lực không liên tục.",
+            ["OrgUnit.RootNotClosable"] = "Không thể đóng hoặc hủy đơn vị gốc.",
+            // §1.2: this screen gets NO arm for BaseVersionRequired (role/grant sentence) — catch-all.
+            ["VersionedRepository.BaseVersionRequired"] = OperatorFallThroughMessage,
+            ["OrgUnit.RootPeriodOverlaps"] =
+                "Đơn vị gốc bị trùng lặp, người dùng kiểm tra thông tin đơn vị cấp trên và kỳ hiệu lực.",
+            ["TemporalFk.ParentGap"] =
+                "Kỳ hiệu lực của đơn vị vượt ngoài kỳ hiệu lực của đơn vị cấp trên.",
+            ["TemporalFk.DependentsUncovered"] =
+                "Đơn vị không được đóng do còn đơn vị cấp dưới hoặc còn người dùng phụ thuộc.",
+            ["VersionedRepository.DependentSetChanged"] = DependentSetChangedMessage,
+            ["VersionedRepository.DependentNotEnlisted"] = OperatorFallThroughMessage,
+            ["VersionedRepository.NotAFuturePlan"] = DependentSetChangedMessage,
+            ["VersionedRepository.LockTimeout"] = "Dữ liệu đang được người dùng khác khai báo.",
+            ["VersionedRepository.InvalidShrink"] =
+                "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
+            ["EffectivePeriod.OverlappingVersions"] = "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
+            ["EffectivePeriod.NoCoverage"] = "Đơn vị không hiệu lực tại ngày đã chọn.",
+            ["EffectivePeriod.InvalidRange"] =
+                "Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực.",
+            ["Authz.NotGranted"] = "Người dùng không được cấp quyền.",
+            ["Authz.ScopeInsufficient"] = "Người dùng không được cấp quyền.",
+            ["OrgUnit.AddRequiresGlobalScope"] = "Người dùng không được cấp quyền.",
+            ["OrgUnit.NotInScope"] = "Người dùng không được cấp quyền.",
+            [VersionCloseRules.Codes.CloseDateRequired] =
+                "Ngày kết thúc hiệu lực chưa được khai báo.",
+            [VersionCloseRules.Codes.CloseDateInPast] =
+                "Ngày kết thúc hiệu lực không được khai báo trước ngày hôm qua.",
+            [VersionCloseRules.Codes.CloseDateEqualsVersionEnd] =
+                "Ngày kết thúc hiệu lực đã được khai báo trước đó.",
+            [VersionCloseRules.Codes.CloseDateOutsideVersionPeriod] =
+                "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
+            [VersionCloseRules.Codes.VersionAlreadyEnded] = "Đơn vị đã hết hiệu lực.",
+            [VersionCloseRules.Codes.CloseDateNotApplicableToCancelPlan] =
+                "Thao tác hủy kỳ hiệu lực không yêu cầu nhập ngày kết thúc hiệu lực.",
+            ["Function.DuplicateKey"] = OperatorFallThroughMessage,
+            ["User.DuplicateUsername"] = OperatorFallThroughMessage,
+            ["RolePermission.DuplicateGrant"] = OperatorFallThroughMessage,
+            ["CompositeWrite.NotEnlisted"] = OperatorFallThroughMessage,
+            ["AuditLogWriter.NoAmbientConnection"] = OperatorFallThroughMessage,
+        };
+
+        foreach (var (code, sentence) in expected)
+        {
+            var message = vm.FormatWriteErrorPublic(Error.Validation(code, seed));
+            message.Should().Be(sentence, $"code '{code}' must map to its settled operator sentence");
+        }
+    }
+
+    [Fact]
+    public void FormatWriteErrorPublic_UnmappedCode_ReturnsFallThrough_DoesNotThrow()
+    {
+        var (vm, _) = Build();
+        var act = () => vm.FormatWriteErrorPublic(
+            Error.Failure("Totally.UnknownCode", "English developer sentence with ASCII only"));
+        act.Should().NotThrow();
+        var message = act();
+        message.Should().Be(OperatorFallThroughMessage);
+        message.Should().NotMatchRegex("^[A-Za-z0-9 \\p{P}]+$");
+    }
+
+    [Fact]
+    public void FormatWriteErrorPublic_PermissionFamily_DedicatedArmsDistinctFromPrefix_Control()
+    {
+        // FR1-3 / FR3-3: shared permission sentence — dedicated arms must exist inside FormatWriteError
+        // alone (not somewhere else in the file by luck).
+        const string permission = "Người dùng không được cấp quyền.";
+        const string seedDedicated = "SEED-DEDICATED-ARM-MUST-NOT-LEAK";
+        const string seedPrefix = "SEED-PREFIX-ARM-MUST-NOT-LEAK";
+        var (vm, _) = Build();
+
+        vm.FormatWriteErrorPublic(Error.Forbidden("Authz.NotGranted", seedDedicated))
+            .Should().Be(permission);
+        vm.FormatWriteErrorPublic(Error.Forbidden("Authz.NotGranted", seedDedicated))
+            .Should().NotContain(seedDedicated);
+
+        vm.FormatWriteErrorPublic(Error.Forbidden("Authz.OnlyViaPrefixControl", seedPrefix))
+            .Should().Be(permission);
+        vm.FormatWriteErrorPublic(Error.Forbidden("Authz.OnlyViaPrefixControl", seedPrefix))
+            .Should().NotContain(seedPrefix);
+
+        var writeRegion = SliceOrgMapSource(
+            "private string FormatWriteError(Error error)",
+            "public string FormatWriteErrorPublic");
+        System.Text.RegularExpressions.Regex.Matches(writeRegion, "(?m)^\\s*\"Authz\\.NotGranted\"\\s*=>")
+            .Count.Should().Be(1, "FormatWriteError must keep exactly one NotGranted arm");
+        System.Text.RegularExpressions.Regex.Matches(writeRegion, "(?m)^\\s*\"Authz\\.ScopeInsufficient\"\\s*=>")
+            .Count.Should().Be(1, "FormatWriteError must keep exactly one ScopeInsufficient arm");
+        writeRegion.Should().Contain("StartsWith(\"Authz.\"");
+        // Catch-all-identical sentence — output asserts cannot discriminate deletion (FR4-1).
+        System.Text.RegularExpressions.Regex.Matches(
+                writeRegion, "(?m)^\\s*\"VersionedRepository\\.DependentNotEnlisted\"\\s*=>")
+            .Count.Should().Be(1, "FormatWriteError must keep exactly one DependentNotEnlisted arm");
+    }
+
+    private static string SliceOrgMapSource(string startMarker, string endMarker)
+    {
+        var src = System.IO.File.ReadAllText(
+            System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppContext.BaseDirectory, "..", "..", "..", "..",
+                "AST.Shell", "ViewModels", "Iam", "OrgUnitDeclarationViewModel.cs")));
+        var start = src.IndexOf(startMarker, StringComparison.Ordinal);
+        start.Should().BeGreaterThanOrEqualTo(0, $"missing start marker '{startMarker}'");
+        var end = src.IndexOf(endMarker, start, StringComparison.Ordinal);
+        end.Should().BeGreaterThan(start, $"missing end marker '{endMarker}'");
+        return src[start..end];
+    }
+
+    [Fact]
+    public void FormatWriteErrorPublic_NeverSurfacesDescription()
+    {
+        var (vm, _) = Build();
+        const string seed = "SEED-DESCRIPTION-MUST-NOT-LEAK";
+        foreach (var code in new[]
+                 {
+                     VersionCloseRules.Codes.CloseDateInPast,
+                     "Authz.ScopeInsufficient",
+                     "Function.DuplicateKey",
+                     "Totally.UnknownCode",
+                 })
+        {
+            vm.FormatWriteErrorPublic(Error.Validation(code, seed))
+                .Should().NotContain(seed, $"code '{code}' must not leak Description");
+        }
+    }
+
+    [Fact]
+    public void FormatLoadErrorPublic_CoversEverySettledCode_ReturnsExactSentence()
+    {
+        var (vm, _) = Build();
+        const string seed = "SEED-DESCRIPTION-MUST-NOT-LEAK";
+        var expected = new Dictionary<string, string>
+        {
+            ["EffectivePeriod.NoCoverage"] = "Đơn vị không hiệu lực tại ngày đã chọn.",
+            ["EffectivePeriod.OverlappingVersions"] =
+                "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
+            // Cannot reach this map: GetByIdentityAsync → resolver only (brief 162).
+            ["Authz.NotGranted"] = OperatorFallThroughMessage,
+            ["Authz.ScopeInsufficient"] = OperatorFallThroughMessage,
+        };
+
+        foreach (var (code, sentence) in expected)
+        {
+            vm.FormatLoadErrorPublic(Error.Validation(code, seed))
+                .Should().Be(sentence, $"code '{code}'");
+        }
+    }
+
+    [Fact]
+    public void FormatLoadErrorPublic_UnmappedCode_ReturnsFallThrough_DoesNotThrow()
+    {
+        var (vm, _) = Build();
+        var act = () => vm.FormatLoadErrorPublic(
+            Error.Failure("Load.Unknown", "english only"));
+        act.Should().NotThrow();
+        act().Should().Be(OperatorFallThroughMessage);
+    }
+
+    [Fact]
+    public void FormatLoadErrorPublic_NeverSurfacesDescription()
+    {
+        var (vm, _) = Build();
+        const string seed = "SEED-DESCRIPTION-MUST-NOT-LEAK";
+        vm.FormatLoadErrorPublic(Error.NotFound("EffectivePeriod.NoCoverage", seed))
+            .Should().NotContain(seed);
+        vm.FormatLoadErrorPublic(Error.Conflict("EffectivePeriod.OverlappingVersions", seed))
+            .Should().NotContain(seed);
+        vm.FormatLoadErrorPublic(Error.Failure("Load.Unknown", seed))
+            .Should().NotContain(seed);
+    }
+
+    [Fact]
+    public async Task Save_Add_GapNotAllowed_StatusMessageIsSettledSentence_OutsideWitness()
+    {
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            AddError = Error.Validation("OrgUnit.GapNotAllowed", "A date gap [..] is not allowed for 'org_unit_version'."),
+        };
+        var (vm, _, _) = BuildForSave(declaration);
+        vm.BeginAddCommand.Execute();
+        FillValidAddForm(vm);
+
+        await vm.SaveCommand.Execute();
+
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực không liên tục.");
+        vm.StatusMessage.Should().NotContain("org_unit_version");
+    }
+
+    [Fact]
+    public async Task LoadAsync_NoCoverage_StatusMessageIsSettledSentence_OutsideWitness()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Error.NotFound(
+            "EffectivePeriod.NoCoverage", "Tham số 'OrgUnitVersionRow' chưa có giá trị hiệu lực");
+
+        await vm.LoadAsync(1, Today);
+
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be("Đơn vị không hiệu lực tại ngày đã chọn.");
+        vm.StatusMessage.Should().NotContain("OrgUnitVersionRow");
     }
 }
