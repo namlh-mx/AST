@@ -68,6 +68,44 @@ on it.
 
 ---
 
+## Screenshots
+Shots from the internal test environment (test data only). The UI is in Vietnamese.
+| Screen | |
+|---|---|
+| Configuration station — ordered admin setup | ![Configuration station](docs/screenshot/02-configuration-station.png) |
+| Database connection — signed connection record | ![Database connection](docs/screenshot/04-database-connection.png) |
+| Break-glass operators — authentication, signing, and audit history | ![Break-glass operators](docs/screenshot/03-break-glass.png) |
+| Org-unit declaration — effective periods and version history | ![Org-unit declaration](docs/screenshot/05-org-unit-declaration.png) |
+| Dashboard — placeholders for modules not built yet | ![Dashboard placeholders](docs/screenshot/01-dashboard.png) |
+
+---
+
+## Progress
+AST ships in thin public slices. After the first alpha, work alternates between
+**tightening what already runs** and **opening the next product layer** — not a
+sprint calendar.
+### Shipped
+- **2026-08-24 — `v0.1.0-alpha`.** First public cut: effective-period engine,
+  soft delete, config security, the IAM module, and the WPF shell.
+- **2026-08-25.** Version lifecycle persisted and enforced in the database.
+- **2026-08-26 … 27 — maintenance on screens already in use.** Stopped the upsert
+  planner from reporting a date gap it was about to fill; replaced unclear English
+  operator errors on the org-unit and role declaration screens with settled
+  Vietnamese wording (including the gap path: *Kỳ hiệu lực không liên tục.*).
+### In progress (maintenance and finish work)
+- Weekly review of faults that surface in daily test use of the shipped screens.
+- Remaining verification on org-unit history labelling (public issue #3, half still
+  open): the English gap message is addressed; the `org_code` replacement /
+  “replaced” history scenario is not yet reproduced.
+### Next
+- Finish operator-facing clarity and history/lifecycle presentation on screens
+  that already exist.
+- Then the designed-but-unbuilt pieces named under Status: the operation-history
+  model, and only after that the five accounting groups in the sidebar (today
+  every leaf is still a placeholder, as in the dashboard screenshot).
+
+---
+
 ## Architecture
 
 ```mermaid
