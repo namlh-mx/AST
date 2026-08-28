@@ -92,6 +92,13 @@ sprint calendar.
   planner from reporting a date gap it was about to fill; replaced unclear English
   operator errors on the org-unit and role declaration screens with settled
   Vietnamese wording (including the gap path: *Kỳ hiệu lực không liên tục.*).
+- **2026-08-28 — maintenance on screens already in use.** Extended settled
+  Vietnamese operator wording to the org-unit and role declaration error maps,
+  break-glass and config-audit screens, and platform chrome (dashboard
+  placeholders, configuration station, connection declaration). Closed the
+  platform error-code catalogues for config, startup, and break-glass — each
+  now has a named, completeness-tested code set so a new code cannot ship
+  without being registered.
 ### In progress (maintenance and finish work)
 - Weekly review of faults that surface in daily test use of the shipped screens.
 - Remaining verification on org-unit history labelling (public issue #3, half still
