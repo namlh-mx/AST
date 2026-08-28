@@ -1,3 +1,5 @@
+using AST.Core.Security;
+
 namespace AST.Core.Startup;
 
 // PURE function: (File A result + DB connection + schema) -> mode + message. No I/O (spec §2.1).
@@ -8,13 +10,13 @@ public static class StartupModeResolver
         switch (fileA)
         {
             case FileAOutcome.NotDeclared:
-                return new(StartupMode.NotConnected, "Config.NotDeclared",
+                return new(StartupMode.NotConnected, ConfigErrors.Codes.NotDeclared,
                     "Chưa khai báo kết nối database. Vào menu Khai báo để nhập thông tin kết nối.");
             case FileAOutcome.Corrupt:
-                return new(StartupMode.NotConnected, "Config.Corrupt",
+                return new(StartupMode.NotConnected, ConfigErrors.Codes.Corrupt,
                     "Tệp cấu hình kết nối database bị hỏng hoặc đã bị sửa. Cần khai báo lại.");
             case FileAOutcome.IoError:
-                return new(StartupMode.NotConnected, "Config.IoError",
+                return new(StartupMode.NotConnected, ConfigErrors.Codes.IoError,
                     "Không đọc được tệp cấu hình kết nối database (kiểm tra mạng hoặc quyền truy cập).");
         }
 

@@ -1,4 +1,5 @@
 using AST.Core.Data;
+using AST.Core.Startup;
 using ErrorOr;
 using MySqlConnector;
 using Serilog;
@@ -20,13 +21,13 @@ public sealed class MySqlConnectionTester : IConnectionTester
         catch (MySqlException ex) when (ex.Number is 1045 or 1044)
         {
             Log.Error(ex, "DB connection test rejected credentials (MySQL {Number}) for host {Host}", ex.Number, fields.Host);
-            return Error.Validation("Startup.DbAccessDenied",
+            return Error.Validation(StartupCodes.DbAccessDenied,
                 "Sai tài khoản hoặc mật khẩu database.");
         }
         catch (MySqlException ex)
         {
             Log.Error(ex, "DB connection test failed to reach the server for host {Host}", fields.Host);
-            return Error.Failure("Startup.DbConnectFailed",
+            return Error.Failure(StartupCodes.DbConnectFailed,
                 "Không kết nối được máy chủ database.");
         }
     }

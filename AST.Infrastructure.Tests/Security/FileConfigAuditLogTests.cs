@@ -25,7 +25,7 @@ public class FileConfigAuditLogTests : IDisposable
         _sig = new EcdsaConfigSignature(_pub);
     }
 
-    private FileConfigAuditLog Log(string? user = "example\\alice") =>
+    private FileConfigAuditLog Log(string? user = "corp\\namlehoai4") =>
         new(_sig, _paths, new FixedUser(user), new FixedClock(), _pub);
 
     [Fact]
@@ -34,11 +34,11 @@ public class FileConfigAuditLogTests : IDisposable
         var log = Log();
         Assert.False(log.Append(new ConfigAuditEvent("FileB", "Create", null, "Success", null), _priv, Pass).IsError);
         Assert.False(log.Append(new ConfigAuditEvent("FileB", "Update",
-            new ConfigAuditDiff(new[] { "bob" }, Array.Empty<string>()), "Success", null), _priv, Pass).IsError);
+            new ConfigAuditDiff(new[] { "boss2" }, Array.Empty<string>()), "Success", null), _priv, Pass).IsError);
 
         var records = log.Read().Value;
         Assert.Equal(2, records.Count);
-        Assert.Equal("alice", records[0].Content.Actor.User); // normalized
+        Assert.Equal("namlehoai4", records[0].Content.Actor.User); // normalized
         Assert.NotNull(records[1].TipSig);
 
         var integrity = log.VerifyIntegrity().Value;
@@ -55,6 +55,26 @@ public class FileConfigAuditLogTests : IDisposable
         var records = log.Read().Value;
         Assert.Null(records[0].TipSig);
         Assert.True(log.VerifyIntegrity().Value.ChainValid);
+    }
+
+    // The ONLY end-to-end oracle for the persisted-code contract, and it did not exist until
+    // AST-CONSULT-174 F-01 asked for it. The test above appends a record carrying a Reason and reads
+    // it back -- but asserts only TipSig and ChainValid, so replacing `evt.Reason` with null where
+    // ConfigAuditContent is built (FileConfigAuditLog.cs) left it GREEN while every stored record
+    // silently lost its code. `ConfigErrors` is LOCKED precisely because this one value is persisted;
+    // that lock had no test behind it.
+    //
+    // Asserts the LITERAL, not ConfigErrors.Codes.SignatureInvalid: the contract is the string that
+    // reaches the file, and comparing the constant to itself would survive a value change.
+    [Fact]
+    public void Appended_reason_code_survives_the_round_trip_to_the_stored_record()
+    {
+        var log = Log();
+        Assert.False(log.Append(new ConfigAuditEvent("FileA", "SignatureVerifyFailed", null, "Failure", "Config.SignatureInvalid"), null, null).IsError);
+
+        var stored = log.Read().Value[0];
+
+        Assert.Equal("Config.SignatureInvalid", stored.Content.Reason);
     }
 
     [Fact]
@@ -99,7 +119,7 @@ public class FileConfigAuditLogTests : IDisposable
     public void Malformed_tipSig_fails_verification_without_throwing()
     {
         var content = new ConfigAuditContent(1, "2026-07-12T00:00:00Z",
-            new ConfigAuditActor("alice", "PC01"), "FileB", "Update", null, "Success", null, "abc", ConfigAuditChain.GenesisPrevHash);
+            new ConfigAuditActor("namlehoai4", "PC01"), "FileB", "Update", null, "Success", null, "abc", ConfigAuditChain.GenesisPrevHash);
         var rec = new ConfigAuditRecord(content, ConfigAuditChain.ComputeHash(content), "!!not-base64!!");
         Directory.CreateDirectory(_paths.AuditDir);
         File.WriteAllText(_paths.AuditFile, System.Text.Json.JsonSerializer.Serialize(rec) + "\n");

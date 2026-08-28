@@ -7,14 +7,36 @@ namespace AST.Core.Security;
 [SharedComponent]
 public static class ConfigErrors
 {
-    // Single home of the codes THESE factories emit -- not of the whole `Config.*` namespace: Config.Corrupt
-    // (StartupModeResolver), Config.PublicKeyNotConfigured and Config.CurrentUserUnknown are minted elsewhere.
-    // Named rather than re-typed as literals at each call site because consumers BRANCH on them: a mismatch
-    // compiles cleanly and silently sends a consumer down the wrong branch -- e.g. File B tamper detection
-    // degrading to a generic error. Every factory below builds its Error from these, so the two cannot drift.
+    // Single home of every Config.* error code in the product. Seven of them have a factory below;
+    // three are minted elsewhere and have no factory here because their message is built at the raise
+    // site: Config.Corrupt (StartupModeResolver), Config.PublicKeyNotConfigured (ConfigSecurity) and
+    // Config.CurrentUserUnknown (ConfigDeclarationService). All ten are named here so no site re-types
+    // a literal.
     //
-    // Renaming a CONSTANT is free; changing a VALUE is not. StartupOrchestrator writes these codes into the
-    // hash-chained config audit log, so a value is a persisted data contract -- changing it reinterprets history.
+    // WHY A VALUE IS LOCKED -- narrowed 2026-08-28 after AST-CONSULT-174 F-02 measured the two
+    // rationales this comment used to state, and found BOTH wider than the code. They are stated
+    // exactly now, because an overbroad reason is what lets a real one get discounted later:
+    //
+    //   1. PERSISTENCE -- true of ONE code, and that is enough to lock the class. Only
+    //      Config.SignatureInvalid is ever written as a non-null audit reason
+    //      (StartupOrchestrator -> ConfigAuditEvent.Reason -> ConfigAuditContent.Reason -> the
+    //      canonical hash and the stored line). The other three production ConfigAuditEvent
+    //      constructions pass null. So changing THAT value reinterprets recorded history; changing
+    //      another Config.* value does not, today. Oracle:
+    //      FileConfigAuditLogTests.Appended_reason_code_survives_the_round_trip_to_the_stored_record.
+    //   2. CONSUMER BRANCHING -- true of two production consumers, NOT of the screens. StartupOrchestrator
+    //      and BreakGlassAdminService compare against these constants; the five AST.Shell error maps do
+    //      not consume the Config.*/Startup.*/BreakGlass.* families at all today -- the platform
+    //      ViewModels forward Description/Message. That changes when the shared describer ships
+    //      (spec 2026-08-28-operator-message-catalog-shaping §B4 step 2), and this note is what tells
+    //      the next reader the claim was scoped, not guessed.
+    //
+    // Renaming a CONSTANT is free; changing a VALUE needs one of the two reasons above to be re-checked
+    // against the code, not against this comment.
+    //
+    // All is a MANUALLY maintained list, mirroring VersionCloseRules.Codes: ConfigErrorsCodesTests
+    // independently reflects over this class's public string fields and fails the moment an 11th
+    // constant is declared here without also being added below. A generated list could not fail.
     public static class Codes
     {
         public const string NotDeclared = "Config.NotDeclared";
@@ -24,6 +46,23 @@ public static class ConfigErrors
         public const string KeyMismatch = "Config.KeyMismatch";
         public const string KeyUnreadable = "Config.KeyUnreadable";
         public const string KeyRequired = "Config.KeyRequired";
+        public const string Corrupt = "Config.Corrupt";
+        public const string PublicKeyNotConfigured = "Config.PublicKeyNotConfigured";
+        public const string CurrentUserUnknown = "Config.CurrentUserUnknown";
+
+        public static readonly IReadOnlyList<string> All =
+        [
+            NotDeclared,
+            IoError,
+            SignatureInvalid,
+            ContentInvalid,
+            KeyMismatch,
+            KeyUnreadable,
+            KeyRequired,
+            Corrupt,
+            PublicKeyNotConfigured,
+            CurrentUserUnknown,
+        ];
     }
 
     public static Error NotDeclared(string what) => Error.NotFound(Codes.NotDeclared, $"{what} chưa được khai báo.");

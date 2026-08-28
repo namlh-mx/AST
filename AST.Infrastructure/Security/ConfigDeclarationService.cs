@@ -21,7 +21,7 @@ public sealed class ConfigDeclarationService(
                 // First-run: File B does not exist yet -> create it with root admin = the current Windows user.
                 var user = currentUser.Username;
                 if (string.IsNullOrWhiteSpace(user))
-                    return Error.Validation("Config.CurrentUserUnknown",
+                    return Error.Validation(ConfigErrors.Codes.CurrentUserUnknown,
                         "Không xác định được tài khoản Windows hiện tại để ghi nhận root admin.");
 
                 var createB = breakGlassStore.Save(new[] { user }, privateKey, passphrase);
