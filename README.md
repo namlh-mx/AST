@@ -45,7 +45,7 @@ application itself, `docs/design-effective-period.md` is the place to start.
 
 ## Status — v0.1.0-alpha
 
-AST is currently under active development and runs daily in an internal test environment alongside real banking-operations workflows. This allows the maintainer to validate requirements, identify practical issues, and continuously improve the application. The longer-term goal is to deploy it for real operational use by business units across the organization.. What works today is the foundation and the identity
+AST is currently under active development and runs daily in an internal test environment alongside real banking-operations workflows. This allows the maintainer to validate requirements, identify practical issues, and continuously improve the application. The longer-term goal is to deploy it for real operational use by business units across the organization. What works today is the foundation and the identity
 layer: declaring the database connection, admin authentication, the configuration station with its
 signed config files and audit chain, a startup sequence that verifies the database schema version
 and blocks on a mismatch, and the screens for declaring organisational units and roles. Underneath
