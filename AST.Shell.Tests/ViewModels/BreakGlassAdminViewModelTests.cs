@@ -1,4 +1,4 @@
-﻿using AST.Core.Data;
+using AST.Core.Data;
 using AST.Core.Iam;
 using AST.Core.Security;
 using AST.Core.Presentation;
@@ -75,7 +75,7 @@ public class BreakGlassAdminViewModelTests
         vm.LoadCommand.Execute();
         vm.NewAdmin = "someone";
         vm.AddCommand.Execute();
-        svc.LoadResult = Error.Failure("BreakGlass.Io", "Kh├┤ng ─æß╗ìc ─æ╞░ß╗úc tß║¡p tin.");
+        svc.LoadResult = Error.Failure("BreakGlass.Io", "Không đọc được tập tin.");
 
         vm.ClearForm();
 
@@ -119,7 +119,7 @@ public class BreakGlassAdminViewModelTests
         vm.LoadCommand.Execute();
 
         Assert.Equal(new[] { "a", "b" }, vm.Admins.Select(x => x.User));
-        Assert.Equal("ΓÇö", vm.Admins[1].CreatedDisplay); // no created date -> dash
+        Assert.Equal("—", vm.Admins[1].CreatedDisplay); // no created date -> dash
         Assert.Matches(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$", vm.Admins[0].CreatedDisplay); // yyyy-MM-dd HH:mm
         Assert.Equal(BreakGlassHealth.Valid, vm.Health);
         Assert.Equal(@"C:\config\admins.json", vm.FilePath);
@@ -160,7 +160,7 @@ public class BreakGlassAdminViewModelTests
         vm.RemoveCommand.Execute("me");
 
         Assert.Equal(StatusSeverity.Warning, vm.Severity);
-        vm.StatusMessage.Should().Be("Ng╞░ß╗¥i d├╣ng ─æ├ú x├│a t├ái khoß║ún cß╗ºa ch├¡nh m├¼nh.");
+        vm.StatusMessage.Should().Be("Người dùng đã xóa tài khoản của chính mình.");
     }
 
     [Fact]
@@ -211,7 +211,7 @@ public class BreakGlassAdminViewModelTests
         vm.SaveCommand.Execute();
 
         Assert.Equal(StatusSeverity.Success, vm.Severity);
-        Assert.Equal("─É├ú l╞░u.", vm.StatusMessage);
+        Assert.Equal("Đã lưu.", vm.StatusMessage);
     }
 
     [Fact]
@@ -238,7 +238,7 @@ public class BreakGlassAdminViewModelTests
 
         Assert.Equal(0, svc.SaveCalls);
         Assert.Equal(StatusSeverity.Warning, vm.Severity);
-        Assert.Equal("Kh├┤ng c├│ th├┤ng tin ─æß╗â k├╜ v├á l╞░u.", vm.StatusMessage);
+        Assert.Equal("Không có thông tin để ký và lưu.", vm.StatusMessage);
     }
 
     [Fact]
@@ -290,7 +290,7 @@ public class BreakGlassAdminViewModelTests
         Assert.Single(vm.Admins); // not removed
         Assert.Equal("only", vm.Admins[0].User);
         Assert.Equal(StatusSeverity.Warning, vm.Severity);
-        Assert.Equal("Duy tr├¼ ├¡t nhß║Ñt mß╗Öt ng╞░ß╗¥i cß╗⌐u hß╗Ö.", vm.StatusMessage);
+        Assert.Equal("Duy trì ít nhất một người cứu hộ.", vm.StatusMessage);
     }
 
     [Fact]
@@ -317,7 +317,7 @@ public class BreakGlassAdminViewModelTests
         vm.LoadCommand.Execute();
 
         Assert.Equal(StatusSeverity.Error, vm.Severity);
-        Assert.Equal("Danh s├ích bß╗ï sß╗¡a ─æß╗òi.", vm.StatusMessage);
+        Assert.Equal("Danh sách bị sửa đổi.", vm.StatusMessage);
     }
 
     [Fact]
@@ -331,6 +331,6 @@ public class BreakGlassAdminViewModelTests
 
         vm.LoadCommand.Execute();
 
-        vm.StatusMessage.Should().Be("ß╗¿ng dß╗Ñng kh├┤ng tß║úi ─æ╞░ß╗úc danh s├ích ng╞░ß╗¥i cß╗⌐u hß╗Ö.");
+        vm.StatusMessage.Should().Be("Ứng dụng không tải được danh sách người cứu hộ.");
     }
 }

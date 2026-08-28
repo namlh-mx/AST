@@ -1,4 +1,4 @@
-﻿using AST.Core.Data;
+using AST.Core.Data;
 using AST.Core.EffectivePeriod;
 using AST.Core.Iam;
 using AST.Infrastructure;
@@ -13,7 +13,7 @@ using MySqlConnector;
 namespace AST.Modules.IAM.Tests.Integration;
 
 // Brief 167-C (+ fix round 1): production-path probes for six unsettled role-screen Format-map arms
-// (operator-messages ┬º1.5j). Every test carries at least one POSITIVE assertion about what happened.
+// (operator-messages §1.5j). Every test carries at least one POSITIVE assertion about what happened.
 public sealed class RoleScreenUnsettledArmReachabilityTests : IamRepositoryTestBase
 {
     private static readonly EffectivePeriod OpenFrom2020 = new(new DateOnly(2020, 1, 1), EffectivePeriod.OpenEnd);
@@ -35,7 +35,7 @@ public sealed class RoleScreenUnsettledArmReachabilityTests : IamRepositoryTestB
     {
         SkipUnlessDbAvailable();
 
-        var role = await CreateRoleAsync("167C-CLOSE-SHRINK", "Vai tr├▓", Year2021);
+        var role = await CreateRoleAsync("167C-CLOSE-SHRINK", "Vai trò", Year2021);
         var roleVersionId = (await Roles.GetByIdentityAsync(role, new DateOnly(2021, 6, 1))).Value.Id;
 
         var result = await Service.CloseRoleDeclarationAsync(
@@ -51,7 +51,7 @@ public sealed class RoleScreenUnsettledArmReachabilityTests : IamRepositoryTestB
     {
         SkipUnlessDbAvailable();
 
-        var role = await CreateRoleAsync("167C-CLOSE-NFP", "Vai tr├▓", OpenFrom2020);
+        var role = await CreateRoleAsync("167C-CLOSE-NFP", "Vai trò", OpenFrom2020);
         var roleVersionId = (await Roles.GetByIdentityAsync(role, Today)).Value.Id;
 
         var result = await Service.CloseRoleDeclarationAsync(
@@ -59,7 +59,7 @@ public sealed class RoleScreenUnsettledArmReachabilityTests : IamRepositoryTestB
 
         result.IsError.Should().BeFalse();
         (await Roles.GetByIdentityAsync(role, Today)).IsError.Should().BeTrue(
-            "VersionCloseRules.BranchFor chose Retire ΓåÆ role has no coverage from today");
+            "VersionCloseRules.BranchFor chose Retire → role has no coverage from today");
         var atYesterday = await Roles.GetByIdentityAsync(role, Today.AddDays(-1));
         atYesterday.IsError.Should().BeFalse();
         atYesterday.Value.EffectiveTo.Should().Be(Today.AddDays(-1));
@@ -71,14 +71,14 @@ public sealed class RoleScreenUnsettledArmReachabilityTests : IamRepositoryTestB
         SkipUnlessDbAvailable();
 
         // Fix round 1: SaveRoleDeclarationRequest carries no effective dates; the service always builds
-        // EffectivePeriod(today, OpenEnd) before any repository call ΓÇö no production input surface to
+        // EffectivePeriod(today, OpenEnd) before any repository call — no production input surface to
         // construct InvalidRange on this path.
-        var role = await CreateRoleAsync("167C-SAVE-RANGE", "Vai tr├▓", OpenFrom2020);
+        var role = await CreateRoleAsync("167C-SAVE-RANGE", "Vai trò", OpenFrom2020);
         var versionId = (await Roles.GetByIdentityAsync(role, Today)).Value.Id;
         var request = new SaveRoleDeclarationRequest(
             new RoleSaveTarget.ExistingRole(role, versionId, "167C-SAVE-RANGE"),
             "167C-SAVE-RANGE",
-            "Vai tr├▓ ─æ├ú sß╗¡a",
+            "Vai trò đã sửa",
             false,
             "edit",
             [],
@@ -98,12 +98,12 @@ public sealed class RoleScreenUnsettledArmReachabilityTests : IamRepositoryTestB
     {
         SkipUnlessDbAvailable();
 
-        var role = await CreateRoleAsync("167C-SAVE-NFP", "Vai tr├▓", OpenFrom2020);
+        var role = await CreateRoleAsync("167C-SAVE-NFP", "Vai trò", OpenFrom2020);
         var versionId = (await Roles.GetByIdentityAsync(role, Today)).Value.Id;
         var stale = new SaveRoleDeclarationRequest(
             new RoleSaveTarget.ExistingRole(role, versionId, "167C-SAVE-NFP"),
             "167C-SAVE-NFP",
-            "Lß║ºn mß╗Öt",
+            "Lần một",
             false,
             "first",
             [],
@@ -114,7 +114,7 @@ public sealed class RoleScreenUnsettledArmReachabilityTests : IamRepositoryTestB
         var second = new SaveRoleDeclarationRequest(
             new RoleSaveTarget.ExistingRole(role, versionId, "167C-SAVE-NFP"),
             "167C-SAVE-NFP",
-            "Lß║ºn hai vß╗¢i id c┼⌐",
+            "Lần hai với id cũ",
             false,
             "stale",
             [],
@@ -133,7 +133,7 @@ public sealed class RoleScreenUnsettledArmReachabilityTests : IamRepositoryTestB
     {
         SkipUnlessDbAvailable();
 
-        var role = await CreateRoleAsync("167C-SAVE-SHRINK", "Vai tr├▓", OpenFrom2020);
+        var role = await CreateRoleAsync("167C-SAVE-SHRINK", "Vai trò", OpenFrom2020);
         var function = await CreateFunctionAsync("167C.Fn.One", OpenFrom2020);
         var grant = await CreateGrantAsync(
             role, function, new EffectivePeriod(Today, EffectivePeriod.OpenEnd), ScopeLevel.Global);
@@ -141,7 +141,7 @@ public sealed class RoleScreenUnsettledArmReachabilityTests : IamRepositoryTestB
         var request = new SaveRoleDeclarationRequest(
             new RoleSaveTarget.ExistingRole(role, versionId, "167C-SAVE-SHRINK"),
             "167C-SAVE-SHRINK",
-            "Vai tr├▓",
+            "Vai trò",
             false,
             "cancel today grant",
             [grant],
@@ -152,7 +152,7 @@ public sealed class RoleScreenUnsettledArmReachabilityTests : IamRepositoryTestB
         result.IsError.Should().BeFalse();
         (await CountCancelledAsync("role_permission_version", "role_permission_id", grant)).Should().Be(
             1,
-            "VersionCloseRules.BranchFor chose CancelPlan ΓåÆ grant was cancelled, not shrunk");
+            "VersionCloseRules.BranchFor chose CancelPlan → grant was cancelled, not shrunk");
     }
 
     [Fact]
@@ -163,9 +163,9 @@ public sealed class RoleScreenUnsettledArmReachabilityTests : IamRepositoryTestB
         // UNRESOLVED: AutoCutExclusivelyOwnedAsync (parent-shrink) is not exercised by save-revoke;
         // this probe only witnesses grant-level shrink succeeding, not that parent auto-cut was skipped.
         var role = await CreateRoleAsync(
-            "167C-SAVE-BVR", "Vai tr├▓ t├íi khai b├ío", new EffectivePeriod(Today.AddDays(-90), Today.AddDays(-30)));
+            "167C-SAVE-BVR", "Vai trò tái khai báo", new EffectivePeriod(Today.AddDays(-90), Today.AddDays(-30)));
         await InsertRoleVersionAsync(
-            role, "167C-SAVE-BVR", "Vai tr├▓ t├íi khai b├ío", new EffectivePeriod(Today, EffectivePeriod.OpenEnd));
+            role, "167C-SAVE-BVR", "Vai trò tái khai báo", new EffectivePeriod(Today, EffectivePeriod.OpenEnd));
         var function = await CreateFunctionAsync("167C.Fn.Gap", new EffectivePeriod(Today.AddDays(-90), EffectivePeriod.OpenEnd));
         var grant = await CreateGrantAsync(
             role, function, new EffectivePeriod(Today.AddDays(-20), EffectivePeriod.OpenEnd), ScopeLevel.Global);
@@ -173,7 +173,7 @@ public sealed class RoleScreenUnsettledArmReachabilityTests : IamRepositoryTestB
         var request = new SaveRoleDeclarationRequest(
             new RoleSaveTarget.ExistingRole(role, versionId, "167C-SAVE-BVR"),
             "167C-SAVE-BVR",
-            "Vai tr├▓",
+            "Vai trò",
             false,
             "revoke gap grant",
             [grant],

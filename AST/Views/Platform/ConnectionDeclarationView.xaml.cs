@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
@@ -13,13 +13,13 @@ using Wpf.Ui;
 namespace AST.Views.Platform;
 
 // Leave-confirmation + form wipe on navigate-away come from DeclarationFormView (the VM implements
-// IDeclarationForm) ΓÇö do not re-implement them here.
+// IDeclarationForm) — do not re-implement them here.
 public partial class ConnectionDeclarationView : DeclarationFormView
 {
-    private const string PlaceholderMessage = "Chß╗⌐c n─âng tß║ím ─æ├│ng hoß║╖c chß╗¥ triß╗ân khai.";
+    private const string PlaceholderMessage = "Chức năng tạm đóng hoặc chờ triển khai.";
     private readonly IRegionManager _regionManager;
 
-    // Back affordance for the drill-in screen. Navigation stays in the view (Prism authority, ┬º1c); set before
+    // Back affordance for the drill-in screen. Navigation stays in the view (Prism authority, §1c); set before
     // InitializeComponent so the AstScreen RelativeSource binding reads it (AstScreen forwards it to the header,
     // which never navigates itself). Still gated by the base's ConfirmNavigationRequest leave-confirm.
     public ICommand BackCommand { get; }
@@ -44,7 +44,7 @@ public partial class ConnectionDeclarationView : DeclarationFormView
     }
 
     // Shell-only deferred feature (disconnect card): a notice dialog. (The save-path folder is now a
-    // decorative icon, no longer wired here.) Do not write into StatusMessage ΓÇö that band stays
+    // decorative icon, no longer wired here.) Do not write into StatusMessage — that band stays
     // command-result only. No DataContext access.
     private async void OnPlaceholderClick(object sender, RoutedEventArgs e)
     {

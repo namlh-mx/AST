@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using AST.Core.Data;
 using AST.Core.Iam;
 using AST.Core.Security;
@@ -58,7 +58,7 @@ public sealed class BreakGlassAdminViewModel : BindableBase
 
     // Drop the entry field and any unsaved Add/Remove. Clears in memory rather than reloading: the reload
     // happens on re-entry (AdminAuthViewModel.OnViewLoaded), and reloading HERE would both re-populate the
-    // list while leaving the screen and ΓÇö worse ΓÇö silently keep the pending edits whenever File B could not
+    // list while leaving the screen and — worse — silently keep the pending edits whenever File B could not
     // be read (a share hiccup), so a later Sign & Save would sign a list the operator believes they abandoned.
     public void ClearForm()
     {
@@ -113,7 +113,7 @@ public sealed class BreakGlassAdminViewModel : BindableBase
         var view = result.Value;
         Admins.Clear();
         foreach (var a in view.Admins)
-            Admins.Add(new BreakGlassAdminRow(a.User, a.CreatedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "ΓÇö"));
+            Admins.Add(new BreakGlassAdminRow(a.User, a.CreatedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "—"));
         Health = view.Health;
         FilePath = view.FilePath;
         SaveCommand.RaiseCanExecuteChanged();
@@ -123,8 +123,8 @@ public sealed class BreakGlassAdminViewModel : BindableBase
         {
             Severity = StatusSeverity.Error;
             StatusMessage = Health == BreakGlassHealth.Tampered
-                ? "Danh s├ích bß╗ï sß╗¡a ─æß╗òi."
-                : "ß╗¿ng dß╗Ñng kh├┤ng tß║úi ─æ╞░ß╗úc danh s├ích ng╞░ß╗¥i cß╗⌐u hß╗Ö.";
+                ? "Danh sách bị sửa đổi."
+                : "Ứng dụng không tải được danh sách người cứu hộ.";
         }
     }
 
@@ -132,7 +132,7 @@ public sealed class BreakGlassAdminViewModel : BindableBase
     {
         var n = WindowsUsernameNormalizer.Normalize(NewAdmin);
         if (n is null) return;
-        if (!Admins.Any(x => x.User == n)) { Admins.Add(new BreakGlassAdminRow(n, "ΓÇö")); _isDirty = true; }
+        if (!Admins.Any(x => x.User == n)) { Admins.Add(new BreakGlassAdminRow(n, "—")); _isDirty = true; }
         NewAdmin = string.Empty;
         SaveCommand.RaiseCanExecuteChanged();
     }
@@ -143,7 +143,7 @@ public sealed class BreakGlassAdminViewModel : BindableBase
         if (Admins.Count <= 1)
         {
             Severity = StatusSeverity.Warning;
-            StatusMessage = "Duy tr├¼ ├¡t nhß║Ñt mß╗Öt ng╞░ß╗¥i cß╗⌐u hß╗Ö.";
+            StatusMessage = "Duy trì ít nhất một người cứu hộ.";
             return;
         }
         var row = Admins.FirstOrDefault(x => x.User == user);
@@ -153,7 +153,7 @@ public sealed class BreakGlassAdminViewModel : BindableBase
         if (WindowsUsernameNormalizer.Normalize(user) == WindowsUsernameNormalizer.Normalize(_currentUser.Username))
         {
             Severity = StatusSeverity.Warning;
-            StatusMessage = "Ng╞░ß╗¥i d├╣ng ─æ├ú x├│a t├ái khoß║ún cß╗ºa ch├¡nh m├¼nh.";
+            StatusMessage = "Người dùng đã xóa tài khoản của chính mình.";
         }
         SaveCommand.RaiseCanExecuteChanged();
     }
@@ -163,7 +163,7 @@ public sealed class BreakGlassAdminViewModel : BindableBase
         if (!_isDirty)
         {
             Severity = StatusSeverity.Warning;
-            StatusMessage = "Kh├┤ng c├│ th├┤ng tin ─æß╗â k├╜ v├á l╞░u.";
+            StatusMessage = "Không có thông tin để ký và lưu.";
             return;
         }
 
@@ -176,7 +176,7 @@ public sealed class BreakGlassAdminViewModel : BindableBase
         }
         ExecuteLoad(); // refresh rows so the new user's derived created-date shows without leaving the screen
         Severity = StatusSeverity.Success;
-        StatusMessage = "─É├ú l╞░u.";
+        StatusMessage = "Đã lưu.";
         Saved?.Invoke(this, EventArgs.Empty);
     }
 

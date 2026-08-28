@@ -13,7 +13,7 @@ public static class ConfigErrors
     // Config.CurrentUserUnknown (ConfigDeclarationService). All ten are named here so no site re-types
     // a literal.
     //
-    // WHY A VALUE IS LOCKED -- narrowed 2026-08-28 after AST-CONSULT-174 F-02 measured the two
+    // WHY A VALUE IS LOCKED -- narrowed 2026-08-28 after review measured the two
     // rationales this comment used to state, and found BOTH wider than the code. They are stated
     // exactly now, because an overbroad reason is what lets a real one get discounted later:
     //
@@ -27,9 +27,8 @@ public static class ConfigErrors
     //   2. CONSUMER BRANCHING -- true of two production consumers, NOT of the screens. StartupOrchestrator
     //      and BreakGlassAdminService compare against these constants; the five AST.Shell error maps do
     //      not consume the Config.*/Startup.*/BreakGlass.* families at all today -- the platform
-    //      ViewModels forward Description/Message. That changes when the shared describer ships
-    //      (spec 2026-08-28-operator-message-catalog-shaping §B4 step 2), and this note is what tells
-    //      the next reader the claim was scoped, not guessed.
+    //      ViewModels forward Description/Message. That may change when a shared describer ships;
+    //      this note tells the next reader the claim was scoped, not guessed.
     //
     // Renaming a CONSTANT is free; changing a VALUE needs one of the two reasons above to be re-checked
     // against the code, not against this comment.
