@@ -8,7 +8,7 @@
             <TextBlock Style="{StaticResource AstPageTitle}" Text="Bảng điều khiển" />
             <TextBlock Style="{StaticResource AstPageSubtitle}" Text="Tổng quan hệ thống AST." />
 
-            <!--  3 placeholder cards ("Chức năng chờ triển khai") per the Stitch dashboard; real widgets are added later.  -->
+            <!--  3 placeholder cards ("Chức năng tạm đóng hoặc chờ triển khai.") per the Stitch dashboard; real widgets are added later.  -->
             <UniformGrid Margin="0,24,0,0" Columns="3">
                 <Border Margin="0,0,12,0" Style="{StaticResource AstCard}">
                     <StackPanel>
@@ -21,7 +21,7 @@
                             Margin="0,8,0,0"
                             Foreground="{DynamicResource AstTextSecondaryBrush}"
                             Style="{StaticResource AstBodySmallText}"
-                            Text="Chức năng chờ triển khai." />
+                            Text="Chức năng tạm đóng hoặc chờ triển khai." />
                     </StackPanel>
                 </Border>
                 <Border Margin="6,0,6,0" Style="{StaticResource AstCard}">
@@ -35,7 +35,7 @@
                             Margin="0,8,0,0"
                             Foreground="{DynamicResource AstTextSecondaryBrush}"
                             Style="{StaticResource AstBodySmallText}"
-                            Text="Chức năng chờ triển khai." />
+                            Text="Chức năng tạm đóng hoặc chờ triển khai." />
                     </StackPanel>
                 </Border>
                 <Border Margin="12,0,0,0" Style="{StaticResource AstCard}">
@@ -49,7 +49,7 @@
                             Margin="0,8,0,0"
                             Foreground="{DynamicResource AstTextSecondaryBrush}"
                             Style="{StaticResource AstBodySmallText}"
-                            Text="Chức năng chờ triển khai." />
+                            Text="Chức năng tạm đóng hoặc chờ triển khai." />
                     </StackPanel>
                 </Border>
             </UniformGrid>

@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using AST.Core.Data;
@@ -756,12 +756,17 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
             "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
         "VersionedRepository.DependentNotEnlisted" =>
             "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        // Defensive. Only CancelPlanAsync raises this, and the service routes an in-force version
+        // to CloseVersionAsync (Retire) instead. Measured 2026-08-28.
         "VersionedRepository.NotAFuturePlan" =>
             StaleCardReloadMessage,
         "VersionedRepository.LockTimeout" =>
             "Dữ liệu đang được người dùng khác khai báo.",
-        // Reachability unsettled (FR4-2): implementer measured Close→CloseVersionAsync/AutoCut;
-        // external review concluded close validates the date before the repository. Arm kept pending probe.
+        // Defensive. The engine raises this iff newTo < From || newTo >= To
+        // (VersionedRepository.CloseVersionCoreAsync); VersionCloseRules.Validate rejects that
+        // identical predicate before the repository is called, so a close that reaches the engine is
+        // already inside the window. DERIVED from the two predicates, not measured: the 2026-08-28
+        // probe witnesses only the already-ended payload (VersionAlreadyEnded), which is one branch.
         "VersionedRepository.InvalidShrink" =>
             "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
         "TemporalFk.DependentsUncovered" =>
@@ -811,7 +816,9 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
             "Kỳ hiệu lực của quyền vượt ngoài kỳ hiệu lực của vai trò hoặc chức năng.",
         "EffectivePeriod.NoCoverage" =>
             "Quyền cần thu hồi đã hết hiệu lực.",
-        // Reachability unsettled (FR4-2): save-path construction vs engine raise — two readings disagree; arm kept pending probe.
+        // Defensive, and unreachable at the TYPE level: SaveRoleDeclarationRequest and
+        // RolePermissionGrantToAdd carry no date or period field, so no caller can express an
+        // invalid range; the service derives the period itself.
         "EffectivePeriod.InvalidRange" =>
             "Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực.",
         "EffectivePeriod.OverlappingVersions" =>
@@ -822,20 +829,26 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
             PermissionDeniedMessage,
         "VersionedRepository.LockTimeout" =>
             "Dữ liệu đang được người dùng khác khai báo.",
-        // Reachability unsettled (FR4-2): implementer measured Upsert/grant CloseVersionAsync;
-        // external review concluded save builds valid periods and does no parent auto-cut. Arm kept pending probe.
+        // Defensive, and unreachable on BOTH revoke branches, for two different reasons: CancelPlan
+        // calls CancelPlanAsync, which never shrinks, so the code cannot be raised there at all;
+        // Retire passes today-1, while the branch itself requires From < today and the grant is
+        // resolved as applicable at today (so To >= today), giving From <= today-1 < To. DERIVED
+        // from the branch algebra; the 2026-08-28 probe witnesses only the CancelPlan branch.
         "VersionedRepository.InvalidShrink" =>
             "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
         "Role.CodeOwnershipChanged" or "Role.VersionOutOfDate" or "Role.ExpectedCodeMismatch"
-            // Reachability unsettled (FR4-2) for NotAFuturePlan on this map — disputed; arm kept pending probe.
+            // Defensive: a stale save is pre-empted by Role.VersionOutOfDate from
+            // ReDecideIdentityAsync (measured 2026-08-28).
             or "VersionedRepository.NotAFuturePlan" or "VersionedRepository.VersionNotFound" =>
             "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
         "VersionedRepository.DependentSetChanged" =>
             "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
         "VersionedRepository.DependentNotEnlisted" =>
             "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
-        // Reachability unsettled (FR4-2): review held invalid dependent auto-cut reports this rather than InvalidShrink;
-        // implementer reading differed. Arm kept pending probe.
+        // UNRESOLVED, deliberately. Two raise sites: DeleteVersionAsync (deleting the last active
+        // version) and AutoCutExclusivelyOwnedAsync (parent shrink) — a save-revoke payload witnesses
+        // neither. An external review read both as unreachable from Save; a READ does not meet this
+        // row's settled bar (proven by a run), so it stays unresolved, not guessed.
         "VersionedRepository.BaseVersionRequired" =>
             "Kỳ hiệu lực của quyền không phù hợp với kỳ hiệu lực của vai trò.",
         "RolePermission.NotOwnedByRole" =>

@@ -708,7 +708,7 @@ public class OrgUnitDeclarationViewModelTests
     [Fact]
     public async Task LoadAsync_KeepsHistoryRows()
     {
-        // Raised in review (fix round 1): the regression path
+        // UI Reviewer's suggestion (fix round 1 review, batch brief 044): the regression path
         // was LoadAsync -> Clear(), so guard the public entry point too, not just Clear() directly --
         // a future change inside LoadAsync that touches HistoryRows before/after calling Clear()
         // would otherwise slip past Clear_DoesNotResetHistoryRows unnoticed.
@@ -768,7 +768,7 @@ public class OrgUnitDeclarationViewModelTests
         yield return new object?[] { "Bi huy", false, VersionLifecycleStatus.Cancelled, null, 5L, true, false, false };
         yield return new object?[] { "Het hieu luc", false, VersionLifecycleStatus.Normal, null, 5L, true, false, false };
         // Bi thay the: the claim that a fifth VersionStatus changes no gate answer was, until this row,
-        // carried only by prose in a report (AI Agent MED-4, 2026-08-24). It drives the real resolver,
+        // carried only by prose in a report (QA Reviewer MED-4, 2026-08-24). It drives the real resolver,
         // so it fails for real if Replaced ever starts resolving to Effective or Pending.
         yield return new object?[] { "Bi thay the", false, VersionLifecycleStatus.Replaced, null, 5L, true, false, false };
         yield return new object?[] { "Hieu luc non-root", true, VersionLifecycleStatus.Normal, "-1", 5L, true, true, true };
@@ -2219,7 +2219,7 @@ public class OrgUnitDeclarationViewModelTests
         // grant between the save's own write-scope check and the post-save refresh) skips the tree reload
         // but falls through to the `finally` block's success branch, so a stale tree is silently hidden
         // behind "Đã lưu." -- the still-open counterpart of the thrown-exception case fixed above
-        // (2026-08-05 FR1).
+        // (decision-log 2026-08-05 FR1).
         var (vm, repo, auth) = BuildForSave();
         repo.CreateIdentityResult = 10;
         repo.ByIdentityResult = Dto(10, parentId: null, Today, EffectivePeriod.OpenEnd, orgCode: "ABCD");
@@ -2492,7 +2492,7 @@ public class OrgUnitDeclarationViewModelTests
         // NOT part of this scope-checked-write fix and must keep returning system-wide results for a
         // non-Global user -- someone will eventually be tempted to "finish the job" by threading the
         // resolved scope into these reads too; that is a deliberate, separately-decided change
-        // (2026-08-05), not an oversight to silently fix here.
+        // (decision-log 2026-08-05), not an oversight to silently fix here.
         //
         // It guarded THREE call sites until 2026-08-17: the N1 root-existence probe was the third. That
         // probe no longer exists in this ViewModel (backlog 0.4b) -- it runs inside
@@ -3068,7 +3068,7 @@ public class OrgUnitDeclarationViewModelTests
         Assert.Equal(expectedEnabled, vm.IsEffectivePeriodEnabled);
     }
 
-    // --- D1/D2 same-day cancel-plan cutover ---
+    // --- D1/D2 same-day cancel-plan cutover (QA Reviewer HIGH, 2026-08-10) ---
     // A version whose EffectiveFrom == today shows the `Đang hiệu lực` label (VersionStatusResolver is
     // deliberately unchanged) yet the server now cancels it, not closes it (VersionCloseRules D1). These
     // tests pin that the SCREEN follows the same server-authoritative branch, not the Status label — the
@@ -3739,7 +3739,8 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     // Brief 161 — completeness of FormatWriteError. Deliberately manual list (same shape as
-    // VersionStatusPresentationTests ExplicitlyMapped / Role FormatCloseErrorPublic_CoversEveryVersionCloseRulesCode):
+    // VersionStatusPresentationTests.EveryVersionStatusIsExplicitlyMapped / Role
+    // FormatCloseErrorPublic_CoversEverySettledCode_ReturnsExactSentence):
     // a new raise-site code is NOT caught until someone adds it HERE. It therefore cannot catch an
     // unmapped code that still falls through to the catch-all.
     private const string OperatorFallThroughMessage =
@@ -3748,60 +3749,62 @@ public class OrgUnitDeclarationViewModelTests
     private const string DependentSetChangedMessage =
         "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.";
 
+    private static Dictionary<string, CompletenessEntry> FormatWriteErrorCompleteness() => new()
+    {
+        ["OrgUnit.GapNotAllowed"] = new("Kỳ hiệu lực không liên tục."),
+        ["OrgUnit.RootNotClosable"] = new("Không thể đóng hoặc hủy đơn vị gốc."),
+        // §1.2: this screen gets NO arm for BaseVersionRequired (role/grant sentence) — catch-all.
+        ["VersionedRepository.BaseVersionRequired"] = new(OperatorFallThroughMessage, AnsweredByCatchAll: true),
+        ["OrgUnit.RootPeriodOverlaps"] =
+            new("Đơn vị gốc bị trùng lặp, người dùng kiểm tra thông tin đơn vị cấp trên và kỳ hiệu lực."),
+        ["TemporalFk.ParentGap"] =
+            new("Kỳ hiệu lực của đơn vị vượt ngoài kỳ hiệu lực của đơn vị cấp trên."),
+        ["TemporalFk.DependentsUncovered"] =
+            new("Đơn vị không được đóng do còn đơn vị cấp dưới hoặc còn người dùng phụ thuộc."),
+        ["VersionedRepository.DependentSetChanged"] = new(DependentSetChangedMessage),
+        ["VersionedRepository.DependentNotEnlisted"] = new(OperatorFallThroughMessage),
+        ["VersionedRepository.NotAFuturePlan"] = new(DependentSetChangedMessage),
+        ["VersionedRepository.LockTimeout"] = new("Dữ liệu đang được người dùng khác khai báo."),
+        ["VersionedRepository.InvalidShrink"] =
+            new("Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo."),
+        ["EffectivePeriod.OverlappingVersions"] = new("Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần."),
+        ["EffectivePeriod.NoCoverage"] = new("Đơn vị không hiệu lực tại ngày đã chọn."),
+        ["EffectivePeriod.InvalidRange"] =
+            new("Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực."),
+        ["Authz.NotGranted"] = new("Người dùng không được cấp quyền."),
+        ["Authz.ScopeInsufficient"] = new("Người dùng không được cấp quyền."),
+        ["OrgUnit.AddRequiresGlobalScope"] = new("Người dùng không được cấp quyền."),
+        ["OrgUnit.NotInScope"] = new("Người dùng không được cấp quyền."),
+        [VersionCloseRules.Codes.CloseDateRequired] =
+            new("Ngày kết thúc hiệu lực chưa được khai báo."),
+        [VersionCloseRules.Codes.CloseDateInPast] =
+            new("Ngày kết thúc hiệu lực không được khai báo trước ngày hôm qua."),
+        [VersionCloseRules.Codes.CloseDateEqualsVersionEnd] =
+            new("Ngày kết thúc hiệu lực đã được khai báo trước đó."),
+        [VersionCloseRules.Codes.CloseDateOutsideVersionPeriod] =
+            new("Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo."),
+        [VersionCloseRules.Codes.VersionAlreadyEnded] = new("Đơn vị đã hết hiệu lực."),
+        [VersionCloseRules.Codes.CloseDateNotApplicableToCancelPlan] =
+            new("Thao tác hủy kỳ hiệu lực không yêu cầu nhập ngày kết thúc hiệu lực."),
+        ["Function.DuplicateKey"] = new(OperatorFallThroughMessage),
+        ["User.DuplicateUsername"] = new(OperatorFallThroughMessage),
+        ["RolePermission.DuplicateGrant"] = new(OperatorFallThroughMessage),
+        ["CompositeWrite.NotEnlisted"] = new(OperatorFallThroughMessage),
+        ["AuditLogWriter.NoAmbientConnection"] = new(OperatorFallThroughMessage),
+    };
+
     [Fact]
     public void FormatWriteErrorPublic_CoversEverySettledCode_ReturnsExactSentence()
     {
         var (vm, _) = Build();
         var seed = "SEED-DESCRIPTION-MUST-NOT-LEAK";
         // Declared settled code set (brief 161 §1.1 + brief 163 S/R arms for this map).
-        var expected = new Dictionary<string, string>
-        {
-            ["OrgUnit.GapNotAllowed"] = "Kỳ hiệu lực không liên tục.",
-            ["OrgUnit.RootNotClosable"] = "Không thể đóng hoặc hủy đơn vị gốc.",
-            // §1.2: this screen gets NO arm for BaseVersionRequired (role/grant sentence) — catch-all.
-            ["VersionedRepository.BaseVersionRequired"] = OperatorFallThroughMessage,
-            ["OrgUnit.RootPeriodOverlaps"] =
-                "Đơn vị gốc bị trùng lặp, người dùng kiểm tra thông tin đơn vị cấp trên và kỳ hiệu lực.",
-            ["TemporalFk.ParentGap"] =
-                "Kỳ hiệu lực của đơn vị vượt ngoài kỳ hiệu lực của đơn vị cấp trên.",
-            ["TemporalFk.DependentsUncovered"] =
-                "Đơn vị không được đóng do còn đơn vị cấp dưới hoặc còn người dùng phụ thuộc.",
-            ["VersionedRepository.DependentSetChanged"] = DependentSetChangedMessage,
-            ["VersionedRepository.DependentNotEnlisted"] = OperatorFallThroughMessage,
-            ["VersionedRepository.NotAFuturePlan"] = DependentSetChangedMessage,
-            ["VersionedRepository.LockTimeout"] = "Dữ liệu đang được người dùng khác khai báo.",
-            ["VersionedRepository.InvalidShrink"] =
-                "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
-            ["EffectivePeriod.OverlappingVersions"] = "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
-            ["EffectivePeriod.NoCoverage"] = "Đơn vị không hiệu lực tại ngày đã chọn.",
-            ["EffectivePeriod.InvalidRange"] =
-                "Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực.",
-            ["Authz.NotGranted"] = "Người dùng không được cấp quyền.",
-            ["Authz.ScopeInsufficient"] = "Người dùng không được cấp quyền.",
-            ["OrgUnit.AddRequiresGlobalScope"] = "Người dùng không được cấp quyền.",
-            ["OrgUnit.NotInScope"] = "Người dùng không được cấp quyền.",
-            [VersionCloseRules.Codes.CloseDateRequired] =
-                "Ngày kết thúc hiệu lực chưa được khai báo.",
-            [VersionCloseRules.Codes.CloseDateInPast] =
-                "Ngày kết thúc hiệu lực không được khai báo trước ngày hôm qua.",
-            [VersionCloseRules.Codes.CloseDateEqualsVersionEnd] =
-                "Ngày kết thúc hiệu lực đã được khai báo trước đó.",
-            [VersionCloseRules.Codes.CloseDateOutsideVersionPeriod] =
-                "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
-            [VersionCloseRules.Codes.VersionAlreadyEnded] = "Đơn vị đã hết hiệu lực.",
-            [VersionCloseRules.Codes.CloseDateNotApplicableToCancelPlan] =
-                "Thao tác hủy kỳ hiệu lực không yêu cầu nhập ngày kết thúc hiệu lực.",
-            ["Function.DuplicateKey"] = OperatorFallThroughMessage,
-            ["User.DuplicateUsername"] = OperatorFallThroughMessage,
-            ["RolePermission.DuplicateGrant"] = OperatorFallThroughMessage,
-            ["CompositeWrite.NotEnlisted"] = OperatorFallThroughMessage,
-            ["AuditLogWriter.NoAmbientConnection"] = OperatorFallThroughMessage,
-        };
+        var expected = FormatWriteErrorCompleteness();
 
-        foreach (var (code, sentence) in expected)
+        foreach (var (code, entry) in expected)
         {
             var message = vm.FormatWriteErrorPublic(Error.Validation(code, seed));
-            message.Should().Be(sentence, $"code '{code}' must map to its settled operator sentence");
+            message.Should().Be(entry.Message, $"code '{code}' must map to its settled operator sentence");
         }
     }
 
@@ -3837,31 +3840,14 @@ public class OrgUnitDeclarationViewModelTests
         vm.FormatWriteErrorPublic(Error.Forbidden("Authz.OnlyViaPrefixControl", seedPrefix))
             .Should().NotContain(seedPrefix);
 
-        var writeRegion = SliceOrgMapSource(
+        var writeRegion = FormatMapCompletenessTestSupport.SliceViewModelMapSource(
+            "AST.Shell/ViewModels/Iam/OrgUnitDeclarationViewModel.cs",
             "private string FormatWriteError(Error error)",
             "public string FormatWriteErrorPublic");
-        System.Text.RegularExpressions.Regex.Matches(writeRegion, "(?m)^\\s*\"Authz\\.NotGranted\"\\s*=>")
-            .Count.Should().Be(1, "FormatWriteError must keep exactly one NotGranted arm");
-        System.Text.RegularExpressions.Regex.Matches(writeRegion, "(?m)^\\s*\"Authz\\.ScopeInsufficient\"\\s*=>")
-            .Count.Should().Be(1, "FormatWriteError must keep exactly one ScopeInsufficient arm");
-        writeRegion.Should().Contain("StartsWith(\"Authz.\"");
-        // Catch-all-identical sentence — output asserts cannot discriminate deletion (FR4-1).
-        System.Text.RegularExpressions.Regex.Matches(
-                writeRegion, "(?m)^\\s*\"VersionedRepository\\.DependentNotEnlisted\"\\s*=>")
-            .Count.Should().Be(1, "FormatWriteError must keep exactly one DependentNotEnlisted arm");
-    }
-
-    private static string SliceOrgMapSource(string startMarker, string endMarker)
-    {
-        var src = System.IO.File.ReadAllText(
-            System.IO.Path.GetFullPath(System.IO.Path.Combine(
-                AppContext.BaseDirectory, "..", "..", "..", "..",
-                "AST.Shell", "ViewModels", "Iam", "OrgUnitDeclarationViewModel.cs")));
-        var start = src.IndexOf(startMarker, StringComparison.Ordinal);
-        start.Should().BeGreaterThanOrEqualTo(0, $"missing start marker '{startMarker}'");
-        var end = src.IndexOf(endMarker, start, StringComparison.Ordinal);
-        end.Should().BeGreaterThan(start, $"missing end marker '{endMarker}'");
-        return src[start..end];
+        FormatMapCompletenessTestSupport.AssertCompletenessDictionaryArmsInRegion(
+            writeRegion,
+            FormatWriteErrorCompleteness(),
+            nameof(FormatWriteErrorPublic_PermissionFamily_DedicatedArmsDistinctFromPrefix_Control));
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Globalization;
 using AST.Core.Security;
 using AST.Core.Presentation;
@@ -84,13 +84,13 @@ public sealed class ConfigAuditHistoryViewModel : BindableBase
             if (diff is not null && (diff.Added.Count > 0 || diff.Removed.Count > 0))
             {
                 foreach (var u in diff.Added)
-                    Rows.Add(new ConfigAuditRow(time, actor, target, "Thêm", u, signed));
+                    Rows.Add(new ConfigAuditRow(time, actor, target, "Th├¬m", u, signed));
                 foreach (var u in diff.Removed)
-                    Rows.Add(new ConfigAuditRow(time, actor, target, "Xóa", u, signed));
+                    Rows.Add(new ConfigAuditRow(time, actor, target, "X├│a", u, signed));
             }
             else
             {
-                Rows.Add(new ConfigAuditRow(time, actor, target, MapAction(r.Content.Action), "—", signed));
+                Rows.Add(new ConfigAuditRow(time, actor, target, MapAction(r.Content.Action), "ΓÇö", signed));
             }
         }
     }
@@ -109,40 +109,40 @@ public sealed class ConfigAuditHistoryViewModel : BindableBase
         if (!integrity.ChainValid)
         {
             Severity = StatusSeverity.Error;
-            IntegrityMessage = "Nhật ký cấu hình không toàn vẹn.";
+            IntegrityMessage = "Nhß║¡t k├╜ cß║Ñu h├¼nh kh├┤ng to├án vß║╣n.";
             return;
         }
         if (!integrity.TipSignatureValid)
         {
             Severity = StatusSeverity.Error;
-            IntegrityMessage = "Chữ ký không hợp lệ.";
+            IntegrityMessage = "Chß╗» k├╜ kh├┤ng hß╗úp lß╗ç.";
             return;
         }
 
         Severity = StatusSeverity.Success;
-        IntegrityMessage = "Nhật ký nguyên vẹn, chữ ký hợp lệ.";
+        IntegrityMessage = "Nhß║¡t k├╜ nguy├¬n vß║╣n, chß╗» k├╜ hß╗úp lß╗ç.";
     }
 
     private static string MapTarget(string target) => target switch
     {
-        "FileB" => "Người cứu hộ",
-        "FileA" => "Thông số kết nối",
+        "FileB" => "Ng╞░ß╗¥i cß╗⌐u hß╗Ö",
+        "FileA" => "Th├┤ng sß╗æ kß║┐t nß╗æi",
         _ => target,
     };
 
     private static string MapAction(string action) => action switch
     {
-        "Create" => "Tạo",
-        "Update" => "Sửa",
-        "Restore" => "Khôi phục",
-        "SignatureVerifyFailed" => "Lỗi xác minh chữ ký",
+        "Create" => "Tß║ío",
+        "Update" => "Sß╗¡a",
+        "Restore" => "Kh├┤i phß╗Ñc",
+        "SignatureVerifyFailed" => "Lß╗ùi x├íc minh chß╗» k├╜",
         _ => action,
     };
 
     private static string FormatTsLocal(string tsUtc)
     {
         // yyyy-MM-dd HH:mm (16 chars): matches BreakGlass CreatedDisplay + the authenticated-key info,
-        // and is locale-stable (unlike "g") so the Thời gian column has a fixed max width.
+        // and is locale-stable (unlike "g") so the Thß╗¥i gian column has a fixed max width.
         if (DateTimeOffset.TryParse(tsUtc, CultureInfo.InvariantCulture,
                 DateTimeStyles.RoundtripKind, out var dto))
             return dto.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);

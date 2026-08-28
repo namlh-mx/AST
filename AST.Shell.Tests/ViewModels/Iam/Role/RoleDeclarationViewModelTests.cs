@@ -734,7 +734,7 @@ public class RoleDeclarationViewModelTests
         h.Vm.BeginEditCommand.CanExecute().Should().BeFalse();
     }
 
-    // ---- B8/B9/B10: the fail-CLOSED gate must be independent of Severity ----
+    // ---- B8/B9/B10 (Assurance Advisor review, HIGH): the fail-CLOSED gate must be independent of Severity ----
     //
     // CanEdit/CanSave depend only on Mode/Status today. FinishSaveSuccessAsync (:683-694) deliberately
     // downgrades a post-write reload's Error banner to Warning (locked precedent), and
@@ -1722,36 +1722,38 @@ public class RoleDeclarationViewModelTests
     private const string DependentSetChangedMessage =
         "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.";
 
+    private static Dictionary<string, string> FormatCloseErrorCompleteness() => new()
+    {
+        ["VersionedRepository.BaseVersionRequired"] =
+            "Kỳ hiệu lực của quyền không phù hợp với kỳ hiệu lực của vai trò.",
+        ["VersionedRepository.DependentSetChanged"] = DependentSetChangedMessage,
+        ["VersionedRepository.DependentNotEnlisted"] = OperatorFallThroughMessage,
+        ["VersionedRepository.NotAFuturePlan"] = DependentSetChangedMessage,
+        ["VersionedRepository.LockTimeout"] = "Dữ liệu đang được người dùng khác khai báo.",
+        ["VersionedRepository.InvalidShrink"] =
+            "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
+        ["Authz.NotGranted"] = "Người dùng không được cấp quyền.",
+        ["Authz.ScopeInsufficient"] =
+            "Người dùng không được cấp quyền.",
+        ["Role.AdminFlagChangeNotAuthorized"] =
+            "Người dùng không được cấp quyền.", // literal — not AdminFlagChangeNotAuthorizedMessage (FR3-2)
+        [VersionCloseRules.Codes.VersionAlreadyEnded] = "Vai trò đã hết hiệu lực.",
+        ["TemporalFk.DependentsUncovered"] =
+            "Vai trò không được đóng do còn người dùng phụ thuộc.",
+        ["Function.DuplicateKey"] = OperatorFallThroughMessage,
+        ["User.DuplicateUsername"] = OperatorFallThroughMessage,
+        ["RolePermission.DuplicateGrant"] = OperatorFallThroughMessage,
+        ["Role.CascadeGrantNotProbed"] = OperatorFallThroughMessage,
+        ["CompositeWrite.NotEnlisted"] = OperatorFallThroughMessage,
+        ["AuditLogWriter.NoAmbientConnection"] = OperatorFallThroughMessage,
+    };
+
     [Fact]
     public void FormatCloseErrorPublic_CoversEverySettledCode_ReturnsExactSentence()
     {
         var h = Build();
         var seed = "SEED-DESCRIPTION-MUST-NOT-LEAK";
-        var expected = new Dictionary<string, string>
-        {
-            ["VersionedRepository.BaseVersionRequired"] =
-                "Kỳ hiệu lực của quyền không phù hợp với kỳ hiệu lực của vai trò.",
-            ["VersionedRepository.DependentSetChanged"] = DependentSetChangedMessage,
-            ["VersionedRepository.DependentNotEnlisted"] = OperatorFallThroughMessage,
-            ["VersionedRepository.NotAFuturePlan"] = DependentSetChangedMessage,
-            ["VersionedRepository.LockTimeout"] = "Dữ liệu đang được người dùng khác khai báo.",
-            ["VersionedRepository.InvalidShrink"] =
-                "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
-            ["Authz.NotGranted"] = "Người dùng không được cấp quyền.",
-            ["Authz.ScopeInsufficient"] =
-                "Người dùng không được cấp quyền.",
-            ["Role.AdminFlagChangeNotAuthorized"] =
-                "Người dùng không được cấp quyền.", // literal — not AdminFlagChangeNotAuthorizedMessage (FR3-2)
-            [VersionCloseRules.Codes.VersionAlreadyEnded] = "Vai trò đã hết hiệu lực.",
-            ["TemporalFk.DependentsUncovered"] =
-                "Vai trò không được đóng do còn người dùng phụ thuộc.",
-            ["Function.DuplicateKey"] = OperatorFallThroughMessage,
-            ["User.DuplicateUsername"] = OperatorFallThroughMessage,
-            ["RolePermission.DuplicateGrant"] = OperatorFallThroughMessage,
-            ["Role.CascadeGrantNotProbed"] = OperatorFallThroughMessage,
-            ["CompositeWrite.NotEnlisted"] = OperatorFallThroughMessage,
-            ["AuditLogWriter.NoAmbientConnection"] = OperatorFallThroughMessage,
-        };
+        var expected = FormatCloseErrorCompleteness();
 
         foreach (var (code, sentence) in expected)
         {
@@ -1779,15 +1781,24 @@ public class RoleDeclarationViewModelTests
         var h = Build();
 
         h.Vm.FormatCloseErrorPublic(Error.Forbidden("Authz.NotGranted", seedDedicated))
-            .Should().Be(permission).And.NotContain(seedDedicated);
+            .Should().Be(permission);
+        h.Vm.FormatCloseErrorPublic(Error.Forbidden("Authz.NotGranted", seedDedicated))
+            .Should().NotContain(seedDedicated);
+
         h.Vm.FormatCloseErrorPublic(Error.Forbidden("Authz.OnlyViaPrefixControl", seedPrefix))
-            .Should().Be(permission).And.NotContain(seedPrefix);
+            .Should().Be(permission);
+        h.Vm.FormatCloseErrorPublic(Error.Forbidden("Authz.OnlyViaPrefixControl", seedPrefix))
+            .Should().NotContain(seedPrefix);
 
         // Scope to FormatCloseError only — whole-file scan would match FormatSaveError's twin arms.
-        var closeRegion = SliceRoleMapSource(
+        var closeRegion = FormatMapCompletenessTestSupport.SliceViewModelMapSource(
+            "AST.Shell/ViewModels/Iam/Role/RoleDeclarationViewModel.cs",
             "private string FormatCloseError(Error error)",
             "public string FormatCloseErrorPublic");
-        AssertAuthzDedicatedArmsInRegion(closeRegion, nameof(FormatCloseErrorPublic_PermissionFamily_DedicatedArmsDistinctFromPrefix_Control));
+        FormatMapCompletenessTestSupport.AssertCompletenessDictionaryArmsInRegion(
+            closeRegion,
+            FormatCloseErrorCompleteness(),
+            nameof(FormatCloseErrorPublic_PermissionFamily_DedicatedArmsDistinctFromPrefix_Control));
     }
 
     [Fact]
@@ -1799,40 +1810,23 @@ public class RoleDeclarationViewModelTests
         var h = Build();
 
         h.Vm.FormatSaveErrorPublic(Error.Forbidden("Authz.NotGranted", seedDedicated))
-            .Should().Be(permission).And.NotContain(seedDedicated);
-        h.Vm.FormatSaveErrorPublic(Error.Forbidden("Authz.OnlyViaPrefixControl", seedPrefix))
-            .Should().Be(permission).And.NotContain(seedPrefix);
+            .Should().Be(permission);
+        h.Vm.FormatSaveErrorPublic(Error.Forbidden("Authz.NotGranted", seedDedicated))
+            .Should().NotContain(seedDedicated);
 
-        var saveRegion = SliceRoleMapSource(
+        h.Vm.FormatSaveErrorPublic(Error.Forbidden("Authz.OnlyViaPrefixControl", seedPrefix))
+            .Should().Be(permission);
+        h.Vm.FormatSaveErrorPublic(Error.Forbidden("Authz.OnlyViaPrefixControl", seedPrefix))
+            .Should().NotContain(seedPrefix);
+
+        var saveRegion = FormatMapCompletenessTestSupport.SliceViewModelMapSource(
+            "AST.Shell/ViewModels/Iam/Role/RoleDeclarationViewModel.cs",
             "private static string FormatSaveError(Error error)",
             "public string FormatSaveErrorPublic");
-        AssertAuthzDedicatedArmsInRegion(saveRegion, nameof(FormatSaveErrorPublic_PermissionFamily_DedicatedArmsDistinctFromPrefix_Control));
-    }
-
-    private static string SliceRoleMapSource(string startMarker, string endMarker)
-    {
-        var src = System.IO.File.ReadAllText(
-            System.IO.Path.GetFullPath(System.IO.Path.Combine(
-                AppContext.BaseDirectory, "..", "..", "..", "..",
-                "AST.Shell", "ViewModels", "Iam", "Role", "RoleDeclarationViewModel.cs")));
-        var start = src.IndexOf(startMarker, StringComparison.Ordinal);
-        start.Should().BeGreaterThanOrEqualTo(0, $"missing start marker '{startMarker}'");
-        var end = src.IndexOf(endMarker, start, StringComparison.Ordinal);
-        end.Should().BeGreaterThan(start, $"missing end marker '{endMarker}'");
-        return src[start..end];
-    }
-
-    private static void AssertAuthzDedicatedArmsInRegion(string region, string because)
-    {
-        System.Text.RegularExpressions.Regex.Matches(region, "(?m)^\\s*\"Authz\\.NotGranted\"\\s*=>")
-            .Count.Should().Be(1, $"{because}: Format region must keep exactly one NotGranted arm");
-        System.Text.RegularExpressions.Regex.Matches(region, "(?m)^\\s*\"Authz\\.ScopeInsufficient\"\\s*=>")
-            .Count.Should().Be(1, $"{because}: Format region must keep exactly one ScopeInsufficient arm");
-        region.Should().Contain("StartsWith(\"Authz.\"", because);
-        // Catch-all-identical sentence — output asserts cannot discriminate deletion (FR4-1).
-        System.Text.RegularExpressions.Regex.Matches(
-                region, "(?m)^\\s*\"VersionedRepository\\.DependentNotEnlisted\"\\s*=>")
-            .Count.Should().Be(1, $"{because}: Format region must keep exactly one DependentNotEnlisted arm");
+        FormatMapCompletenessTestSupport.AssertCompletenessDictionaryArmsInRegion(
+            saveRegion,
+            FormatSaveErrorCompleteness(),
+            nameof(FormatSaveErrorPublic_PermissionFamily_DedicatedArmsDistinctFromPrefix_Control));
     }
 
     [Fact]
@@ -1853,52 +1847,54 @@ public class RoleDeclarationViewModelTests
         }
     }
 
+    private static Dictionary<string, string> FormatSaveErrorCompleteness() => new()
+    {
+        ["Role.AdminFlagChangeNotAuthorized"] =
+            "Người dùng không được cấp quyền.", // literal — not AdminFlagChangeNotAuthorizedMessage (FR3-2)
+        ["Role.CodeInUse"] = "Mã vai trò đã được sử dụng.",
+        ["Role.CodeOwnedByAnotherIdentity"] = "Mã vai trò đã được sử dụng.",
+        ["Role.CodeIdentityAmbiguous"] =
+            "Mã vai trò bị trùng lặp với mã vai trò trong lịch sử do lỗi dữ liệu.",
+        ["Role.CodeOwnerNotDormant"] =
+            "Mã vai trò bị trùng lặp với mã vai trò sẽ được sử dụng trong tương lai.",
+        ["RolePermission.OverlappingGrant"] = "Chức năng bị trùng lặp.",
+        ["TemporalFk.ParentGap"] =
+            "Kỳ hiệu lực của quyền vượt ngoài kỳ hiệu lực của vai trò hoặc chức năng.",
+        ["EffectivePeriod.NoCoverage"] = "Quyền cần thu hồi đã hết hiệu lực.",
+        ["EffectivePeriod.InvalidRange"] =
+            "Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực.",
+        ["EffectivePeriod.OverlappingVersions"] =
+            "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
+        ["Authz.ScopeInsufficient"] =
+            "Người dùng không được cấp quyền.",
+        ["Authz.NotGranted"] = "Người dùng không được cấp quyền.",
+        ["VersionedRepository.LockTimeout"] = "Dữ liệu đang được người dùng khác khai báo.",
+        ["VersionedRepository.InvalidShrink"] =
+            "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
+        ["Role.CodeOwnershipChanged"] = DependentSetChangedMessage,
+        ["Role.VersionOutOfDate"] = DependentSetChangedMessage,
+        ["Role.ExpectedCodeMismatch"] = DependentSetChangedMessage,
+        ["VersionedRepository.NotAFuturePlan"] = DependentSetChangedMessage,
+        ["VersionedRepository.VersionNotFound"] = DependentSetChangedMessage,
+        ["VersionedRepository.DependentSetChanged"] = DependentSetChangedMessage,
+        ["VersionedRepository.DependentNotEnlisted"] = OperatorFallThroughMessage,
+        ["VersionedRepository.BaseVersionRequired"] =
+            "Kỳ hiệu lực của quyền không phù hợp với kỳ hiệu lực của vai trò.",
+        ["RolePermission.NotOwnedByRole"] = OperatorFallThroughMessage,
+        ["RolePermission.IdentityAlreadyVersioned"] = OperatorFallThroughMessage,
+        ["Function.DuplicateKey"] = OperatorFallThroughMessage,
+        ["User.DuplicateUsername"] = OperatorFallThroughMessage,
+        ["RolePermission.DuplicateGrant"] = OperatorFallThroughMessage,
+        ["CompositeWrite.NotEnlisted"] = OperatorFallThroughMessage,
+        ["AuditLogWriter.NoAmbientConnection"] = OperatorFallThroughMessage,
+    };
+
     [Fact]
     public void FormatSaveErrorPublic_CoversEverySettledCode_ReturnsExactSentence()
     {
         var h = Build();
         var seed = "SEED-DESCRIPTION-MUST-NOT-LEAK";
-        var expected = new Dictionary<string, string>
-        {
-            ["Role.AdminFlagChangeNotAuthorized"] =
-                "Người dùng không được cấp quyền.", // literal — not AdminFlagChangeNotAuthorizedMessage (FR3-2)
-            ["Role.CodeInUse"] = "Mã vai trò đã được sử dụng.",
-            ["Role.CodeOwnedByAnotherIdentity"] = "Mã vai trò đã được sử dụng.",
-            ["Role.CodeIdentityAmbiguous"] =
-                "Mã vai trò bị trùng lặp với mã vai trò trong lịch sử do lỗi dữ liệu.",
-            ["Role.CodeOwnerNotDormant"] =
-                "Mã vai trò bị trùng lặp với mã vai trò sẽ được sử dụng trong tương lai.",
-            ["RolePermission.OverlappingGrant"] = "Chức năng bị trùng lặp.",
-            ["TemporalFk.ParentGap"] =
-                "Kỳ hiệu lực của quyền vượt ngoài kỳ hiệu lực của vai trò hoặc chức năng.",
-            ["EffectivePeriod.NoCoverage"] = "Quyền cần thu hồi đã hết hiệu lực.",
-            ["EffectivePeriod.InvalidRange"] =
-                "Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực.",
-            ["EffectivePeriod.OverlappingVersions"] =
-                "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
-            ["Authz.ScopeInsufficient"] =
-                "Người dùng không được cấp quyền.",
-            ["Authz.NotGranted"] = "Người dùng không được cấp quyền.",
-            ["VersionedRepository.LockTimeout"] = "Dữ liệu đang được người dùng khác khai báo.",
-            ["VersionedRepository.InvalidShrink"] =
-                "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
-            ["Role.CodeOwnershipChanged"] = DependentSetChangedMessage,
-            ["Role.VersionOutOfDate"] = DependentSetChangedMessage,
-            ["Role.ExpectedCodeMismatch"] = DependentSetChangedMessage,
-            ["VersionedRepository.NotAFuturePlan"] = DependentSetChangedMessage,
-            ["VersionedRepository.VersionNotFound"] = DependentSetChangedMessage,
-            ["VersionedRepository.DependentSetChanged"] = DependentSetChangedMessage,
-            ["VersionedRepository.DependentNotEnlisted"] = OperatorFallThroughMessage,
-            ["VersionedRepository.BaseVersionRequired"] =
-                "Kỳ hiệu lực của quyền không phù hợp với kỳ hiệu lực của vai trò.",
-            ["RolePermission.NotOwnedByRole"] = OperatorFallThroughMessage,
-            ["RolePermission.IdentityAlreadyVersioned"] = OperatorFallThroughMessage,
-            ["Function.DuplicateKey"] = OperatorFallThroughMessage,
-            ["User.DuplicateUsername"] = OperatorFallThroughMessage,
-            ["RolePermission.DuplicateGrant"] = OperatorFallThroughMessage,
-            ["CompositeWrite.NotEnlisted"] = OperatorFallThroughMessage,
-            ["AuditLogWriter.NoAmbientConnection"] = OperatorFallThroughMessage,
-        };
+        var expected = FormatSaveErrorCompleteness();
 
         foreach (var (code, sentence) in expected)
         {

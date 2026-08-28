@@ -550,7 +550,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     {
         try
         {
-            // Reads stay Global by policy (2026-08-05, "Scope-checked writes" part 2): the
+            // Reads stay Global by policy (decision-log 2026-08-05, "Scope-checked writes" part 2): the
             // parent picker must offer every eligible parent regardless of the operator's own scope --
             // only the eventual write (Add/Edit/Close) is gated by the caller's resolved scope.
             var scope = new DataScope(ScopeLevel.Global, null, _currentUser.Username ?? "unknown");
@@ -850,7 +850,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private async Task LoadHistoryCoreAsync(long? orgUnitId, int? generation = null)
     {
-        // Reads stay Global by policy (2026-08-05, "Scope-checked writes" part 2): only
+        // Reads stay Global by policy (decision-log 2026-08-05, "Scope-checked writes" part 2): only
         // WRITES (Add/Edit/Close) are gated by the caller's resolved scope -- history is a read-only
         // audit trail and is deliberately shown system-wide regardless of who is viewing it.
         var scope = new DataScope(ScopeLevel.Global, null, _currentUser.Username ?? "unknown");
@@ -1287,7 +1287,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // cha" advice to give -- the parent is immutable, so reloading is the only move.
         "OrgUnit.ParentMismatch" =>
             "Đơn vị cha đã thay đổi ở nơi khác - hãy tải lại thẻ rồi lưu lại.",
-        // Distinct from the code above ON PURPOSE: this one is not a stale card, so
+        // Distinct from the code above ON PURPOSE (QA Reviewer G-22): this one is not a stale card, so
         // "tải lại rồi lưu lại" would be advice that cannot work. The unit's own history disagrees with
         // itself and only an administrator can resolve which parent is correct.
         "OrgUnit.ParentNotWellDefined" =>

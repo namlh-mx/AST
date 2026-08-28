@@ -155,7 +155,7 @@
                     <TextBlock
                         Foreground="{DynamicResource AstTextSecondaryBrush}"
                         Style="{StaticResource AstBodyMediumText}"
-                        Text="Chức năng chờ triển khai." />
+                        Text="Chức năng tạm đóng hoặc chờ triển khai." />
                 </StackPanel>
             </TabItem>
 
@@ -174,7 +174,7 @@
                     <TextBlock
                         Foreground="{DynamicResource AstTextSecondaryBrush}"
                         Style="{StaticResource AstBodyMediumText}"
-                        Text="Chức năng chờ triển khai." />
+                        Text="Chức năng tạm đóng hoặc chờ triển khai." />
                 </StackPanel>
             </TabItem>
         </TabControl>

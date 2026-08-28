@@ -49,12 +49,12 @@
                                     <TextBlock
                                         FontWeight="Bold"
                                         Style="{StaticResource AstBodySmallText}"
-                                        Text="Không có kết nối" />
+                                        Text="Ứng dụng chưa kết nối cơ sở dữ liệu." />
                                     <TextBlock
                                         Margin="0,4,0,0"
                                         Foreground="{DynamicResource AstTextSecondaryBrush}"
                                         Style="{StaticResource AstBodySmallText}"
-                                        Text="Vui lòng kiểm tra thông tin cấu hình" />
+                                        Text="Người dùng kiểm tra thông tin cấu hình kết nối cơ sở dữ liệu." />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
@@ -234,12 +234,12 @@
                                         FontWeight="Bold"
                                         Foreground="{DynamicResource AstPrimaryBrush}"
                                         Style="{StaticResource AstBodySmallText}"
-                                        Text="Đang thông báo ngắt kết nối" />
+                                        Text="Ứng dụng chuẩn bị ngắt kết nối." />
                                     <TextBlock
                                         Margin="0,4,0,0"
                                         Foreground="{DynamicResource AstTextSecondaryBrush}"
                                         Style="{StaticResource AstBodySmallText}"
-                                        Text="Hệ thống sẽ tự động ngắt sau khi hết thời gian chờ" />
+                                        Text="Ứng dụng sẽ ngắt kết nối khi hết thời gian chờ." />
                                 </StackPanel>
                                 <StackPanel
                                     Grid.Column="1"

@@ -1,4 +1,4 @@
-using AST.Core.Security;
+﻿using AST.Core.Security;
 using AST.Core.Presentation;
 using AST.Shell.Session;
 using AST.Shell.ViewModels.Platform;
@@ -43,7 +43,7 @@ public class ConfigAuditHistoryViewModelTests
             ReadResult = new[]
             {
                 Record(1, "FileB", "Create", null, null),
-                Record(2, "FileB", "Update", new ConfigAuditDiff(new[] { "bob" }, Array.Empty<string>()), "sig2"),
+                Record(2, "FileB", "Update", new ConfigAuditDiff(new[] { "boss2" }, Array.Empty<string>()), "sig2"),
             },
         };
         var vm = Vm(log);
@@ -51,12 +51,12 @@ public class ConfigAuditHistoryViewModelTests
         vm.LoadCommand.Execute();
 
         Assert.Equal(2, vm.Rows.Count);
-        Assert.Equal("Người cứu hộ", vm.Rows[0].Target);
-        Assert.Equal("Tạo", vm.Rows[0].Operation); // no-diff record -> single row, action as operation
-        Assert.Equal("—", vm.Rows[0].User);
+        Assert.Equal("Ng╞░ß╗¥i cß╗⌐u hß╗Ö", vm.Rows[0].Target);
+        Assert.Equal("Tß║ío", vm.Rows[0].Operation); // no-diff record -> single row, action as operation
+        Assert.Equal("ΓÇö", vm.Rows[0].User);
         Assert.False(vm.Rows[0].Signed);
-        Assert.Equal("Thêm", vm.Rows[1].Operation); // diff row, one per added user
-        Assert.Equal("bob", vm.Rows[1].User);
+        Assert.Equal("Th├¬m", vm.Rows[1].Operation); // diff row, one per added user
+        Assert.Equal("boss2", vm.Rows[1].User);
         Assert.True(vm.Rows[1].Signed);
     }
 
@@ -76,9 +76,9 @@ public class ConfigAuditHistoryViewModelTests
         vm.LoadCommand.Execute();
 
         Assert.Equal(3, vm.Rows.Count); // +a, +b, -c
-        Assert.Equal(("Thêm", "a"), (vm.Rows[0].Operation, vm.Rows[0].User));
-        Assert.Equal(("Thêm", "b"), (vm.Rows[1].Operation, vm.Rows[1].User));
-        Assert.Equal(("Xóa", "c"), (vm.Rows[2].Operation, vm.Rows[2].User));
+        Assert.Equal(("Th├¬m", "a"), (vm.Rows[0].Operation, vm.Rows[0].User));
+        Assert.Equal(("Th├¬m", "b"), (vm.Rows[1].Operation, vm.Rows[1].User));
+        Assert.Equal(("X├│a", "c"), (vm.Rows[2].Operation, vm.Rows[2].User));
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public class ConfigAuditHistoryViewModelTests
             ReadResult = new[]
             {
                 Record(1, "FileA", "Create", null, null),
-                Record(2, "FileB", "Update", new ConfigAuditDiff(new[] { "bob" }, Array.Empty<string>()), "sig2"),
+                Record(2, "FileB", "Update", new ConfigAuditDiff(new[] { "boss2" }, Array.Empty<string>()), "sig2"),
                 Record(3, "FileA", "SignatureVerifyFailed", null, null),
             },
         };
@@ -97,12 +97,12 @@ public class ConfigAuditHistoryViewModelTests
 
         vm.LoadCommand.Execute();
 
-        Assert.Equal("Thông số kết nối", vm.Rows[0].Target);
-        Assert.Equal("Tạo", vm.Rows[0].Operation);
-        Assert.Equal("Người cứu hộ", vm.Rows[1].Target);
-        Assert.Equal("Thêm", vm.Rows[1].Operation); // File B update with an added user
-        Assert.Equal("bob", vm.Rows[1].User);
-        Assert.Equal("Lỗi xác minh chữ ký", vm.Rows[2].Operation);
+        Assert.Equal("Th├┤ng sß╗æ kß║┐t nß╗æi", vm.Rows[0].Target);
+        Assert.Equal("Tß║ío", vm.Rows[0].Operation);
+        Assert.Equal("Ng╞░ß╗¥i cß╗⌐u hß╗Ö", vm.Rows[1].Target);
+        Assert.Equal("Th├¬m", vm.Rows[1].Operation); // File B update with an added user
+        Assert.Equal("boss2", vm.Rows[1].User);
+        Assert.Equal("Lß╗ùi x├íc minh chß╗» k├╜", vm.Rows[2].Operation);
     }
 
     [Fact]
@@ -114,7 +114,7 @@ public class ConfigAuditHistoryViewModelTests
         vm.VerifyCommand.Execute();
 
         Assert.Equal(StatusSeverity.Success, vm.Severity);
-        Assert.Equal("Nhật ký nguyên vẹn, chữ ký hợp lệ.", vm.IntegrityMessage);
+        Assert.Equal("Nhß║¡t k├╜ nguy├¬n vß║╣n, chß╗» k├╜ hß╗úp lß╗ç.", vm.IntegrityMessage);
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public class ConfigAuditHistoryViewModelTests
         vm.VerifyCommand.Execute();
 
         Assert.Equal(StatusSeverity.Error, vm.Severity);
-        vm.IntegrityMessage.Should().Be("Nhật ký cấu hình không toàn vẹn.");
+        vm.IntegrityMessage.Should().Be("Nhß║¡t k├╜ cß║Ñu h├¼nh kh├┤ng to├án vß║╣n.");
     }
 
     [Fact]
@@ -138,13 +138,13 @@ public class ConfigAuditHistoryViewModelTests
         vm.VerifyCommand.Execute();
 
         Assert.Equal(StatusSeverity.Error, vm.Severity);
-        Assert.Equal("Chữ ký không hợp lệ.", vm.IntegrityMessage);
+        Assert.Equal("Chß╗» k├╜ kh├┤ng hß╗úp lß╗ç.", vm.IntegrityMessage);
     }
 
     [Fact]
     public void Verify_surfaces_a_read_or_verify_error()
     {
-        var log = new FakeLog { IntegrityResult = ConfigErrors.IoError("nhật ký cấu hình") };
+        var log = new FakeLog { IntegrityResult = ConfigErrors.IoError("nhß║¡t k├╜ cß║Ñu h├¼nh") };
         var vm = Vm(log);
 
         vm.VerifyCommand.Execute();

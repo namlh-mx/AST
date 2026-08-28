@@ -8,7 +8,7 @@
             <TextBlock Style="{StaticResource AstPageTitle}" Text="{Binding Title}" />
             <TextBlock
                 Style="{StaticResource AstPageSubtitle}"
-                Text="Chức năng chờ triển khai."
+                Text="Chức năng tạm đóng hoặc chờ triển khai."
                 TextWrapping="Wrap" />
         </StackPanel>
     </ScrollViewer>
