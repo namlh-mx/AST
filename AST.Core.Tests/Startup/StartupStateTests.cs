@@ -1,4 +1,5 @@
 using AST.Core.Startup;
+using FluentAssertions;
 
 namespace AST.Core.Tests.Startup;
 
@@ -16,5 +17,17 @@ public class StartupStateTests
 
         Assert.Same(status, state.Status);
         Assert.Equal(1, raised);
+    }
+
+    // The DEFAULT initializer's code was substituted to StartupCodes.Pending, and no test asserted
+    // it -- Set() was the only path exercised. Asserts the LITERAL, not the constant: comparing the
+    // symbol against itself would pass even if the value drifted.
+    [Fact]
+    public void Initial_Status_carries_the_pending_code_and_NotConnected_mode()
+    {
+        var state = new StartupState();
+
+        state.Status.Reason.Should().Be("Startup.Pending");
+        state.Status.Mode.Should().Be(StartupMode.NotConnected);
     }
 }

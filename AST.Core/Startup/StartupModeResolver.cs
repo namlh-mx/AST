@@ -19,14 +19,14 @@ public static class StartupModeResolver
         }
 
         if (!dbReachable)
-            return new(StartupMode.NotConnected, "Startup.DbUnreachable",
+            return new(StartupMode.NotConnected, StartupCodes.DbUnreachable,
                 "Không kết nối được máy chủ database. Kiểm tra lại thông tin kết nối hoặc trạng thái máy chủ.");
         if (!schemaMatch)
-            return new(StartupMode.NotConnected, "Startup.SchemaMismatch",
+            return new(StartupMode.NotConnected, StartupCodes.SchemaMismatch,
                 string.IsNullOrEmpty(schemaMessage)
                     ? "Phiên bản schema của database không khớp phiên bản ứng dụng cần."
                     : schemaMessage);
 
-        return new(StartupMode.Connected, "Startup.Ready", "Đã kết nối database.");
+        return new(StartupMode.Connected, StartupCodes.Ready, "Đã kết nối database.");
     }
 }

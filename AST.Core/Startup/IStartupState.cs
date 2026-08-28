@@ -13,7 +13,7 @@ public interface IStartupState
 public sealed class StartupState : IStartupState
 {
     public StartupStatus Status { get; private set; } =
-        new(StartupMode.NotConnected, "Startup.Pending", "Đang khởi động.");
+        new(StartupMode.NotConnected, StartupCodes.Pending, "Đang khởi động.");
 
     public event EventHandler? Changed;
 
