@@ -2,10 +2,12 @@ using AST.Core.Data;
 using AST.Core.Iam;
 using AST.Core.Security;
 using AST.Core.Presentation;
+using AST.Shell.Presentation;
 using AST.Shell.Services;
 using AST.Shell.Session;
 using AST.Shell.ViewModels.Platform;
 using ErrorOr;
+using FluentAssertions;
 
 namespace AST.Shell.Tests.ViewModels;
 
@@ -90,6 +92,24 @@ public class AdminAuthViewModelTests
     }
 
     [Fact]
+    public void Authenticate_failure_shows_the_settled_sentence_not_the_raw_description()
+    {
+        var session = new AdminSession();
+        var vm = Vm(
+            new FakeVerifier(Error.Validation(ConfigErrors.Codes.KeyMismatch, "raw text that must not be shown")),
+            session,
+            new FakePicker(new PickedFile(@"D:\key.pem", new byte[] { 1 })), allowDebugSkip: false);
+        vm.BrowseKeyCommand.Execute();
+
+        vm.AuthenticateCommand.Execute();
+
+        vm.StatusMessage.Should()
+            .Be(PlatformErrorDescriber.Catalog[ConfigErrors.Codes.KeyMismatch])
+            .And.NotBe("raw text that must not be shown");
+        vm.Severity.Should().Be(StatusSeverity.Error);
+    }
+
+    [Fact]
     public void Authenticate_failure_shows_message_and_does_not_authenticate()
     {
         var session = new AdminSession();
@@ -101,7 +121,7 @@ public class AdminAuthViewModelTests
 
         Assert.False(vm.IsAuthenticated);
         Assert.False(session.IsAuthenticated);
-        Assert.Equal("Khóa bí mật không khớp khóa công khai của app.", vm.StatusMessage);
+        vm.StatusMessage.Should().Be(PlatformErrorDescriber.Catalog[ConfigErrors.Codes.KeyMismatch]);
     }
 
     [Fact]

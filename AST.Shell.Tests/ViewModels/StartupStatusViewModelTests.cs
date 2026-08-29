@@ -8,7 +8,7 @@ public class StartupStatusViewModelTests
     private sealed class FakeStartupState : IStartupState
     {
         public StartupStatus Status { get; private set; } =
-            new(StartupMode.NotConnected, "Startup.Pending", "Đang khởi động.");
+            new(StartupMode.NotConnected, "Startup.Pending", "Ứng dụng đang khởi động.");
         public event EventHandler? Changed;
         public void Set(StartupStatus status) { Status = status; Changed?.Invoke(this, EventArgs.Empty); }
     }
@@ -20,7 +20,7 @@ public class StartupStatusViewModelTests
         var vm = new StartupStatusViewModel(state);
 
         Assert.False(vm.IsConnected);
-        Assert.Equal("Đang khởi động.", vm.Message);
+        Assert.Equal("Ứng dụng đang khởi động.", vm.Message);
         Assert.Equal(StartupMode.NotConnected, vm.Mode);
     }
 

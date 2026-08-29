@@ -11,24 +11,24 @@ public static class StartupModeResolver
         {
             case FileAOutcome.NotDeclared:
                 return new(StartupMode.NotConnected, ConfigErrors.Codes.NotDeclared,
-                    "Chưa khai báo kết nối database. Vào menu Khai báo để nhập thông tin kết nối.");
+                    "Cấu hình kết nối cơ sở dữ liệu chưa được khai báo.");
             case FileAOutcome.Corrupt:
                 return new(StartupMode.NotConnected, ConfigErrors.Codes.Corrupt,
-                    "Tệp cấu hình kết nối database bị hỏng hoặc đã bị sửa. Cần khai báo lại.");
+                    "Tập tin thông số cấu hình kết nối cơ sở dữ liệu không toàn vẹn.");
             case FileAOutcome.IoError:
                 return new(StartupMode.NotConnected, ConfigErrors.Codes.IoError,
-                    "Không đọc được tệp cấu hình kết nối database (kiểm tra mạng hoặc quyền truy cập).");
+                    "Ứng dụng không thể đọc hoặc ghi tập tin cấu hình.");
         }
 
         if (!dbReachable)
             return new(StartupMode.NotConnected, StartupCodes.DbUnreachable,
-                "Không kết nối được máy chủ database. Kiểm tra lại thông tin kết nối hoặc trạng thái máy chủ.");
+                "Ứng dụng không thể kết nối đến máy chủ.");
         if (!schemaMatch)
             return new(StartupMode.NotConnected, StartupCodes.SchemaMismatch,
                 string.IsNullOrEmpty(schemaMessage)
-                    ? "Phiên bản schema của database không khớp phiên bản ứng dụng cần."
+                    ? "Phiên bản của cơ sở dữ liệu không phù hợp."
                     : schemaMessage);
 
-        return new(StartupMode.Connected, StartupCodes.Ready, "Đã kết nối database.");
+        return new(StartupMode.Connected, StartupCodes.Ready, "Ứng dụng kết nối cơ sở dữ liệu thành công.");
     }
 }

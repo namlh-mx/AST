@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using AST.Core.Security;
 using AST.Core.Presentation;
+using AST.Shell.Presentation;
 using AST.Shell.Session;
 using Prism.Commands;
 using Prism.Mvvm;
@@ -68,7 +69,7 @@ public sealed class ConfigAuditHistoryViewModel : BindableBase
         if (result.IsError)
         {
             Severity = StatusSeverity.Error;
-            IntegrityMessage = result.FirstError.Description;
+            IntegrityMessage = PlatformErrorDescriber.Describe(result.FirstError);
             return;
         }
 
@@ -101,7 +102,7 @@ public sealed class ConfigAuditHistoryViewModel : BindableBase
         if (result.IsError)
         {
             Severity = StatusSeverity.Error;
-            IntegrityMessage = result.FirstError.Description;
+            IntegrityMessage = PlatformErrorDescriber.Describe(result.FirstError);
             return;
         }
 

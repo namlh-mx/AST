@@ -24,11 +24,14 @@ public static class ConfigErrors
     //      constructions pass null. So changing THAT value reinterprets recorded history; changing
     //      another Config.* value does not, today. Oracle:
     //      FileConfigAuditLogTests.Appended_reason_code_survives_the_round_trip_to_the_stored_record.
-    //   2. CONSUMER BRANCHING -- true of two production consumers, NOT of the screens. StartupOrchestrator
-    //      and BreakGlassAdminService compare against these constants; the five AST.Shell error maps do
-    //      not consume the Config.*/Startup.*/BreakGlass.* families at all today -- the platform
-    //      ViewModels forward Description/Message. That may change when a shared describer ships;
-    //      this note tells the next reader the claim was scoped, not guessed.
+    //   2. CONSUMER BRANCHING -- three production consumers now. StartupOrchestrator and
+    //      BreakGlassAdminService compare against these constants, and AST.Shell's
+    //      PlatformErrorDescriber KEYS its catalog on ten of them, so a changed value stops matching
+    //      its own catalog row and the operator silently gets the catch-all sentence instead of the
+    //      settled one. UPDATED when the describer shipped: the previous wording said AST.Shell "does
+    //      not consume these families at all today", scoped explicitly to change at that moment. The
+    //      five per-screen error maps still do not consume them -- the describer is a sixth surface,
+    //      not one of those five -- so read this row as being about the assembly, not about the maps.
     //
     // Renaming a CONSTANT is free; changing a VALUE needs one of the two reasons above to be re-checked
     // against the code, not against this comment.

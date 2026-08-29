@@ -29,5 +29,6 @@ public class StartupStateTests
 
         state.Status.Reason.Should().Be("Startup.Pending");
         state.Status.Mode.Should().Be(StartupMode.NotConnected);
+        state.Status.Message.Should().Be("Ứng dụng đang khởi động.");
     }
 }

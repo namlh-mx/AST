@@ -99,6 +99,10 @@ sprint calendar.
   platform error-code catalogues for config, startup, and break-glass — each
   now has a named, completeness-tested code set so a new code cannot ship
   without being registered.
+- **2026-08-29 — maintenance on screens already in use.** Platform error codes
+  that reach an operator now show settled Vietnamese sentences through a single
+  shared describer — eight platform sites no longer forward raw error text, and
+  ten catalogued codes each have a dedicated operator sentence.
 ### In progress (maintenance and finish work)
 - Weekly review of faults that surface in daily test use of the shipped screens.
 - Remaining verification on org-unit history labelling (public issue #3, half still

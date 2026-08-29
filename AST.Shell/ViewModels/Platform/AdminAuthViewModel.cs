@@ -147,7 +147,7 @@ public sealed class AdminAuthViewModel : BindableBase, IDeclarationForm, IStatus
     {
         if (_picked is null) return;
         var result = _verifier.Verify(_picked.Content, Passphrase);
-        if (result.IsError) { StatusMessage = result.FirstError.Description; Severity = StatusSeverity.Error; return; }
+        if (result.IsError) { StatusMessage = PlatformErrorDescriber.Describe(result.FirstError); Severity = StatusSeverity.Error; return; }
         _session.Authenticate(_picked.Content, Passphrase);
         Operator = WindowsUsernameNormalizer.Normalize(_currentUser.Username);
         AuthenticatedAt = DateTimeOffset.Now;

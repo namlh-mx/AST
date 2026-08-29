@@ -59,7 +59,7 @@ public sealed class StartupOrchestrator(
         {
             onUnexpectedError(ex);
             return new StartupStatus(StartupMode.NotConnected, StartupCodes.Unexpected,
-                "Không khởi động được kết nối database do lỗi không mong đợi. Xem log kỹ thuật để biết chi tiết.");
+                "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.");
         }
     }
 

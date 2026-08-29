@@ -3,6 +3,7 @@ using AST.Core.Data;
 using AST.Core.Iam;
 using AST.Core.Security;
 using AST.Core.Presentation;
+using AST.Shell.Presentation;
 using AST.Shell.Session;
 using Prism.Commands;
 using Prism.Mvvm;
@@ -106,7 +107,7 @@ public sealed class BreakGlassAdminViewModel : BindableBase
         if (result.IsError)
         {
             Severity = StatusSeverity.Error;
-            StatusMessage = result.FirstError.Description;
+            StatusMessage = PlatformErrorDescriber.Describe(result.FirstError);
             return;
         }
 
@@ -171,7 +172,7 @@ public sealed class BreakGlassAdminViewModel : BindableBase
         if (result.IsError)
         {
             Severity = StatusSeverity.Error;
-            StatusMessage = result.FirstError.Description;
+            StatusMessage = PlatformErrorDescriber.Describe(result.FirstError);
             return;
         }
         ExecuteLoad(); // refresh rows so the new user's derived created-date shows without leaving the screen

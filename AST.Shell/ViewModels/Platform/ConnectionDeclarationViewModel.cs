@@ -144,7 +144,7 @@ public sealed class ConnectionDeclarationViewModel : BindableBase, IDeclarationF
         if (result.IsError)
         {
             IsTestPassed = false;
-            StatusMessage = result.FirstError.Description;
+            StatusMessage = PlatformErrorDescriber.Describe(result.FirstError);
             Severity = StatusSeverity.Error;
             return;
         }
@@ -160,12 +160,12 @@ public sealed class ConnectionDeclarationViewModel : BindableBase, IDeclarationF
         if (test.IsError)
         {
             IsTestPassed = false;
-            StatusMessage = test.FirstError.Description;
+            StatusMessage = PlatformErrorDescriber.Describe(test.FirstError);
             Severity = StatusSeverity.Error;
             return;
         }
         var result = _declaration.SaveConnection(fields, _session.PrivateKey, _session.Passphrase);
-        if (result.IsError) { StatusMessage = result.FirstError.Description; Severity = StatusSeverity.Error; return; }
+        if (result.IsError) { StatusMessage = PlatformErrorDescriber.Describe(result.FirstError); Severity = StatusSeverity.Error; return; }
         var status = _startupRunner.Rerun();
         StatusMessage = status.Message;
         Severity = status.Mode == StartupMode.Connected ? StatusSeverity.Success : StatusSeverity.Error;

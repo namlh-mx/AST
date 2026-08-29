@@ -2,6 +2,7 @@ using AST.Core.Data;
 using AST.Core.Security;
 using AST.Core.Startup;
 using ErrorOr;
+using FluentAssertions;
 
 namespace AST.Core.Tests.Startup;
 
@@ -162,8 +163,9 @@ public class StartupOrchestratorTests
 
         var status = orchestrator.Resolve();
 
-        Assert.Equal(StartupMode.NotConnected, status.Mode);
-        Assert.Equal("Startup.Unexpected", status.Reason);
+        status.Mode.Should().Be(StartupMode.NotConnected);
+        status.Reason.Should().Be("Startup.Unexpected");
+        status.Message.Should().Be("Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.");
         Assert.Same(thrown, captured);
     }
 

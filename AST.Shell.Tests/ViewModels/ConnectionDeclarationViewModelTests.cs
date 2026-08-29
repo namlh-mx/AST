@@ -1,8 +1,11 @@
 using AST.Core.Data;
+using AST.Core.Security;
 using AST.Core.Startup;
+using AST.Shell.Presentation;
 using AST.Shell.Session;
 using AST.Shell.ViewModels.Platform;
 using ErrorOr;
+using FluentAssertions;
 
 namespace AST.Shell.Tests.ViewModels;
 
@@ -155,7 +158,7 @@ public class ConnectionDeclarationViewModelTests
         await vm.TestCommand.Execute();
         Assert.False(vm.IsTestPassed);
         Assert.False(vm.SaveCommand.CanExecute());
-        Assert.Equal("Không kết nối được máy chủ database.", vm.StatusMessage);
+        vm.StatusMessage.Should().Be(PlatformErrorDescriber.Catalog[StartupCodes.DbConnectFailed]);
     }
 
     [Fact]
@@ -193,7 +196,7 @@ public class ConnectionDeclarationViewModelTests
         Assert.Null(decl.Saved);
         Assert.Equal(0, runner.Calls);
         Assert.False(vm.IsTestPassed);
-        Assert.Equal("Sai tài khoản hoặc mật khẩu database.", vm.StatusMessage);
+        vm.StatusMessage.Should().Be(PlatformErrorDescriber.Catalog[StartupCodes.DbAccessDenied]);
     }
 
     [Fact]
@@ -221,7 +224,7 @@ public class ConnectionDeclarationViewModelTests
         var vm = Build(decl, runner: runner);
         FillValid(vm);
         await vm.SaveCommand.Execute();
-        Assert.Equal("Cần nạp khóa bí mật để ký cấu hình.", vm.StatusMessage);
+        vm.StatusMessage.Should().Be(PlatformErrorDescriber.Catalog[ConfigErrors.Codes.KeyRequired]);
         Assert.Equal(0, runner.Calls);
     }
 
