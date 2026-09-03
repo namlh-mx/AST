@@ -3343,6 +3343,36 @@ public class OrgUnitDeclarationViewModelTests
             + "Nếu thực ra kỳ hiệu lực đã nhập sai, hãy dùng chức năng Sửa.");
     }
 
+    // The Research Advisor: the test above asserts the dialog APPEARS and says the right thing, and stays green even
+    // if the answer is thrown away - a confirm nobody can decline is decoration. The cancel branch has had
+    // this twin since it was written (Save_Close_Pending_AbortConfirmation_...); the retire branch, whose
+    // confirm is new, shipped without one.
+    [Fact]
+    public async Task Save_Close_Retire_DeclinedConfirm_WritesNothing_AndLeavesTheCardOpen()
+    {
+        var declaration = new FakeOrgUnitDeclarationService();
+        var (vm, repo, confirm) = BuildForEdit(confirmH2: false, declaration: declaration);
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-1), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+
+        vm.BeginCloseCommand.Execute();
+        vm.EffectiveTo = Today.AddDays(5);
+        vm.IsUndetermined = false;
+        vm.Reason = "đóng đơn vị";
+        var severityBefore = vm.Severity;
+        var messageBefore = vm.StatusMessage;
+
+        await vm.SaveCommand.Execute();
+
+        confirm.WasCalled.Should().BeTrue();
+        declaration.CloseCallCount.Should().Be(0);
+        declaration.LastRequest.Should().BeNull();
+        vm.Mode.Should().Be(OrgUnitCardMode.Closing, "declining leaves the operator on the card to adjust");
+        vm.EffectiveTo.Should().Be(Today.AddDays(5), "nothing the operator typed is discarded");
+        vm.Severity.Should().Be(severityBefore);
+        vm.StatusMessage.Should().Be(messageBefore);
+    }
+
     // FR9: load-bearing XAML binding — deleting IsEnabled="{Binding IsEffectivePeriodEnabled}" must RED this.
     [Fact]
     public void OrgUnitDeclarationView_BindsAstEffectivePeriodIsEnabled_ToIsEffectivePeriodEnabled()

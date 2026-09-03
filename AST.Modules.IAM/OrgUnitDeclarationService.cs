@@ -569,7 +569,7 @@ internal sealed class OrgUnitDeclarationService(
             }
 
             // [5c-0] "Ends here" guards. Every one of them decides against `stored`,
-            // the period read at [5b-2] on THIS transaction under the identity lock -- never against a
+            // the period read at [5b-3] on THIS transaction under the identity lock -- never against a
             // value the caller sent.
             if (request.EndsOn is { } endsOn)
             {

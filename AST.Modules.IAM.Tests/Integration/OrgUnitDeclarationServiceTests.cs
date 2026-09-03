@@ -1057,6 +1057,38 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
         result.FirstError.Type.Should().Be(ErrorType.NotFound);
     }
 
+    // The Assurance Advisor found a real gap under a wrong conclusion: the test above seeds a ROOT, so it is
+    // answered by the PRE-LOCK check and never enters the composite. The service also carries a SECOND
+    // stale-version check, on the locked period read, for the row that vanishes between the two - and
+    // nothing exercised it. This is its fixture: a NON-root, so the root gate cannot shadow the answer.
+    //
+    // Both checks return the same code by design, so this test alone cannot say which one fired. The
+    // mutation that says so is: with the pre-lock check deleted this
+    // test stays GREEN, while the root twin above turns into OrgUnit.RootNotEditable.
+    [Fact]
+    public async Task EditOrgUnitDeclarationAsync_NonRootExpectedVersionIdIsNoLongerActive_ReturnsVersionNotFound()
+    {
+        SkipUnlessDbAvailable();
+
+        var parent = await CreateOrgUnitAsync("E9PAR", "Đơn vị cha", "E9PAR", null, OpenFrom2020);
+        var child = await CreateOrgUnitAsync("E9CHI", "Đơn vị con", "E9CHI", parent, OpenFrom2020);
+        var supersededId = (await OrgUnits.GetByIdentityAsync(child, Today)).Value.Id;
+
+        var superseding = await OrgUnitRepo.UpsertAsync(
+            child, OpenFrom2020, "E9CHI", "Đơn vị con v2", "E9CHI", parent,
+            VersionOperationKind.Edit, Actor, "v2");
+        superseding.IsError.Should().BeFalse(DescribeErrors(superseding.Errors));
+
+        var result = await BuildService().EditOrgUnitDeclarationAsync(
+            new EditOrgUnitDeclarationRequest(
+                child, supersededId, parent, OpenFrom2020, null, "E9CHI", "Đổi tên", "E9CHI",
+                "rename", null));
+
+        result.IsError.Should().BeTrue();
+        result.FirstError.Code.Should().Be("OrgUnit.VersionNotFound");
+        result.FirstError.Type.Should().Be(ErrorType.NotFound);
+    }
+
     [Fact]
     public async Task EditOrgUnitDeclarationAsync_ExpectedParentDoesNotMatchStored_ReturnsParentMismatch()
     {
@@ -1307,10 +1339,12 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
                 org, versionId, parent, stored, storedEnd, "X3ORG", "Đơn vị", "X3ORG", "kết thúc", null));
 
         result.IsError.Should().BeTrue();
+        // The Research Advisor: a NotBe after a Be on the same value proves nothing, so it is gone. The claim lives in
+        // the fixture instead - EndsOn == storedEnd is the exact input the layers below refuse in their own
+        // terms. MEASURED 2026-09-03 by neutralising clause 3: this fixture then returns
+        // VersionClose.CloseDateEqualsVersionEnd, still a code about a window the operator never typed.
+        // F-88's InvalidShrink sits one layer further in again, behind the close-date rule.
         result.FirstError.Code.Should().Be("OrgUnit.EndsOnNotBeforeStoredEnd");
-        result.FirstError.Code.Should().NotBe(
-            "VersionedRepository.InvalidShrink",
-            "the engine's window names dates the operator never typed");
     }
 
     // Section 19.1 clause 4. EndsOn ends ONE version's stretch, which is only "the unit ends" if nothing
