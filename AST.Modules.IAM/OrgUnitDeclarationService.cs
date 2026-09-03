@@ -47,7 +47,12 @@ internal sealed class OrgUnitDeclarationService(
     IAuthorizationService authorization,
     ICurrentWindowsUser currentUser,
     IBusinessDateProvider dates,
-    IBreakGlassPolicy breakGlass) : IOrgUnitDeclarationService
+    IBreakGlassPolicy breakGlass,
+    // The SAME singleton the write path runs (IamModule registers IPeriodEditor once). PreviewEditAsync
+    // must answer with the algebra that will actually execute, so it takes the instance rather than
+    // constructing a PeriodEditor of its own -- a second instance is a second configuration waiting to
+    // diverge.
+    IPeriodEditor periodEditor) : IOrgUnitDeclarationService
 {
     // Same per-consumer-const convention as RoleDeclarationService.FunctionKey ("Iam.Role.Declare") --
     // no shared constant is extracted here (that is separate tracked debt, out of scope for this task).
@@ -299,6 +304,25 @@ internal sealed class OrgUnitDeclarationService(
                 $"Creating an org unit requires {ScopeLevel.Global} scope; actor '{username}' holds {authz.Value.Level}.");
         }
 
+        // [2b] ROOT GATE: the root org unit may be DECLARED and adjusted only
+        // by a break-glass rescuer. Global scope is necessary and no longer sufficient for a root.
+        //
+        // Unlike Edit's and Close's root gates this one runs BEFORE the composite, and that is not an
+        // inconsistency: those two read a STORED parent that a concurrent writer can change under them, so
+        // they must decide under the identity lock. Here the parent is the caller's own request field for a
+        // unit that does not exist yet, so there is nothing to race against.
+        //
+        // Read ONCE and reused by the audit row inside the transaction, for the same reason the other two
+        // paths do it: a policy store re-read can disagree with itself and drop the row that records why
+        // the operation was permitted.
+        var isBreakGlassActor = breakGlass.IsBreakGlassAdmin(username);
+        if (request.ParentId is null && !isBreakGlassActor)
+        {
+            return Error.Forbidden(
+                "OrgUnit.RootNotDeclarable",
+                $"A root org unit may only be declared by a break-glass administrator; actor '{username}' is not one.");
+        }
+
         // [3] All locks up front. A root Add enlists nothing -- it has no temporal-FK parent.
         var composite = new CompositeWrite(connections);
         if (request.ParentId is { } parentId)
@@ -350,6 +374,25 @@ internal sealed class OrgUnitDeclarationService(
             if (auditResult.IsError)
             {
                 return auditResult.Errors;
+            }
+
+            // A SECOND, security-specific row when a ROOT was declared, which [2b] permits only for a
+            // break-glass rescuer. Same posture as the root edit and the root close: the "orgunit-add" row
+            // records the declaration, this one records that a normally-forbidden operation was permitted.
+            // Same transaction, so it cannot survive a rollback of the write it describes.
+            if (request.ParentId is null && isBreakGlassActor)
+            {
+                var breakGlassAudit = await auditLog.WriteAsync(
+                    new AuditLogEntry(
+                        "orgunit-root-add-breakglass",
+                        username,
+                        $"org_unit_version:{write.Value.NewVersionId}",
+                        BuildAddDetailJson(newOrgUnitId, write.Value.NewVersionId, request.ParentId, request.Reason)),
+                    context.Transaction);
+                if (breakGlassAudit.IsError)
+                {
+                    return breakGlassAudit.Errors;
+                }
             }
 
             return Result.Success;
@@ -417,6 +460,12 @@ internal sealed class OrgUnitDeclarationService(
                 $"Org unit version {request.ExpectedVersionId} was not found for org unit {request.OrgUnitId}.");
         }
 
+        // The composite's ONE business date, captured once and threaded into everything below that needs a
+        // "today" -- the close-date floor and the Close half's OperationDate. Re-reading the clock inside
+        // the transaction is a live defect, and a gesture that ends coverage is exactly the
+        // shape that creates it (docs/design-effective-period.md section 3).
+        var today = dates.Today;
+
         // [4] All locks up front. A unit read as root enlists nothing extra -- it has no temporal-FK parent.
         var composite = new CompositeWrite(connections)
             .Enlist(orgUnitRepository, request.OrgUnitId);
@@ -468,11 +517,146 @@ internal sealed class OrgUnitDeclarationService(
                     $"Org unit {request.OrgUnitId}'s stored parent is not the one the caller read.");
             }
 
+            // [5b-2] ROOT GATE: the root org unit may be DECLARED and
+            // ADJUSTED only by a break-glass rescuer; an ordinary admin, however wide their scope, may only
+            // read it. Until this rule the gate covered close alone and lived in
+            // CloseOrgUnitDeclarationAsync alone -- so Sửa could end a root that Đóng refuses, and could
+            // rename or re-date one freely. Enforced HERE because `storedParent` is the value this
+            // transaction read under the identity lock: an ordinary actor could otherwise observe non-root,
+            // lose a race to a concurrent change, and edit a root.
+            //
+            // BEFORE the input guards below, deliberately. "You may not touch this record at all" is a
+            // different answer from "your note is missing", and reporting the second to someone who cannot
+            // perform the operation either way tells them to fix the wrong thing.
+            //
+            // Read ONCE and reused by the audit row at [5d-2]. A policy store re-read between the gate and
+            // the row can disagree with itself, and then the operation succeeds while the one row that
+            // records "a normally-forbidden operation was permitted" is silently omitted.
+            var isBreakGlassActor = breakGlass.IsBreakGlassAdmin(username);
+            if (storedParent is null && !isBreakGlassActor)
+            {
+                return Error.Forbidden(
+                    "OrgUnit.RootNotEditable",
+                    $"The root org unit may only be adjusted by a break-glass administrator; actor '{username}' is not one.");
+            }
+
+            // [5b-3] THE locked period read. Step [3]'s pre-lock history is reachable but not authoritative,
+            // and a guard decided against a value that can change under the lock is not a guard -- the same
+            // reasoning OrgUnit.ParentMismatch rests on. ONE read serves the note guard below and, when
+            // EndsOn is set, the "ends here" guards: three separate reads would be three chances for the
+            // answers to disagree with each other.
+            var activePeriods = await orgUnitRepository.GetActivePeriodsAsync(context, request.OrgUnitId);
+            var stored = activePeriods.FirstOrDefault(v => v.VersionId == request.ExpectedVersionId);
+            if (stored is null)
+            {
+                return Error.NotFound(
+                    "OrgUnit.VersionNotFound",
+                    $"Org unit version {request.ExpectedVersionId} was not found for org unit {request.OrgUnitId}.");
+            }
+
+            // [5b-4] The note is the ONLY carrier of "why the period changed",
+            // so it stops being optional exactly when the period changes. The trigger is "the requested
+            // period differs from the STORED one" -- NOT "this is an Edit", which would quietly turn every
+            // rename into a note-requiring save. The ViewModel keeps a pre-check as an affordance only; this
+            // is the authoritative one, and it is here because any other caller of the service gets it too.
+            if (request.Period != stored.Period && string.IsNullOrWhiteSpace(request.Reason))
+            {
+                return Error.Validation(
+                    "OrgUnit.ReasonRequiredForPeriodChange",
+                    $"Org unit {request.OrgUnitId}'s effective period changed from " +
+                    $"[{stored.Period.From:yyyy-MM-dd}, {stored.Period.To:yyyy-MM-dd}] to " +
+                    $"[{request.Period.From:yyyy-MM-dd}, {request.Period.To:yyyy-MM-dd}], so a reason is required.");
+            }
+
+            // [5c-0] "Ends here" guards. Every one of them decides against `stored`,
+            // the period read at [5b-2] on THIS transaction under the identity lock -- never against a
+            // value the caller sent.
+            if (request.EndsOn is { } endsOn)
+            {
+                // (2) The screen fills Period.To and EndsOn from ONE date box, so a caller where the two
+                // differ disagrees with itself. Verified and never used -- the same posture as
+                // ExpectedParentId: the value written comes from `stored`, not from the echo.
+                if (request.Period.To != endsOn)
+                {
+                    return Error.Validation(
+                        "OrgUnit.EndsOnDisagreesWithPeriod",
+                        $"The requested period ends on {request.Period.To:yyyy-MM-dd} but the end date is " +
+                        $"{endsOn:yyyy-MM-dd}; one save cannot mean both.");
+                }
+
+                // (3) Nothing to remove means the ordinary Edit already does the job and the confirm should
+                // never have offered this route. This guard exists so the engine's own InvalidShrink does
+                // NOT surface here: InvalidShrink names a cut window [From, To) the
+                // operator never typed, and `EndsOn == storedEnd` -- the everyday "I meant the end I already
+                // have" mistake -- lands exactly on it.
+                if (endsOn < request.Period.From || endsOn >= stored.Period.To)
+                {
+                    return Error.Validation(
+                        "OrgUnit.EndsOnNotBeforeStoredEnd",
+                        $"The end date {endsOn:yyyy-MM-dd} must fall inside the stored period " +
+                        $"[{stored.Period.From:yyyy-MM-dd}, {stored.Period.To:yyyy-MM-dd}) for this version to " +
+                        "have a tail to remove.");
+                }
+
+                // (4) EndsOn ends ONE VERSION'S stretch. That is only "the unit ends" if nothing else
+                // survives after it -- reachable through the case-8 shape, where another active version
+                // covers days beyond this one's end. The operator confirmed something false, so refuse and
+                // name the surviving period rather than writing a half-ended unit.
+                var later = activePeriods.FirstOrDefault(
+                    v => v.VersionId != request.ExpectedVersionId && v.Period.To > endsOn);
+                if (later is not null)
+                {
+                    return Error.Validation(
+                        "OrgUnit.EndsOnLeavesLaterCoverage",
+                        $"Org unit {request.OrgUnitId} still has an active version covering " +
+                        $"[{later.Period.From:yyyy-MM-dd}, {later.Period.To:yyyy-MM-dd}], so it does not end " +
+                        $"on {endsOn:yyyy-MM-dd}.");
+                }
+
+                // (5) The close-date FLOOR, applied to the row the upsert is about to write: the operator
+                // has just stated a close intent, so the floor every other close obeys applies here too.
+                // Delegated to the shared VersionCloseRules rather than re-derived, which is the whole
+                // reason that component exists (docs/shared-components.md section 6).
+                //
+                // This does NOT arrive "for free" from CloseVersionAsync: the base only runs the
+                // ValidateClose hook, which OrgUnitRepository does not override, plus its own InvalidShrink
+                // window. So the rules are called here explicitly.
+                //
+                // The BRANCH rule is deliberately not applied. A
+                // version whose coverage starts today or later is a CancelPlan target, and Validate would
+                // refuse the whole gesture with CloseDateNotApplicableToCancelPlan -- leaving the remnant
+                // tail unfixed for exactly the shape an operator most often mis-declares, and saying
+                // so in words about cancelling a plan they never asked to cancel.
+                //
+                // Nothing is lost by scoping to the Retire branch: on the CancelPlan branch the floor is
+                // already implied, because clause 3 above guarantees endsOn >= Period.From and that branch
+                // is only reached when Period.From >= today. The other Retire-branch arms are unreachable
+                // for the same reason -- clause 3 has already pinned endsOn inside [From, storedEnd).
+                var upsertRowPeriod = new EffectivePeriod(request.Period.From, stored.Period.To);
+                if (VersionCloseRules.BranchFor(today, upsertRowPeriod) == VersionCloseBranch.Retire)
+                {
+                    var closeRules = VersionCloseRules.Validate(today, upsertRowPeriod, endsOn);
+                    if (closeRules.IsError)
+                    {
+                        return closeRules.Errors;
+                    }
+                }
+            }
+
             // [5c] `storedParent` -- NOT request.ExpectedParentId. The echo is a check; the value written is
             // the one this transaction read. Passing the echo through would make the caller the source of a
             // field this method exists to make immutable.
+            //
+            // The upsert period's END is the STORED end when EndsOn is set -- b unchanged, so the 8-case
+            // algebra produces NO tail of its own and the Close half below is what reduces coverage.
+            // request.Period.From still applies: moving the start later is a legitimate
+            // part of the same save and yields an ordinary head remnant.
+            var upsertPeriod = request.EndsOn is null
+                ? request.Period
+                : new EffectivePeriod(request.Period.From, stored.Period.To);
+
             var write = await orgUnitRepository.UpsertAsync(
-                context, request.OrgUnitId, request.Period, request.OrgCode, request.OrgNameFullVn,
+                context, request.OrgUnitId, upsertPeriod, request.OrgCode, request.OrgNameFullVn,
                 request.OrgNameShortVn, storedParent, VersionOperationKind.Edit, username, request.Reason,
                 request.Supplemental);
             if (write.IsError)
@@ -482,19 +666,77 @@ internal sealed class OrgUnitDeclarationService(
 
             upsertResult = write.Value;
 
+            // [5c-2] Closing the row the upsert just wrote leaves a remnant carrying those NEW values and no
+            // tail. Running the EXISTING Close is what makes the coverage-REDUCING half inherit the reverse-FK
+            // guard and the P11 auto-cut: UpsertAsync runs neither, and its own comment says why -- the 8-case
+            // algebra never reduces coverage. This gesture does, so it may not skip them.
+            //
+            // `upsertResult` is REASSIGNED to the Close's result, because the row that survives is the Close
+            // remnant and the transient [From, storedEnd] row is deactivated inside this same transaction.
+            // Everything downstream -- the audit target, the caller's returned NewVersionId -- must name the
+            // survivor.
+            if (request.EndsOn is { } endsOnToApply)
+            {
+                var close = await orgUnitRepository.CloseVersionAsync(
+                    context, request.OrgUnitId, write.Value.NewVersionId, endsOnToApply,
+                    new OperationDate(today), username, request.Reason);
+                if (close.IsError)
+                {
+                    return close.Errors;
+                }
+
+                upsertResult = close.Value;
+            }
+
+            // The row that SURVIVES this save. On an ordinary Edit it is the row the upsert wrote; on an
+            // "ends here" it is the Close remnant, and pointing the audit trail at `write.Value` instead
+            // would name a row this same transaction set isactive = 0.
+            var survivingVersionId = upsertResult.NewVersionId;
+
             // [5d] Edit had NO audit row while it ran from the ViewModel. It gets one here for the same
             // reason Add and Close have theirs, and on the same transaction: either both land or neither.
             var auditResult = await auditLog.WriteAsync(
                 new AuditLogEntry(
                     "orgunit-edit",
                     username,
-                    $"org_unit_version:{write.Value.NewVersionId}",
+                    $"org_unit_version:{survivingVersionId}",
                     BuildEditDetailJson(
-                        request.OrgUnitId, write.Value.NewVersionId, storedParent, request.Reason)),
+                        request.OrgUnitId, survivingVersionId, storedParent, request.Reason)),
                 context.Transaction);
             if (auditResult.IsError)
             {
                 return auditResult.Errors;
+            }
+
+            // [5d-2] A SECOND, security-specific row whenever a ROOT edit only happened because the actor
+            // is a break-glass rescuer -- the same fact, recorded the same way, as the root close at [5d]
+            // of CloseOrgUnitDeclarationAsync. The "orgunit-edit" row above records the edit; it does not
+            // record that a normally-forbidden operation was permitted, and that is the fact a security
+            // review has to be able to find by querying rather than by inferring it from parent_id.
+            //
+            // ONE event type for the whole operation, named after the operation, matching how the ordinary
+            // rows are named. Whether this particular edit also ENDED the unit is in the row's own detail,
+            // not in a second event type -- under the 2026-09-03 ruling every root edit is equally
+            // break-glass-only, so splitting the name by gesture would imply a distinction that no longer
+            // exists.
+            //
+            // The break-glass conjunct is redundant TODAY -- the gate at [5b-4] returns for every
+            // non-break-glass root edit -- but the condition must say what the row MEANS, or a later
+            // relaxation of the root rule would silently start labelling ordinary saves break-glass.
+            if (storedParent is null && isBreakGlassActor)
+            {
+                var breakGlassAudit = await auditLog.WriteAsync(
+                    new AuditLogEntry(
+                        "orgunit-root-edit-breakglass",
+                        username,
+                        $"org_unit_version:{survivingVersionId}",
+                        BuildEditDetailJson(
+                            request.OrgUnitId, survivingVersionId, storedParent, request.Reason)),
+                    context.Transaction);
+                if (breakGlassAudit.IsError)
+                {
+                    return breakGlassAudit.Errors;
+                }
             }
 
             return Result.Success;
@@ -502,6 +744,90 @@ internal sealed class OrgUnitDeclarationService(
 
         return writeResult.IsError ? writeResult.Errors : upsertResult!;
     }
+
+    // The save-time confirm needs the OPERATIONS the write would
+    // perform, and the only preview that existed -- OrgUnitRepository.PreviewUpsertAsync -- returns the
+    // overlapping VERSIONS instead. A caller given only that has to re-derive the remnants itself, which
+    // puts a second copy of the LOCKED 8-case algebra in the layer furthest from it.
+    //
+    // ADVISORY, and deliberately so: this runs OUTSIDE the identity lock, EditOrgUnitDeclarationAsync
+    // re-plans under it, and nothing compares the two. A single admin
+    // declares at a time -- so the confirm-to-save window is accepted rather than guarded.
+    //
+    // Same authorization, scope and version gates as the write it previews, in the same order: a preview
+    // that answered for a unit the actor cannot edit would hand out that unit's periods for free.
+    public async Task<ErrorOr<IReadOnlyList<PreviewedRemnant>>> PreviewEditAsync(
+        long orgUnitId, long expectedVersionId, EffectivePeriod period, DateOnly? endsOn)
+    {
+        var username = currentUser.Username ?? "unknown";
+
+        var authz = await authorization.AuthorizeAsync(username, FunctionKey);
+        if (authz.IsError)
+        {
+            return authz.Errors;
+        }
+
+        var scope = authz.Value;
+        if (scope.Level == ScopeLevel.Self)
+        {
+            return Error.Forbidden(
+                "Authz.ScopeInsufficient",
+                $"Org unit edit is not applicable at {scope.Level} scope for actor '{username}'.");
+        }
+
+        if (!await orgUnitRepository.IsWithinScopeAsync(scope, orgUnitId))
+        {
+            return Error.Forbidden(
+                "OrgUnit.NotInScope",
+                $"Org unit {orgUnitId} is not within actor '{username}''s authorized scope.");
+        }
+
+        var activeVersions = (await orgUnitRepository.GetHistoryInScopeAsync(scope, orgUnitId))
+            .Where(v => v.IsActive)
+            .ToList();
+
+        var target = activeVersions.FirstOrDefault(v => v.Id == expectedVersionId);
+        if (target is null)
+        {
+            return Error.NotFound(
+                "OrgUnit.VersionNotFound",
+                $"Org unit version {expectedVersionId} was not found for org unit {orgUnitId}.");
+        }
+
+        // The period the UPSERT would carry, which is NOT the period the operator typed once they have
+        // chosen "the unit ends on that date": section 19.1 keeps the stored end so the algebra produces no
+        // tail of its own, and the Close half cuts coverage back to `endsOn` afterwards. Previewing the
+        // typed period instead would show the operator the very tail the gesture exists to remove.
+        var upsertPeriod = endsOn is null
+            ? period
+            : new EffectivePeriod(period.From, target.EffectiveTo);
+
+        var plan = periodEditor.PlanUpsert(
+            activeVersions
+                .Select(IVersionRow (v) => new PreviewVersionRow(v.Id, v.OrgUnitId, v.EffectiveFrom, v.EffectiveTo, v.IsActive))
+                .ToList(),
+            upsertPeriod);
+        if (plan.IsError)
+        {
+            return plan.Errors;
+        }
+
+        // `CarriesOldBusinessData` is the write path's own discriminator for a remnant
+        // (VersionedRepository ApplyUpsertPlan branches on exactly this), so the preview reads the plan the
+        // same way rather than re-deciding which operations count.
+        IReadOnlyList<PreviewedRemnant> remnants = plan.Value.Operations
+            .Where(op => op.CarriesOldBusinessData)
+            .Select(op => new PreviewedRemnant(op.Period))
+            .ToList();
+
+        return remnants.ToErrorOr();
+    }
+
+    // IVersionRow over the PUBLIC DTO. The write path plans over entities, which stay in the data layer
+    // (rule-module-boundary item 2), so the service adapts what it is allowed to see. Only the four fields
+    // the algebra reads are carried -- this is a view, never a row.
+    private sealed record PreviewVersionRow(
+        long Id, long IdentityId, DateOnly EffectiveFrom, DateOnly EffectiveTo, bool IsActive) : IVersionRow;
 
     // Target and action shape match this entity's own "orgunit-close" row above, so both are queried the
     // same way.

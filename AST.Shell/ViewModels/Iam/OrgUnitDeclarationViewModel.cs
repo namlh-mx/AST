@@ -1145,8 +1145,17 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // Confirm before writing; abort leaves the form as-is.
         if (IsCloseCancelPlanBranch())
         {
+            // Reworded, not added. The old sentence said the close would
+            // "hủy kỳ hiệu lực" without saying that this version never completed an effective day, which is
+            // the whole reason this branch exists and the reason nothing is being cut. It also gave the
+            // operator no way out when the real mistake was the dates themselves.
+            //
+            // NO date in this sentence, deliberately: on this branch there is no cut date at all, and
+            // EffectiveThrough must be null. Naming one would describe an operation that is not running.
             var confirmed = await _confirmation.ConfirmAsync(
-                "Đóng mã đơn vị sẽ hủy kỳ hiệu lực của đơn vị", Array.Empty<string>());
+                "Kỳ hiệu lực này chưa hoàn tất ngày hiệu lực nào. Thao tác này hủy toàn bộ kỳ hiệu lực đã khai. "
+                + "Nếu thực ra kỳ hiệu lực đã nhập sai, hãy dùng chức năng Sửa.",
+                Array.Empty<string>());
             if (!confirmed)
                 return;
 
@@ -1186,6 +1195,26 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         {
             StatusMessage = CloseDateRequiredMessage;
             Severity = StatusSeverity.Error;
+            return;
+        }
+
+        // Until now the RETIRE branch wrote with no confirmation at all, while
+        // the cancel branch had one. Both branches end a unit's life, so both ask first.
+        //
+        // The date IS named here, unlike on the cancel branch above, because on this branch there really is
+        // a cut date and it is the single fact the operator has to check. (Brief 163's "no data in the
+        // message" ruling governs ERROR text, where the data would be the system explaining its own
+        // refusal; a confirm is the operator re-reading their own input before it is written.)
+        //
+        // IsCloseCancelPlanBranch chose the wording; it never chose the operation. The service derives the
+        // branch itself from its own read and refuses if it disagrees, so a stale card fails clearly
+        // instead of silently running the other operation.
+        var retireConfirmed = await _confirmation.ConfirmAsync(
+            $"Đơn vị này sẽ hết hiệu lực sau ngày {FormatDate(effectiveThrough.Value)}. "
+            + "Nếu thực ra kỳ hiệu lực đã nhập sai, hãy dùng chức năng Sửa.",
+            Array.Empty<string>());
+        if (!retireConfirmed)
+        {
             return;
         }
 
@@ -1311,6 +1340,29 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             "Kỳ hiệu lực không liên tục.",
         "OrgUnit.RootNotClosable" =>
             "Không thể đóng hoặc hủy đơn vị gốc.",
+        // The root org unit may be declared and adjusted only by a break-glass
+        // rescuer. Two codes, two sentences, because the operator's next move differs -- one is "you cannot
+        // create this", the other is "you cannot change this".
+        // Names BOTH readings on purpose, for the same reason OrgUnit.RootPeriodOverlaps does: the form has
+        // no "parent required" rule of its own, so the commonest way to reach this code is an ordinary
+        // admin who simply FORGOT to pick a parent. Naming only the rescuer would tell that operator
+        // something is permanently impossible when their real problem is one empty field.
+        "OrgUnit.RootNotDeclarable" =>
+            "Chỉ quản trị viên cứu hộ mới được khai báo đơn vị gốc - nếu bạn khai báo đơn vị cấp dưới, hãy chọn đơn vị cấp trên.",
+        "OrgUnit.RootNotEditable" =>
+            "Chỉ quản trị viên cứu hộ mới được sửa đơn vị gốc.",
+        // The note is the only carrier of "why the period changed".
+        "OrgUnit.ReasonRequiredForPeriodChange" =>
+            "Khi thay đổi kỳ hiệu lực, người dùng phải nhập lý do.",
+        // Reachable from this screen: the unit still has a later stretch, so it does not end on the date
+        // the operator just confirmed.
+        "OrgUnit.EndsOnLeavesLaterCoverage" =>
+            "Đơn vị còn giai đoạn hiệu lực sau ngày này nên chưa thể kết thúc.",
+        // Not reachable from this screen -- the confirm derives both values from the SAME date box, and it
+        // only offers the route when a tail exists. Mapped anyway so a future caller cannot re-open the
+        // English Description leak; this is not a claim that a route exists.
+        "OrgUnit.EndsOnDisagreesWithPeriod" or "OrgUnit.EndsOnNotBeforeStoredEnd" =>
+            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
         "EffectivePeriod.OverlappingVersions" =>
             "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
         // Brief 160: unreachable on this screen's save path today; arm kept so a later route cannot
@@ -1379,6 +1431,65 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             }
         }
 
+        // The SECOND confirm, and it answers a different question from the one above.
+        // H2 asks "which OTHER versions does this touch"; this asks "what will this save
+        // LEAVE BEHIND on this very unit". The exclusion at the top of this method is precisely why the
+        // remnant shape gets no confirmation today -- both confirms survive, neither replaces the other.
+        //
+        // The remnant list comes from the service's canonical preview, never from a derivation here: the
+        // 8-case algebra is LOCKED and keeps ONE caller layer. Whatever this method
+        // displays and whatever the write performs then come from the same planner.
+        var preview = await _declaration.PreviewEditAsync(orgUnitId, _currentVersionId!.Value, period, endsOn: null);
+        if (preview.IsError)
+        {
+            StatusMessage = string.Join("; ", preview.Errors.Select(FormatWriteError));
+            Severity = StatusSeverity.Error;
+            return;
+        }
+
+        // A remnant sitting BEFORE the new period is a head; one sitting AFTER it is a tail. Keyed to where
+        // each operation actually falls, never to the algebra's case number: case 8 yields zero, one or two
+        // remnants depending on where the span's boundaries land, so a branch on "which case is this" is
+        // wrong by construction.
+        var head = preview.Value.FirstOrDefault(r => r.Period.To < period.From);
+        var tail = preview.Value.FirstOrDefault(r => r.Period.From > period.To);
+
+        DateOnly? endsOn = null;
+        if (tail is not null)
+        {
+            // The tail keeps the OLD values, which is never what
+            // Sửa means: editing changes the content that is there, it does not also declare a second
+            // stretch. So the two buttons are "end the unit here" and "do not write" -- there is no third
+            // outcome that keeps the tail. The sentence has to carry that, because the shared dialog's own
+            // buttons read "Tiếp tục" and "Hủy" and this screen does not get to rename them.
+            var message = head is null
+                ? $"Đơn vị sẽ còn một giai đoạn sau ngày {FormatDate(period.To)} vẫn giữ thông tin cũ. "
+                  + $"Chọn Tiếp tục để đơn vị kết thúc ngày {FormatDate(period.To)}, hoặc Hủy để sửa lại."
+                : $"Đơn vị sẽ còn một giai đoạn trước ngày {FormatDate(period.From)} và một giai đoạn sau ngày "
+                  + $"{FormatDate(period.To)} vẫn giữ thông tin cũ. Chọn Tiếp tục để đơn vị kết thúc ngày "
+                  + $"{FormatDate(period.To)}, hoặc Hủy để sửa lại.";
+
+            if (!await _confirmation.ConfirmAsync(message, Array.Empty<string>()))
+            {
+                return;
+            }
+
+            endsOn = period.To;
+        }
+        else if (head is not null)
+        {
+            // Head only: warn, and offer NO route. Đóng cannot move effective_from, so
+            // pointing the operator there would send them to an operation that cannot do what they want.
+            var confirmed = await _confirmation.ConfirmAsync(
+                $"Đơn vị sẽ còn một giai đoạn trước ngày {FormatDate(period.From)} vẫn giữ thông tin cũ. "
+                + "Chọn Tiếp tục để lưu, hoặc Hủy để sửa lại.",
+                Array.Empty<string>());
+            if (!confirmed)
+            {
+                return;
+            }
+        }
+
         var code = OrgCode.Trim().ToUpperInvariant();
 
         // ParentId is ECHOED, never proposed: the request has no "desired parent" field, and the picker is
@@ -1387,7 +1498,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // rejects a mismatch -- so a stale card fails cleanly instead of writing against a parent that moved.
         var result = await _declaration.EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                orgUnitId, _currentVersionId!.Value, ParentId, period, code, OrgNameFullVn.Trim(),
+                orgUnitId, _currentVersionId!.Value, ParentId, period, endsOn, code, OrgNameFullVn.Trim(),
                 OrgNameShortVn.Trim(), Reason.Trim(), Supplemental));
 
         if (result.IsError)

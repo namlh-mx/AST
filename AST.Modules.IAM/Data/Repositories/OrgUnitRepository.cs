@@ -153,6 +153,31 @@ internal sealed class OrgUnitRepository(
         return list.Count == 0 ? (false, null) : (true, list[0]);
     }
 
+    // Every ACTIVE version's own period, read under the composite's own lock so the answer is authoritative
+    // rather than merely recent -- the same posture as GetActiveParentIdsAsync above, and for the same
+    // reason: a period read before the lock is decidable against a value that can change under it.
+    //
+    // ONE read serving three questions the Edit path asks together: has the
+    // requested period changed at all, where does the edited version END, and does any OTHER active version
+    // still cover days beyond the operator's end date. Three separate reads would be three chances for the
+    // answers to disagree with each other.
+    internal async Task<IReadOnlyList<ActiveVersionPeriod>> GetActivePeriodsAsync(
+        ICompositeWriteContext context, long orgUnitId)
+    {
+        var rows = await context.Connection.QueryAsync<(long Id, DateOnly EffectiveFrom, DateOnly EffectiveTo)>(
+            """
+            SELECT id AS Id, effective_from AS EffectiveFrom, effective_to AS EffectiveTo
+            FROM org_unit_version
+            WHERE org_unit_id = @orgUnitId AND isactive = 1
+            """,
+            new { orgUnitId },
+            transaction: context.Transaction);
+
+        return rows
+            .Select(r => new ActiveVersionPeriod(r.Id, new EffectivePeriod(r.EffectiveFrom, r.EffectiveTo)))
+            .ToList();
+    }
+
     // Compensating action for a failed first-version UpsertAsync right after the OWN-CONNECTION
     // CreateIdentityAsync above. NO production caller remains — the composite path rolls back instead of
     // compensating (§7). Kept for test fixtures only.
@@ -534,3 +559,8 @@ internal sealed class OrgUnitRepository(
             e.ParentOrgCodeAsOf,
             e.ParentOrgNameFullVnAsOf);
 }
+
+// One ACTIVE version's identity and period, as read under a composite write's own lock. Internal on
+// purpose: it exists so OrgUnitDeclarationService can ask which version ends where without the entity
+// leaving the data layer (rule-module-boundary item 2), and no public contract carries it.
+internal sealed record ActiveVersionPeriod(long VersionId, EffectivePeriod Period);

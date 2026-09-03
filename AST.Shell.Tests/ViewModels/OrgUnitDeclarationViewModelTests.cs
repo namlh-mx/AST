@@ -255,12 +255,18 @@ public class OrgUnitDeclarationViewModelTests
     private sealed class FakeConfirmationPrompt(bool confirm) : IConfirmationPrompt
     {
         public bool WasCalled { get; private set; }
+
+        // "No dialog appeared" and "the dialog is broken" look identical from a bool. The remnant matrix
+        // has a row whose whole content is "no confirm at all", so that row needs a
+        // COUNT to assert against.
+        public int CallCount { get; private set; }
         public string? LastMessage { get; private set; }
         public IReadOnlyList<string>? LastDetails { get; private set; }
 
         public Task<bool> ConfirmAsync(string message, IReadOnlyList<string> details)
         {
             WasCalled = true;
+            CallCount++;
             LastMessage = message;
             LastDetails = details;
             return Task.FromResult(confirm);
@@ -347,6 +353,28 @@ public class OrgUnitDeclarationViewModelTests
                 request.OrgUnitId, request.Period, request.OrgCode, request.OrgNameFullVn,
                 request.OrgNameShortVn, request.ExpectedParentId, VersionOperationKind.Edit, "tester",
                 request.Reason, request.Supplemental);
+        }
+
+        // Task 1b's canonical preview. This fake RETURNS what the test seeded instead of deriving the
+        // remnants: a fake that ran the 8-case algebra itself would only ever prove itself, and the
+        // preview-agrees-with-the-write claim belongs on real MySQL (OrgUnitDeclarationServiceTests).
+        public IReadOnlyList<PreviewedRemnant> PreviewRemnants { get; set; } = [];
+        public Error? PreviewError { get; set; }
+        public int PreviewCallCount { get; private set; }
+        public DateOnly? LastPreviewEndsOn { get; private set; }
+
+        public Task<ErrorOr<IReadOnlyList<PreviewedRemnant>>> PreviewEditAsync(
+            long orgUnitId, long expectedVersionId, EffectivePeriod period, DateOnly? endsOn)
+        {
+            PreviewCallCount++;
+            LastPreviewEndsOn = endsOn;
+
+            if (PreviewError is { } denied)
+            {
+                return Task.FromResult<ErrorOr<IReadOnlyList<PreviewedRemnant>>>(denied);
+            }
+
+            return Task.FromResult(PreviewRemnants.ToErrorOr());
         }
     }
 
@@ -1515,6 +1543,158 @@ public class OrgUnitDeclarationViewModelTests
         Assert.Null(repo.LastUpsertOrgUnitId);
         // Declining leaves the operator in Editing mode to adjust rather than silently dropping the attempt.
         Assert.Equal(OrgUnitCardMode.Editing, vm.Mode);
+    }
+
+    // =========================================================================================
+    // The remnant confirm on Sửa. One test per row of the matrix,
+    // including the row whose content is "no dialog", and the remnants come from the service's canonical
+    // preview rather than from anything this screen derives.
+    //
+    // In every test below repo.PreviewResult holds ONLY the version being edited, so the older H2
+    // "other versions" confirm cannot fire and the dialog under assertion is unambiguous.
+    // =========================================================================================
+
+    private static string D(DateOnly d) => d.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+
+    [Fact]
+    public async Task Save_Edit_TailRemnant_ConfirmsAndWiresEndsOn()
+    {
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            PreviewRemnants = [new PreviewedRemnant(new EffectivePeriod(Today.AddDays(11), EffectivePeriod.OpenEnd))],
+        };
+        var (vm, repo, confirm) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        repo.PreviewResult = [Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77)];
+        repo.UpsertResult = new UpsertResult(2, [], []);
+        vm.BeginEditCommand.Execute();
+        vm.OrgCode = "ABCX";
+        vm.IsUndetermined = false;
+        vm.EffectiveTo = Today.AddDays(10);
+        vm.Reason = "rút ngắn kỳ hiệu lực";
+
+        await vm.SaveCommand.Execute();
+
+        confirm.CallCount.Should().Be(1);
+        confirm.LastMessage.Should().Be(
+            $"Đơn vị sẽ còn một giai đoạn sau ngày {D(Today.AddDays(10))} vẫn giữ thông tin cũ. "
+            + $"Chọn Tiếp tục để đơn vị kết thúc ngày {D(Today.AddDays(10))}, hoặc Hủy để sửa lại.");
+        declaration.LastEditRequest.Should().NotBeNull();
+        declaration.LastEditRequest!.EndsOn.Should().Be(
+            Today.AddDays(10), "confirming the tail sentence IS the operator answering \"the unit ends here\"");
+        declaration.LastPreviewEndsOn.Should().BeNull("the preview asks what an ORDINARY edit would leave");
+    }
+
+    [Fact]
+    public async Task Save_Edit_TailRemnant_DeclinedConfirm_WritesNothing()
+    {
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            PreviewRemnants = [new PreviewedRemnant(new EffectivePeriod(Today.AddDays(11), EffectivePeriod.OpenEnd))],
+        };
+        var (vm, repo, confirm) = BuildForEdit(confirmH2: false, declaration: declaration);
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        repo.PreviewResult = [Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77)];
+        vm.BeginEditCommand.Execute();
+        vm.OrgCode = "ABCX";
+        vm.IsUndetermined = false;
+        vm.EffectiveTo = Today.AddDays(10);
+        vm.Reason = "rút ngắn kỳ hiệu lực";
+
+        await vm.SaveCommand.Execute();
+
+        confirm.CallCount.Should().Be(1);
+        declaration.EditCallCount.Should().Be(0);
+        vm.Mode.Should().Be(OrgUnitCardMode.Editing, "declining leaves the operator on the card to adjust");
+    }
+
+    // Head only: warned, and offered NO route. Đóng cannot move effective_from, so pointing the operator
+    // there would send them to an operation that cannot do what they want.
+    [Fact]
+    public async Task Save_Edit_HeadRemnant_ConfirmsWithoutOfferingTheEndHereRoute()
+    {
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            PreviewRemnants = [new PreviewedRemnant(new EffectivePeriod(Today.AddDays(-10), Today.AddDays(-1)))],
+        };
+        var (vm, repo, confirm) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        repo.PreviewResult = [Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77)];
+        repo.UpsertResult = new UpsertResult(2, [], []);
+        vm.BeginEditCommand.Execute();
+        vm.OrgCode = "ABCX";
+        vm.EffectiveFrom = Today;
+        vm.IsUndetermined = true;
+        vm.Reason = "dời ngày bắt đầu";
+
+        await vm.SaveCommand.Execute();
+
+        confirm.CallCount.Should().Be(1);
+        confirm.LastMessage.Should().Be(
+            $"Đơn vị sẽ còn một giai đoạn trước ngày {D(Today)} vẫn giữ thông tin cũ. "
+            + "Chọn Tiếp tục để lưu, hoặc Hủy để sửa lại.");
+        confirm.LastMessage.Should().NotContain("Đóng", "Đóng cannot move the start date");
+        declaration.LastEditRequest!.EndsOn.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Save_Edit_HeadAndTailRemnants_ConfirmsBothAndWiresEndsOnForTheTailHalf()
+    {
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            PreviewRemnants =
+            [
+                new PreviewedRemnant(new EffectivePeriod(Today.AddDays(-10), Today.AddDays(-1))),
+                new PreviewedRemnant(new EffectivePeriod(Today.AddDays(11), EffectivePeriod.OpenEnd)),
+            ],
+        };
+        var (vm, repo, confirm) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        repo.PreviewResult = [Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77)];
+        repo.UpsertResult = new UpsertResult(2, [], []);
+        vm.BeginEditCommand.Execute();
+        vm.OrgCode = "ABCX";
+        vm.EffectiveFrom = Today;
+        vm.IsUndetermined = false;
+        vm.EffectiveTo = Today.AddDays(10);
+        vm.Reason = "cắt kỳ hiệu lực";
+
+        await vm.SaveCommand.Execute();
+
+        confirm.CallCount.Should().Be(1, "one save asks once, however many remnants it would leave");
+        confirm.LastMessage.Should().Be(
+            $"Đơn vị sẽ còn một giai đoạn trước ngày {D(Today)} và một giai đoạn sau ngày "
+            + $"{D(Today.AddDays(10))} vẫn giữ thông tin cũ. Chọn Tiếp tục để đơn vị kết thúc ngày "
+            + $"{D(Today.AddDays(10))}, hoặc Hủy để sửa lại.");
+        declaration.LastEditRequest!.EndsOn.Should().Be(Today.AddDays(10));
+    }
+
+    // The row whose whole content is "no dialog". Without it, a branch that never fires and a branch that
+    // is broken are indistinguishable.
+    [Fact]
+    public async Task Save_Edit_NoRemnant_AsksNothing()
+    {
+        var declaration = new FakeOrgUnitDeclarationService { PreviewRemnants = [] };
+        var (vm, repo, confirm) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        repo.PreviewResult = [Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77)];
+        repo.UpsertResult = new UpsertResult(2, [], []);
+        vm.BeginEditCommand.Execute();
+        vm.OrgCode = "ABCX";
+        vm.OrgNameFullVn = "Tên mới";
+        vm.Reason = "sửa tên";
+
+        await vm.SaveCommand.Execute();
+
+        confirm.CallCount.Should().Be(0);
+        declaration.PreviewCallCount.Should().Be(1, "the screen still ASKS; it just has nothing to report");
+        declaration.LastEditRequest!.EndsOn.Should().BeNull();
+        vm.Severity.Should().Be(StatusSeverity.Success);
     }
 
     [Fact]
@@ -2860,7 +3040,10 @@ public class OrgUnitDeclarationViewModelTests
         await vm.SaveCommand.Execute();
 
         Assert.True(confirm.WasCalled);
-        Assert.Equal("Đóng mã đơn vị sẽ hủy kỳ hiệu lực của đơn vị", confirm.LastMessage);
+        Assert.Equal(
+            "Kỳ hiệu lực này chưa hoàn tất ngày hiệu lực nào. Thao tác này hủy toàn bộ kỳ hiệu lực đã khai. "
+            + "Nếu thực ra kỳ hiệu lực đã nhập sai, hãy dùng chức năng Sửa.",
+            confirm.LastMessage);
         Assert.Equal(0, declaration.CloseCallCount);
         Assert.Null(declaration.LastRequest);
         Assert.Equal(OrgUnitCardMode.Closing, vm.Mode);
@@ -3110,7 +3293,9 @@ public class OrgUnitDeclarationViewModelTests
         // Confirmation dialog must fire — this is the exact gap the pre-fix bug skipped for a same-day
         // version (it fell through the blank-EffectiveTo cancel path with no confirm at all).
         confirm.WasCalled.Should().BeTrue();
-        confirm.LastMessage.Should().Be("Đóng mã đơn vị sẽ hủy kỳ hiệu lực của đơn vị");
+        confirm.LastMessage.Should().Be(
+            "Kỳ hiệu lực này chưa hoàn tất ngày hiệu lực nào. Thao tác này hủy toàn bộ kỳ hiệu lực đã khai. "
+            + "Nếu thực ra kỳ hiệu lực đã nhập sai, hãy dùng chức năng Sửa.");
         declaration.CloseCallCount.Should().Be(1);
         declaration.LastRequest.Should().NotBeNull();
         // Cancel, not retire-with-date: EffectiveThrough travels as null regardless of whatever was
@@ -3149,9 +3334,13 @@ public class OrgUnitDeclarationViewModelTests
         vm.Severity.Should().Be(StatusSeverity.Success);
         // Ordinary close/retire keeps the pre-existing wording, distinct from the cancel branch's "Đã hủy.".
         vm.StatusMessage.Should().Be("Đã lưu.");
-        // The retire branch is unconfirmed-by-design (no dialog) — pin the other half of that guarantee
-        // (the cancel-plan branch's confirmation is pinned by Save_Close_FromEqualsToday_... above).
-        confirm.WasCalled.Should().BeFalse();
+        // The retire branch used to write with NO dialog at all while the
+        // cancel branch had one. Both branches end a unit's life, so both ask first -- and the two
+        // sentences differ, because only this one has a cut date to name.
+        confirm.WasCalled.Should().BeTrue();
+        confirm.LastMessage.Should().Be(
+            $"Đơn vị này sẽ hết hiệu lực sau ngày {Today.AddDays(5).ToString("dd/MM/yyyy", CultureInfo.InvariantCulture)}. "
+            + "Nếu thực ra kỳ hiệu lực đã nhập sai, hãy dùng chức năng Sửa.");
     }
 
     // FR9: load-bearing XAML binding — deleting IsEnabled="{Binding IsEffectivePeriodEnabled}" must RED this.

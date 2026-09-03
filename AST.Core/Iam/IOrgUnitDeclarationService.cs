@@ -75,7 +75,30 @@ public interface IOrgUnitDeclarationService
     //     IAuthorizationService), so the request DTO deliberately carries neither,
     //   - the caller does not supply VersionOperationKind: it is Edit by construction.
     Task<ErrorOr<UpsertResult>> EditOrgUnitDeclarationAsync(EditOrgUnitDeclarationRequest request);
+
+    // The canonical preview for an Edit. Returns the operations the write WOULD
+    // perform that carry the old business data -- the remnants -- computed by THE SAME IPeriodEditor the
+    // write path runs. It is ADVISORY: the service re-plans under the identity lock regardless and the
+    // service's own plan is what gets written. Nothing compares the two -- a single admin
+    // declares at a time, so the confirm-to-save window is accepted.
+    //
+    // The ViewModel must never call IPeriodEditor itself. The algebra keeps ONE
+    // caller layer, which is the whole reason this member exists rather than a VM-side derivation.
+    //
+    // `endsOn` is a parameter because it changes the answer: with it set, the upsert period's end is the
+    // STORED end and the tail remnant the operator would otherwise see does not appear.
+    Task<ErrorOr<IReadOnlyList<PreviewedRemnant>>> PreviewEditAsync(
+        long orgUnitId, long expectedVersionId, Period period, DateOnly? endsOn);
 }
+
+// One remnant the Edit would leave behind: a stretch that survives the save carrying the OLD business
+// values, with only its period changed.
+//
+// NO SourceVersionId: it was on this record for one consumer only -- a confirmed-plan
+// signature -- and that is deferred. A field nothing reads is a
+// claim wider than its use. That signature is SUSPENDED, not deleted: restoring the field
+// re-opens the same reasoning.
+public sealed record PreviewedRemnant(Period Period);
 
 // `Period` is caller-supplied: `org_unit` is a Declared entity (docs/design-temporality-classes.md), so
 // unlike the Immediate role/permission side a start other than today is legal and must not be derived.
@@ -119,12 +142,27 @@ public sealed record AddOrgUnitDeclarationResult(long OrgUnitId, UpsertResult Wr
 // `Period` is caller-supplied for the same reason it is on Add: `org_unit` is a Declared entity
 // (docs/design-temporality-classes.md), so a start other than today is legal and must not be derived.
 //
+// `EndsOn` is the operator's answer to the save-time confirm, not a second period field:
+//   - null  -> the ordinary Edit. The 8-case algebra runs and whatever remnants it produces stand.
+//   - a date -> "the unit ENDS on that date". The service writes the edited values over [Period.From,
+//               EndsOn] and leaves NO tail, by running the existing Close on the row the upsert just
+//               wrote, inside the SAME transaction.
+//
+// It is a REQUIRED positional parameter with no default. A correctness-carrying parameter ships
+// required -- a defaulted one would let an existing caller silently keep the old behaviour after a
+// semantic change.
+//
+// It is NOT "the end of the period": Period.To still says what the operator typed. When EndsOn is set
+// the two are expected to be equal for a tail-shortening save, and the service does not require them to
+// be -- see the ordering note on EditOrgUnitDeclarationAsync.
+//
 // No actor and no scope field, and no operation kind -- all derived server-side.
 public sealed record EditOrgUnitDeclarationRequest(
     long OrgUnitId,
     long ExpectedVersionId,
     long? ExpectedParentId,
     Period Period,
+    DateOnly? EndsOn,
     string OrgCode,
     string OrgNameFullVn,
     string OrgNameShortVn,
