@@ -1201,17 +1201,18 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // Until now the RETIRE branch wrote with no confirmation at all, while
         // the cancel branch had one. Both branches end a unit's life, so both ask first.
         //
-        // The date IS named here, unlike on the cancel branch above, because on this branch there really is
-        // a cut date and it is the single fact the operator has to check. (Brief 163's "no data in the
-        // message" ruling governs ERROR text, where the data would be the system explaining its own
-        // refusal; a confirm is the operator re-reading their own input before it is written.)
+        // NO date, on either branch: the no-data rule that already governed
+        // error text now covers confirms too. The two sentences still differ, because the two operations differ: this one says the
+        // unit STOPS after the end date it already shows, and says when the operator should be reaching for
+        // this button at all. The cancel sentence below says the period never completed a day and the whole
+        // declaration is being withdrawn.
         //
         // IsCloseCancelPlanBranch chose the wording; it never chose the operation. The service derives the
         // branch itself from its own read and refuses if it disagrees, so a stale card fails clearly
         // instead of silently running the other operation.
         var retireConfirmed = await _confirmation.ConfirmAsync(
-            $"Đơn vị này sẽ hết hiệu lực sau ngày {FormatDate(effectiveThrough.Value)}. "
-            + "Nếu thực ra kỳ hiệu lực đã nhập sai, hãy dùng chức năng Sửa.",
+            "Đơn vị được chấm dứt hoạt động sau ngày kết thúc hiệu lực. Người dùng chỉ sử dụng chức năng "
+            + "đóng khi cần chấm dứt tình trạng hoạt động của đơn vị.",
             Array.Empty<string>());
         if (!retireConfirmed)
         {
@@ -1454,37 +1455,34 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         var head = preview.Value.FirstOrDefault(r => r.Period.To < period.From);
         var tail = preview.Value.FirstOrDefault(r => r.Period.From > period.To);
 
+        // ONE sentence for every period-changing edit, carrying NO dates: the no-data rule that
+        // already governed error text now covers this confirm too. The branch below still
+        // decides what the save DOES - a tail means the operator is ending the unit - but what they are
+        // shown no longer varies with the shape.
+        //
+        // ⚠️ The cost is stated where it is paid: on the tail branch, Tiếp tục ENDS the unit, and this
+        // sentence does not say so.
+        const string PeriodChangeConfirm =
+            "Đơn vị đang được điều chỉnh kỳ hiệu lực, người dùng cần xác nhận.";
+
         DateOnly? endsOn = null;
         if (tail is not null)
         {
-            // The tail keeps the OLD values, which is never what
-            // Sửa means: editing changes the content that is there, it does not also declare a second
-            // stretch. So the two buttons are "end the unit here" and "do not write" -- there is no third
-            // outcome that keeps the tail. The sentence has to carry that, because the shared dialog's own
-            // buttons read "Tiếp tục" and "Hủy" and this screen does not get to rename them.
-            var message = head is null
-                ? $"Đơn vị sẽ còn một giai đoạn sau ngày {FormatDate(period.To)} vẫn giữ thông tin cũ. "
-                  + $"Chọn Tiếp tục để đơn vị kết thúc ngày {FormatDate(period.To)}, hoặc Hủy để sửa lại."
-                : $"Đơn vị sẽ còn một giai đoạn trước ngày {FormatDate(period.From)} và một giai đoạn sau ngày "
-                  + $"{FormatDate(period.To)} vẫn giữ thông tin cũ. Chọn Tiếp tục để đơn vị kết thúc ngày "
-                  + $"{FormatDate(period.To)}, hoặc Hủy để sửa lại.";
-
-            if (!await _confirmation.ConfirmAsync(message, Array.Empty<string>()))
+            if (!await _confirmation.ConfirmAsync(PeriodChangeConfirm, Array.Empty<string>()))
             {
                 return;
             }
 
+            // A tail keeps the OLD values, which is never what
+            // Sửa means: editing changes the content that is there, it does not also declare a second
+            // stretch. So confirming IS the operator saying the unit ends here.
             endsOn = period.To;
         }
         else if (head is not null)
         {
             // Head only: warn, and offer NO route. Đóng cannot move effective_from, so
             // pointing the operator there would send them to an operation that cannot do what they want.
-            var confirmed = await _confirmation.ConfirmAsync(
-                $"Đơn vị sẽ còn một giai đoạn trước ngày {FormatDate(period.From)} vẫn giữ thông tin cũ. "
-                + "Chọn Tiếp tục để lưu, hoặc Hủy để sửa lại.",
-                Array.Empty<string>());
-            if (!confirmed)
+            if (!await _confirmation.ConfirmAsync(PeriodChangeConfirm, Array.Empty<string>()))
             {
                 return;
             }

@@ -1554,7 +1554,11 @@ public class OrgUnitDeclarationViewModelTests
     // "other versions" confirm cannot fire and the dialog under assertion is unambiguous.
     // =========================================================================================
 
-    private static string D(DateOnly d) => d.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+    // ONE sentence for every period-changing edit, carrying no dates. The
+    // three matrix rows below are no longer told apart by what the operator READS -- only by what the save
+    // DOES -- so each of them now has to assert EndsOn, or it asserts nothing the others do not.
+    private const string PeriodChangeConfirm =
+        "Đơn vị đang được điều chỉnh kỳ hiệu lực, người dùng cần xác nhận.";
 
     [Fact]
     public async Task Save_Edit_TailRemnant_ConfirmsAndWiresEndsOn()
@@ -1577,9 +1581,10 @@ public class OrgUnitDeclarationViewModelTests
         await vm.SaveCommand.Execute();
 
         confirm.CallCount.Should().Be(1);
-        confirm.LastMessage.Should().Be(
-            $"Đơn vị sẽ còn một giai đoạn sau ngày {D(Today.AddDays(10))} vẫn giữ thông tin cũ. "
-            + $"Chọn Tiếp tục để đơn vị kết thúc ngày {D(Today.AddDays(10))}, hoặc Hủy để sửa lại.");
+        confirm.LastMessage.Should().Be(PeriodChangeConfirm);
+        confirm.LastMessage.Should().NotContainAny(
+            "2026", "/", "ngày ",
+            "this confirm carries no dates");
         declaration.LastEditRequest.Should().NotBeNull();
         declaration.LastEditRequest!.EndsOn.Should().Be(
             Today.AddDays(10), "confirming the tail sentence IS the operator answering \"the unit ends here\"");
@@ -1633,9 +1638,7 @@ public class OrgUnitDeclarationViewModelTests
         await vm.SaveCommand.Execute();
 
         confirm.CallCount.Should().Be(1);
-        confirm.LastMessage.Should().Be(
-            $"Đơn vị sẽ còn một giai đoạn trước ngày {D(Today)} vẫn giữ thông tin cũ. "
-            + "Chọn Tiếp tục để lưu, hoặc Hủy để sửa lại.");
+        confirm.LastMessage.Should().Be(PeriodChangeConfirm);
         confirm.LastMessage.Should().NotContain("Đóng", "Đóng cannot move the start date");
         declaration.LastEditRequest!.EndsOn.Should().BeNull();
     }
@@ -1666,10 +1669,7 @@ public class OrgUnitDeclarationViewModelTests
         await vm.SaveCommand.Execute();
 
         confirm.CallCount.Should().Be(1, "one save asks once, however many remnants it would leave");
-        confirm.LastMessage.Should().Be(
-            $"Đơn vị sẽ còn một giai đoạn trước ngày {D(Today)} và một giai đoạn sau ngày "
-            + $"{D(Today.AddDays(10))} vẫn giữ thông tin cũ. Chọn Tiếp tục để đơn vị kết thúc ngày "
-            + $"{D(Today.AddDays(10))}, hoặc Hủy để sửa lại.");
+        confirm.LastMessage.Should().Be(PeriodChangeConfirm);
         declaration.LastEditRequest!.EndsOn.Should().Be(Today.AddDays(10));
     }
 
@@ -3339,8 +3339,10 @@ public class OrgUnitDeclarationViewModelTests
         // sentences differ, because only this one has a cut date to name.
         confirm.WasCalled.Should().BeTrue();
         confirm.LastMessage.Should().Be(
-            $"Đơn vị này sẽ hết hiệu lực sau ngày {Today.AddDays(5).ToString("dd/MM/yyyy", CultureInfo.InvariantCulture)}. "
-            + "Nếu thực ra kỳ hiệu lực đã nhập sai, hãy dùng chức năng Sửa.");
+            "Đơn vị được chấm dứt hoạt động sau ngày kết thúc hiệu lực. Người dùng chỉ sử dụng chức năng "
+            + "đóng khi cần chấm dứt tình trạng hoạt động của đơn vị.");
+        confirm.LastMessage.Should().NotContainAny(
+            "2026", "/", "no confirm on this screen carries a date");
     }
 
     // The Research Advisor: the test above asserts the dialog APPEARS and says the right thing, and stays green even
