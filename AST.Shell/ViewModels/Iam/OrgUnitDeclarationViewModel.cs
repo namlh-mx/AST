@@ -60,7 +60,9 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         BeginReplaceCommand = new DelegateCommand(ExecuteBeginReplace, () => CanReplace).ObservesProperty(() => Mode).ObservesProperty(() => Status).ObservesProperty(() => IsRoot);
         BeginCloseCommand = new DelegateCommand(ExecuteBeginClose, () => CanClose).ObservesProperty(() => Mode).ObservesProperty(() => Status).ObservesProperty(() => IsRoot);
         CancelCommand = new AsyncDelegateCommand(ExecuteCancelAsync, () => CanCancel).ObservesProperty(() => Mode);
-        SaveCommand = new AsyncDelegateCommand(ExecuteSaveAsync, () => CanSave).ObservesProperty(() => Mode);
+        SaveCommand = new AsyncDelegateCommand(ExecuteSaveAsync, () => CanSave)
+            .ObservesProperty(() => Mode)
+            .ObservesProperty(() => PeriodCommitBlocked);
     }
 
     private bool _isLoading;
@@ -325,7 +327,18 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
                 RaisePropertyChanged(nameof(CanOpenSupplemental));
                 RaisePropertyChanged(nameof(IsEffectivePeriodEnabled));
                 RaisePropertyChanged(nameof(OffersRootParentOption));
-                SyncCloseDateStatusHint();
+                if (value == OrgUnitCardMode.Closing)
+                {
+                    // Mode entry blanks To under _isLoading (skips OnCloseDateFieldEdited); still evaluate
+                    // Lưu enablement for CloseDateRequired without raising that sentence (backlog 3.37).
+                    ApplyCloseDateCommitGate();
+                }
+                else
+                {
+                    SyncCloseDateStatusHint();
+                    if (value is not OrgUnitCardMode.Replacing)
+                        PeriodCommitBlocked = false;
+                }
             }
         }
     }
@@ -348,17 +361,25 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // Retire-vs-CancelPlan decision, D1 2026-08-10) instead of re-deriving `EffectiveFrom >= today`
     // here — that re-derivation is exactly the defect being fixed (the screen used to branch on the
     // STATUS LABEL, which diverges from the server's own boundary for a same-day-effective version).
-    private bool IsCloseCancelPlanBranch()
-    {
-        if (EffectiveFrom is null)
-            return false;
+    private bool IsCloseCancelPlanBranch() =>
+        TryBuildSnapshotTargetPeriod(out var targetPeriod)
+        && VersionCloseRules.BranchFor(_dates.Today, targetPeriod) == VersionCloseBranch.CancelPlan;
 
-        // OpenEnd here is a fabricated placeholder, not the target version's real end — correct today
-        // ONLY because BranchFor reads `targetPeriod.From` alone. The real end is not on the form while
-        // Closing (ExecuteBeginClose blanks EffectiveTo); it survives solely in `_snapshot.EffectiveTo`.
-        // If BranchFor is ever changed to also consult `To`, this must read `_snapshot.EffectiveTo` instead.
-        var targetPeriod = new EffectivePeriod(EffectiveFrom.Value, EffectivePeriod.OpenEnd);
-        return VersionCloseRules.BranchFor(_dates.Today, targetPeriod) == VersionCloseBranch.CancelPlan;
+    // Closing blanks EffectiveTo on the form; the version's own end survives only in `_snapshot`.
+    // Validate consults To — three of its rules do — so fabricated OpenEnd would be wrong on arrival.
+    private bool TryBuildSnapshotTargetPeriod(out EffectivePeriod targetPeriod)
+    {
+        if (_snapshot.EffectiveFrom is not { } from)
+        {
+            targetPeriod = default;
+            return false;
+        }
+
+        var to = _snapshot.IsUndetermined
+            ? EffectivePeriod.OpenEnd
+            : _snapshot.EffectiveTo ?? EffectivePeriod.OpenEnd;
+        targetPeriod = new EffectivePeriod(from, to);
+        return true;
     }
 
     // Closing cut-date explanation rides AstScreen's StatusMessage (Info) — never an in-card control that
@@ -406,6 +427,12 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private void SyncCloseDateStatusHint()
     {
+        if (Mode == OrgUnitCardMode.Closing)
+        {
+            ApplyCloseDateCommitGate();
+            return;
+        }
+
         var hint = BuildCloseDateEffectText();
         if (hint is not null)
         {
@@ -420,6 +447,68 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         }
 
         if (Severity == StatusSeverity.Info)
+        {
+            StatusMessage = null;
+            Severity = StatusSeverity.None;
+        }
+    }
+
+    // Backlog 3.37: judge the close date at EffectiveTo commit via the whole of VersionCloseRules.Validate.
+    // CloseDateRequired (empty To on retire, including mode entry) disables Lưu but raises no sentence.
+    private void ApplyCloseDateCommitGate()
+    {
+        if (Mode != OrgUnitCardMode.Closing)
+            return;
+
+        if (!TryBuildSnapshotTargetPeriod(out var targetPeriod))
+        {
+            PeriodCommitBlocked = true;
+            return;
+        }
+
+        // FR6 / ExecuteSaveCloseAsync: a literal OpenEnd in the To box is CloseDateRequired wording,
+        // not a Validate input — agree with Save exactly.
+        if (EffectiveTo == EffectivePeriod.OpenEnd)
+        {
+            PeriodCommitBlocked = true;
+            StatusMessage = CloseDateRequiredMessage;
+            Severity = StatusSeverity.Error;
+            return;
+        }
+
+        DateOnly? requestedCloseDate = IsUndetermined || EffectiveTo is null ? null : EffectiveTo;
+        var validated = VersionCloseRules.Validate(_dates.Today, targetPeriod, requestedCloseDate);
+        if (validated.IsError)
+        {
+            PeriodCommitBlocked = true;
+            var error = validated.FirstError;
+            if (error.Code == VersionCloseRules.Codes.CloseDateRequired)
+            {
+                StatusMessage = null;
+                Severity = StatusSeverity.None;
+                return;
+            }
+
+            StatusMessage = FormatWriteError(error);
+            Severity = StatusSeverity.Error;
+            return;
+        }
+
+        PeriodCommitBlocked = false;
+
+        var hint = BuildCloseDateEffectText();
+        if (hint is not null)
+        {
+            if (Severity is StatusSeverity.None or StatusSeverity.Info or StatusSeverity.Error)
+            {
+                StatusMessage = hint;
+                Severity = StatusSeverity.Info;
+            }
+
+            return;
+        }
+
+        if (Severity is StatusSeverity.Info or StatusSeverity.Error)
         {
             StatusMessage = null;
             Severity = StatusSeverity.None;
@@ -455,7 +544,20 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     public bool CanCancel => Mode != OrgUnitCardMode.ReadOnly;
 
-    public bool CanSave => Mode != OrgUnitCardMode.ReadOnly;
+    // PeriodCommitBlocked is observed by SaveCommand — adding a validity term without that observation
+    // leaves the button stale in the app (backlog 3.37 / 3.38).
+    public bool CanSave => Mode != OrgUnitCardMode.ReadOnly && !PeriodCommitBlocked;
+
+    private bool _periodCommitBlocked;
+    public bool PeriodCommitBlocked
+    {
+        get => _periodCommitBlocked;
+        private set
+        {
+            if (SetProperty(ref _periodCommitBlocked, value))
+                RaisePropertyChanged(nameof(CanSave));
+        }
+    }
 
     // Supplemental affordance: always visible; enabled per settled matrix (Closing = view-only open).
     public bool CanOpenSupplemental => Mode switch
@@ -551,6 +653,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             ParentCandidates = [];
             AbandonParentCandidateQuery();
             ParentEligibility = ParentEligibilityState.Unresolved;
+            SyncReplaceParentPeriodGate();
         }
         else
         {
@@ -559,6 +662,13 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             // Loading is still a real state: a genuine GetEligibleParentsAsync awaits I/O, and treating
             // Count==0 during that await as root-creation is the same misleading-text bug one step later.
             ParentEligibility = ParentEligibilityState.Loading;
+            if (Severity == StatusSeverity.Error
+                && StatusMessage == ReplacePeriodNoEligibleParentMessage)
+            {
+                StatusMessage = null;
+                Severity = StatusSeverity.None;
+            }
+            PeriodCommitBlocked = false;
             _ = RefreshParentCandidatesAsync(formPeriod.Value, ++_parentRefreshGeneration);
         }
     }
@@ -584,6 +694,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             {
                 ParentCandidates = candidates;
                 ParentEligibility = ParentEligibilityState.Resolved;
+                SyncReplaceParentPeriodGate();
             }
         }
         catch (Exception)
@@ -595,8 +706,38 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
                 StatusMessage = "Ứng dụng không tải được danh sách đơn vị cha.";
                 Severity = StatusSeverity.Error;
                 ParentEligibility = ParentEligibilityState.Failed;
+                PeriodCommitBlocked = false;
             }
         }
+    }
+
+    // Backlog 3.38: empty eligible-parent list in Replacing (ordinary actor) is a screen-visible state —
+    // not a service error code. Sentence is requester verbatim (§1.8a); no code behind it.
+    private void SyncReplaceParentPeriodGate()
+    {
+        if (Mode != OrgUnitCardMode.Replacing)
+            return;
+
+        var blocked = ParentEligibility == ParentEligibilityState.Resolved
+            && ParentCandidates.Count == 0
+            && !OffersRootParentOption;
+
+        if (blocked)
+        {
+            StatusMessage = ReplacePeriodNoEligibleParentMessage;
+            Severity = StatusSeverity.Error;
+            PeriodCommitBlocked = true;
+            return;
+        }
+
+        if (Severity == StatusSeverity.Error
+            && StatusMessage == ReplacePeriodNoEligibleParentMessage)
+        {
+            StatusMessage = null;
+            Severity = StatusSeverity.None;
+        }
+
+        PeriodCommitBlocked = false;
     }
 
     private void ExecuteBeginEdit()
@@ -1311,6 +1452,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // Reused by both FormatWriteError's CloseDateRequired mapping and the VM-side retire-branch
     // null-date guard above — one wording, one home (rule-prefer-existing).
     private const string CloseDateRequiredMessage = "Ngày kết thúc hiệu lực chưa được khai báo.";
+
+    // Operator-message rules §1.8a — screen-authored; no service error code behind it.
+    private const string ReplacePeriodNoEligibleParentMessage =
+        "Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.";
 
     // Brief 163 FR1: one permission-family sentence for every Authz / scope / admin-flag denial on this screen.
     private const string PermissionDeniedMessage = "Người dùng không được cấp quyền.";

@@ -241,6 +241,19 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
                 return;
             }
 
+            // Backlog 3.38: empty candidates in Replacing for an ordinary actor — keep Display of the
+            // parent already on the card so the ComboBox is not present to TwoWay-null ParentId.
+            if (vm.Mode == OrgUnitCardMode.Replacing
+                && vm.ParentCandidates.Count == 0
+                && !vm.OffersRootParentOption)
+            {
+                Chrome.ParentMode = AstOrgUnitPickerMode.Display;
+                Chrome.ParentDisplayText = vm.ParentId is { } blockedParentId
+                    ? _historyRowParentLabel ?? FindTreeNodeLabel(vm.TreeRoots, blockedParentId) ?? string.Empty
+                    : string.Empty;
+                return;
+            }
+
             if (vm.ParentId is null && vm.ParentCandidates.Count == 0)
             {
                 // Successor-as-root half of RootNotReplaceable: ordinary actors never get this path in

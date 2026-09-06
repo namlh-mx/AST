@@ -3098,6 +3098,11 @@ public class OrgUnitDeclarationViewModelTests
         vm.IsUndetermined = false;
         vm.EffectiveTo = EffectivePeriod.OpenEnd;
 
+        // Gate agrees with Save's FR6 arm: sentence raised at commit, Lưu disabled.
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực chưa được khai báo.");
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+
         await vm.SaveCommand.Execute();
 
         Assert.Equal(0, declaration.CloseCallCount);
@@ -3173,12 +3178,11 @@ public class OrgUnitDeclarationViewModelTests
         Assert.True(string.IsNullOrEmpty(vm.StatusMessage));
     }
 
-    // Hardening (2026-08-10): a blank date on the retire branch must never reach the service — the VM
-    // fails clear itself instead, so a branch disagreement between VM and server (e.g. a concurrent edit)
-    // can never let a null date land on a server that has since switched to CancelPlan and execute an
-    // unconfirmed cancel.
+    // Hardening (2026-08-10): a blank date on the retire branch must never reach the service.
+    // Backlog 3.37: CloseDateRequired on mode entry / blank To disables Lưu and raises no sentence —
+    // the operator never reaches Save with that state via the button.
     [Fact]
-    public async Task Save_Close_RetireBranch_BlankDate_FailsInVm_NeverCallsService()
+    public async Task Save_Close_RetireBranch_BlankDate_DisablesSave_NeverCallsService()
     {
         var declaration = new FakeOrgUnitDeclarationService();
         var (vm, repo, confirm) = BuildForEdit(declaration: declaration);
@@ -3188,12 +3192,15 @@ public class OrgUnitDeclarationViewModelTests
         // Leave EffectiveTo blank (default post-BeginClose state) — the retire branch, not cancel-plan,
         // since EffectiveFrom is well before today.
 
+        vm.CanSave.Should().BeFalse();
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+        vm.Severity.Should().Be(StatusSeverity.None);
+        vm.StatusMessage.Should().BeNull();
+
         await vm.SaveCommand.Execute();
 
         declaration.CloseCallCount.Should().Be(0);
         confirm.WasCalled.Should().BeFalse();
-        vm.Severity.Should().Be(StatusSeverity.Error);
-        vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực chưa được khai báo.");
     }
 
     [Fact]
@@ -4346,5 +4353,198 @@ public class OrgUnitDeclarationViewModelTests
         vm.StatusMessage.Should().Be(expected);
         vm.StatusMessage.Should().NotContain("SEED-DESCRIPTION-MUST-NOT-LEAK");
         vm.Mode.Should().Be(OrgUnitCardMode.Replacing);
+    }
+
+    // --- Backlog 3.37 / 3.38: period commit gates (card 247) ---
+
+    [Fact]
+    public async Task CloseDateCommitGate_EmptyToOnRetireEntry_DisablesSave_WithoutMessage()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+
+        vm.BeginCloseCommand.Execute();
+
+        vm.Mode.Should().Be(OrgUnitCardMode.Closing);
+        vm.EffectiveTo.Should().BeNull();
+        vm.PeriodCommitBlocked.Should().BeTrue();
+        vm.CanSave.Should().BeFalse();
+        vm.SaveCommand.CanExecute().Should().BeFalse("SaveCommand must observe PeriodCommitBlocked, not only CanSave");
+        vm.Severity.Should().Be(StatusSeverity.None);
+        vm.StatusMessage.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task CloseDateCommitGate_CloseDateInPast_ShowsMappedSentence_KeepsDate_DisablesSave()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        vm.BeginCloseCommand.Execute();
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+
+        vm.EffectiveTo = Today.AddDays(-2);
+
+        vm.EffectiveTo.Should().Be(Today.AddDays(-2), "failing date stays on the form — no reset");
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực không được khai báo trước ngày hôm qua.");
+        vm.CanSave.Should().BeFalse();
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CloseDateCommitGate_CloseDateEqualsVersionEnd_ShowsMappedSentence()
+    {
+        var versionTo = Today.AddDays(5);
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), versionTo, id: 77);
+        await vm.LoadAsync(1, Today);
+        vm.BeginCloseCommand.Execute();
+
+        vm.EffectiveTo = versionTo;
+
+        vm.EffectiveTo.Should().Be(versionTo);
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực đã được khai báo trước đó.");
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CloseDateCommitGate_CloseDateOutsideVersionPeriod_ShowsMappedSentence()
+    {
+        var versionTo = Today.AddDays(5);
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), versionTo, id: 77);
+        await vm.LoadAsync(1, Today);
+        vm.BeginCloseCommand.Execute();
+
+        vm.EffectiveTo = versionTo.AddDays(1);
+
+        vm.EffectiveTo.Should().Be(versionTo.AddDays(1));
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.");
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CloseDateCommitGate_LegalDate_ShowsInfoHint_AndReEnablesSaveCommandCanExecute()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        vm.BeginCloseCommand.Execute();
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+
+        vm.EffectiveTo = Today.AddDays(-2);
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+
+        vm.EffectiveTo = Today;
+
+        vm.Severity.Should().Be(StatusSeverity.Info);
+        vm.StatusMessage.Should().Contain("còn hiệu lực đến ngày");
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.CanSave.Should().BeTrue();
+        vm.SaveCommand.CanExecute().Should().BeTrue("command CanExecute must flip with PeriodCommitBlocked");
+    }
+
+    // VersionCloseRules.Codes.VersionAlreadyEnded — unreachable from Closing at this SHA:
+    // CanClose requires Status Effective|Pending, and those statuses require coverage of today
+    // (To >= today or open end), so targetPeriod.To < today cannot be the loaded Closing target.
+    //
+    // VersionCloseRules.Codes.CloseDateNotApplicableToCancelPlan — unreachable from Closing at this SHA:
+    // IsEffectivePeriodEnabled is false on the cancel-plan branch, so the period strip cannot commit
+    // a non-null close date. (Programmatic assignment still hits Validate; the UI path cannot.)
+
+    [Fact]
+    public async Task ReplaceParentPeriodGate_EmptyCandidates_OrdinaryActor_BlocksSave_KeepsParentId()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult = [];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+
+        // Period already complete from load — refresh resolves synchronously with empty list.
+        vm.ParentEligibility.Should().Be(ParentEligibilityState.Resolved);
+        vm.ParentCandidates.Should().BeEmpty();
+        vm.OffersRootParentOption.Should().BeFalse();
+        vm.ParentId.Should().Be(1, "ParentId must not be silently nulled");
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.CanSave.Should().BeFalse();
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ReplaceParentPeriodGate_NonEmptyCandidates_ClearsGate_EnablesSave()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult = [];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.PeriodCommitBlocked.Should().BeTrue();
+
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(1, "PAR - Cha")];
+        vm.EffectiveFrom = Today.AddDays(-5);
+
+        vm.ParentCandidates.Should().ContainSingle(c => c.Id == 1);
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.CanSave.Should().BeTrue();
+        vm.ParentId.Should().Be(1);
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+    }
+
+    [Fact]
+    public async Task ReplaceParentPeriodGate_UnresolvedPeriod_DoesNotRaiseGate()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+
+        vm.IsUndetermined = false;
+        vm.EffectiveTo = null;
+        vm.EffectiveFrom = null;
+
+        vm.ParentEligibility.Should().Be(ParentEligibilityState.Unresolved);
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.ParentId.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ReplaceParentPeriodGate_BreakGlass_EmptyCandidates_KeepsRootPath_DoesNotBlock()
+    {
+        var (vm, repo) = Build(breakGlass: new FakeBreakGlassPolicy("tester"));
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult = [];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+
+        vm.OffersRootParentOption.Should().BeTrue();
+        vm.ParentEligibility.Should().Be(ParentEligibilityState.Resolved);
+        vm.ParentCandidates.Should().BeEmpty();
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.CanSave.Should().BeTrue();
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.ParentId.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ReplaceParentPeriodGate_AddingEmptyCandidates_IsUntouchedRootPath()
+    {
+        var (vm, repo) = Build();
+        repo.EligibleParentsResult = [];
+        vm.BeginAddCommand.Execute();
+        FillValidAddForm(vm);
+
+        vm.ParentEligibility.Should().Be(ParentEligibilityState.Resolved);
+        vm.ParentCandidates.Should().BeEmpty();
+        vm.OffersRootParentOption.Should().BeTrue();
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.CanSave.Should().BeTrue();
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
     }
 }
