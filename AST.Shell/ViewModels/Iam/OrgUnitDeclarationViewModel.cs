@@ -1752,8 +1752,14 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             // 2026-08-17). It used to dump the raw English Description, which was survivable while no
             // write code had VN wording — but once `OrgUnit.CodeInUse` and `TemporalFk.ParentGap` were
             // mapped for Add, the one screen showed the SAME code in Vietnamese from one button and in
-            // English from another. The map falls through to Description for anything it does not know,
-            // so this is strictly a widening.
+            // English from another.
+            // ⚠ CORRECTED 2026-09-05 (F-244-03, sixth anchor). This used to say the map "falls through
+            // to Description for anything it does not know". It does NOT, and never did on this screen:
+            // the catch-all is `_ => "Lỗi hệ thống, …"`, nothing here reads Error.Description, and the map's
+            // own arms say "never pass through Description". So an UNMAPPED code shows the generic system
+            // sentence, not English — which means adding a service error code without adding its arm here
+            // is silent, not loud. `FormatWriteErrorCompleteness` in the Shell tests is the gate that
+            // catches that.
             StatusMessage = string.Join("; ", result.Errors.Select(FormatWriteError));
             Severity = StatusSeverity.Error;
             return;
