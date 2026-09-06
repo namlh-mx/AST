@@ -241,11 +241,10 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
                 return;
             }
 
-            // Backlog 3.38: empty candidates in Replacing for an ordinary actor — keep Display of the
+            // Backlog 3.41: parent on the card absent from candidates (empty or non-empty). Display the
             // parent already on the card so the ComboBox is not present to TwoWay-null ParentId.
-            if (vm.Mode == OrgUnitCardMode.Replacing
-                && vm.ParentCandidates.Count == 0
-                && !vm.OffersRootParentOption)
+            // Predicate lives on the ViewModel — do not re-express it here.
+            if (vm.IsReplaceParentAbsentFromCandidates)
             {
                 Chrome.ParentMode = AstOrgUnitPickerMode.Display;
                 Chrome.ParentDisplayText = vm.ParentId is { } blockedParentId
@@ -257,9 +256,9 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
             if (vm.ParentId is null && vm.ParentCandidates.Count == 0)
             {
                 // Root Display only: unlocked Add always OffersRootParentOption; break-glass Replacing
-                // with empty candidates lands here. Ordinary-actor Replacing with empty candidates is
-                // handled by the 3.38 branch above — the former Editable arm (!OffersRootParentOption)
-                // is unreachable in both Adding and Replacing.
+                // with empty candidates lands here. Ordinary-actor Replacing (empty or parent-absent)
+                // is handled by the 3.41 branch above — this arm now sees only unlocked Adding and
+                // break-glass Replacing.
                 Chrome.ParentMode = AstOrgUnitPickerMode.Display;
                 Chrome.ParentDisplayText = "Đơn vị gốc (không có cha)";
                 return;

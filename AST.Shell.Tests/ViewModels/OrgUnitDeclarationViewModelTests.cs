@@ -4560,6 +4560,101 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
+    public async Task ReplaceParentPeriodGate_ParentAbsentFromNonEmptyCandidates_OrdinaryActor_BlocksSave_KeepsParentIdAndPeriod()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        // Non-empty list that does NOT include the card's ParentId (1). Root + unrelated covering unit;
+        // do not use the predecessor (3) — 3.40 excludes it from the picker by design.
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        await vm.LoadAsync(3, Today);
+        var periodFrom = vm.EffectiveFrom;
+        var periodTo = vm.EffectiveTo;
+        var undetermined = vm.IsUndetermined;
+        vm.BeginReplaceCommand.Execute();
+
+        vm.ParentEligibility.Should().Be(ParentEligibilityState.Resolved);
+        vm.ParentCandidates.Should().HaveCount(2);
+        vm.ParentCandidates.Should().NotContain(c => c.Id == 1);
+        vm.OffersRootParentOption.Should().BeFalse();
+        vm.ParentId.Should().Be(1, "ParentId must not be silently nulled");
+        vm.EffectiveFrom.Should().Be(periodFrom);
+        vm.EffectiveTo.Should().Be(periodTo);
+        vm.IsUndetermined.Should().Be(undetermined);
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.PeriodCommitBlocked.Should().BeTrue();
+        vm.CanSave.Should().BeFalse();
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ReplaceParentPeriodGate_NonEmptyCandidatesContainingParent_DoesNotRaiseGate()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(1, "PAR - Cha"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+
+        vm.ParentEligibility.Should().Be(ParentEligibilityState.Resolved);
+        vm.ParentCandidates.Should().Contain(c => c.Id == 1);
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.CanSave.Should().BeTrue();
+        vm.ParentId.Should().Be(1);
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+    }
+
+    [Fact]
+    public async Task ReplaceParentPeriodGate_Recovery_FromParentAbsentToPresent_ClearsGate_PreservesForeignStatus()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.PeriodCommitBlocked.Should().BeTrue();
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+
+        // Foreign status via parent-list load failure — not published by this gate.
+        repo.EligibleParentsException = new InvalidOperationException("db down");
+        vm.EffectiveFrom = Today.AddDays(-6);
+        const string parentListFailure = "Ứng dụng không tải được danh sách đơn vị cha.";
+        vm.StatusMessage.Should().Be(parentListFailure);
+        vm.Severity.Should().Be(StatusSeverity.Error);
+
+        repo.EligibleParentsException = null;
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(1, "PAR - Cha"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        vm.EffectiveFrom = Today.AddDays(-5);
+
+        vm.ParentCandidates.Should().Contain(c => c.Id == 1);
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.CanSave.Should().BeTrue();
+        vm.ParentId.Should().Be(1);
+        vm.StatusMessage.Should().Be(parentListFailure,
+            "clearing this gate must not wipe a status message it did not publish");
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+    }
+
+    [Fact]
     public async Task ReplaceParentPeriodGate_AddingEmptyCandidates_IsUntouchedRootPath()
     {
         var (vm, repo) = Build();

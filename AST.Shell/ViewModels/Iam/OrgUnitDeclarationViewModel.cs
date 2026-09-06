@@ -618,6 +618,16 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         || (Mode == OrgUnitCardMode.Replacing
             && _breakGlass.IsBreakGlassAdmin(_currentUser.Username ?? "unknown"));
 
+    // Backlog 3.41: single home for the replace-parent-period gate. Both SyncReplaceParentPeriodGate and
+    // RefreshParentSurface read this — do not re-express the predicate in the view code-behind.
+    // ParentId absent includes null and the empty-candidate case (3.38); a non-empty list that omits
+    // the card's ParentId is the discriminating 3.41 state.
+    public bool IsReplaceParentAbsentFromCandidates =>
+        Mode == OrgUnitCardMode.Replacing
+        && ParentEligibility == ParentEligibilityState.Resolved
+        && !OffersRootParentOption
+        && (ParentId is null || ParentCandidates.All(c => c.Id != ParentId));
+
     public DelegateCommand BeginAddCommand { get; }
     public DelegateCommand BeginEditCommand { get; }
     public DelegateCommand BeginReplaceCommand { get; }
@@ -762,11 +772,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         if (Mode != OrgUnitCardMode.Replacing)
             return;
 
-        var blocked = ParentEligibility == ParentEligibilityState.Resolved
-            && ParentCandidates.Count == 0
-            && !OffersRootParentOption;
-
-        if (blocked)
+        if (IsReplaceParentAbsentFromCandidates)
         {
             StatusMessage = ReplacePeriodNoEligibleParentMessage;
             Severity = StatusSeverity.Error;
