@@ -260,18 +260,30 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     public bool HasUnsavedInput => IsDirty;
 
+    // Close-date gate may clear or overwrite only status it published (card 249 / F-246-01).
+    private bool _publishingCloseGateStatus;
+    private bool _closeGateOwnsStatus;
+
     private string? _statusMessage;
     public string? StatusMessage
     {
         get => _statusMessage;
-        private set => SetProperty(ref _statusMessage, value);
+        private set
+        {
+            if (SetProperty(ref _statusMessage, value) && !_publishingCloseGateStatus)
+                _closeGateOwnsStatus = false;
+        }
     }
 
     private StatusSeverity _severity = StatusSeverity.None;
     public StatusSeverity Severity
     {
         get => _severity;
-        private set => SetProperty(ref _severity, value);
+        private set
+        {
+            if (SetProperty(ref _severity, value) && !_publishingCloseGateStatus)
+                _closeGateOwnsStatus = false;
+        }
     }
 
     // Captures EVERYTHING Begin*/Cancel must round-trip -- not just the editable form fields. Status/IsRoot
@@ -457,6 +469,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     // Backlog 3.37: judge the close date at EffectiveTo commit via the whole of VersionCloseRules.Validate.
     // CloseDateRequired (empty To on retire, including mode entry) disables Lưu but raises no sentence.
+    // Silence is not authorisation to delete — clear/overwrite only status this gate published (F-246-01).
     private void ApplyCloseDateCommitGate()
     {
         if (Mode != OrgUnitCardMode.Closing)
@@ -473,8 +486,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         if (EffectiveTo == EffectivePeriod.OpenEnd)
         {
             PeriodCommitBlocked = true;
-            StatusMessage = CloseDateRequiredMessage;
-            Severity = StatusSeverity.Error;
+            PublishCloseGateStatus(CloseDateRequiredMessage, StatusSeverity.Error);
             return;
         }
 
@@ -486,13 +498,11 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             var error = validated.FirstError;
             if (error.Code == VersionCloseRules.Codes.CloseDateRequired)
             {
-                StatusMessage = null;
-                Severity = StatusSeverity.None;
+                ClearCloseGateOwnedStatus();
                 return;
             }
 
-            StatusMessage = FormatWriteError(error);
-            Severity = StatusSeverity.Error;
+            PublishCloseGateStatus(FormatWriteError(error), StatusSeverity.Error);
             return;
         }
 
@@ -501,19 +511,50 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         var hint = BuildCloseDateEffectText();
         if (hint is not null)
         {
-            if (Severity is StatusSeverity.None or StatusSeverity.Info or StatusSeverity.Error)
+            // None/Info: prior gate hint or empty. Error: only when this gate owns it (card 247 widened
+            // Error into the overwrite set; ownership keeps an unrelated Error intact).
+            if (Severity is StatusSeverity.None or StatusSeverity.Info
+                || (Severity == StatusSeverity.Error && _closeGateOwnsStatus))
             {
-                StatusMessage = hint;
-                Severity = StatusSeverity.Info;
+                PublishCloseGateStatus(hint, StatusSeverity.Info);
             }
 
             return;
         }
 
-        if (Severity is StatusSeverity.Info or StatusSeverity.Error)
+        ClearCloseGateOwnedStatus();
+    }
+
+    private void PublishCloseGateStatus(string? message, StatusSeverity severity)
+    {
+        _publishingCloseGateStatus = true;
+        try
+        {
+            StatusMessage = message;
+            Severity = severity;
+            _closeGateOwnsStatus = true;
+        }
+        finally
+        {
+            _publishingCloseGateStatus = false;
+        }
+    }
+
+    private void ClearCloseGateOwnedStatus()
+    {
+        if (!_closeGateOwnsStatus)
+            return;
+
+        _publishingCloseGateStatus = true;
+        try
         {
             StatusMessage = null;
             Severity = StatusSeverity.None;
+            _closeGateOwnsStatus = false;
+        }
+        finally
+        {
+            _publishingCloseGateStatus = false;
         }
     }
 
@@ -1462,10 +1503,11 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // Brief 163 FR1: one permission-family sentence for every Authz / scope / admin-flag denial on this screen.
     private const string PermissionDeniedMessage = "Người dùng không được cấp quyền.";
 
-    // Presentation map for the ErrorOr codes of BOTH service write paths, Add and close/cancel — codes are
-    // the contract; VN wording is the VM's job. Reuse existing screen strings wherever an equivalent already
-    // existed. Engine races / CompositeWrite can still surface VersionedRepository.* (table-naming
-    // LockTimeout, InvalidShrink, …) — map those so raw engine text never reaches the operator.
+    // Presentation map for ErrorOr codes from all four service write gestures on this screen —
+    // Add, Edit, close/cancel, and Replace. Codes are the contract; VN wording is the VM's job.
+    // Reuse existing screen strings wherever an equivalent already existed. Engine races /
+    // CompositeWrite can still surface VersionedRepository.* (table-naming LockTimeout,
+    // InvalidShrink, …) — map those so raw engine text never reaches the operator.
     private string FormatWriteError(Error error) => error.Code switch
     {
         // ---- Add path (IOrgUnitDeclarationService.AddOrgUnitDeclarationAsync) ----
@@ -1610,9 +1652,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // P7, the scope-membership check and the parent-immutability guard unbypassably -- this screen used to
     // hold the first two itself and write straight to the repository, so any other caller got neither.
     //
-    // `username` and `scope` stay as parameters because the shared Save entry point resolves them once for
-    // all three branches; this branch no longer USES them for a gate -- the service re-derives both
-    // server-side -- and they are deliberately not forwarded on the request.
+    // `username` and `scope` stay as parameters for signature parity with the other write helpers.
+    // ExecuteSaveAsync resolves them once only on the Editing path — Closing, Adding and Replacing
+    // return earlier with their own resolution. This branch no longer USES them for a gate — the
+    // service re-derives both server-side — and they are deliberately not forwarded on the request.
     private async Task ExecuteSaveEditAsync(EffectivePeriod period, string username, DataScope scope)
     {
         var orgUnitId = _orgUnitId!.Value;
@@ -1705,11 +1748,12 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
         if (result.IsError)
         {
-            // Edit goes through the SAME presentation map as Add and Close (requester F5, 2026-08-17). It
-            // used to dump the raw English Description, which was survivable while no write code had VN
-            // wording — but once `OrgUnit.CodeInUse` and `TemporalFk.ParentGap` were mapped for Add, the one
-            // screen showed the SAME code in Vietnamese from one button and in English from another. The map
-            // falls through to Description for anything it does not know, so this is strictly a widening.
+            // Edit goes through the SAME presentation map as Add, Close and Replace (requester F5,
+            // 2026-08-17). It used to dump the raw English Description, which was survivable while no
+            // write code had VN wording — but once `OrgUnit.CodeInUse` and `TemporalFk.ParentGap` were
+            // mapped for Add, the one screen showed the SAME code in Vietnamese from one button and in
+            // English from another. The map falls through to Description for anything it does not know,
+            // so this is strictly a widening.
             StatusMessage = string.Join("; ", result.Errors.Select(FormatWriteError));
             Severity = StatusSeverity.Error;
             return;

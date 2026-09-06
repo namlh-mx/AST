@@ -3203,6 +3203,30 @@ public class OrgUnitDeclarationViewModelTests
         confirm.WasCalled.Should().BeFalse();
     }
 
+    // Card 249 / F-246-01: CloseDateRequired silence on mode entry must not delete an unrelated Error.
+    [Fact]
+    public async Task BeginClose_PreservesUnrelatedError_DisablesSave_RaisesNoCloseDateRequiredSentence()
+    {
+        var (vm, repo, _) = BuildForEdit();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        repo.InScopeException = new InvalidOperationException("db down");
+        await vm.LoadTreeAsync(Today);
+        const string treeLoadFailure = "Ứng dụng không tải được cây đơn vị.";
+        vm.StatusMessage.Should().Be(treeLoadFailure);
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.CanClose.Should().BeTrue();
+
+        vm.BeginCloseCommand.Execute();
+
+        vm.Mode.Should().Be(OrgUnitCardMode.Closing);
+        vm.StatusMessage.Should().Be(treeLoadFailure);
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().NotBe("Ngày kết thúc hiệu lực chưa được khai báo.");
+        vm.CanSave.Should().BeFalse();
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+    }
+
     [Fact]
     public async Task Save_Close_AuthzNotGranted_EmptyDescription_UsesNotGrantedSentence()
     {
