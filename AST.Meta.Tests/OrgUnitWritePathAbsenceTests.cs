@@ -211,6 +211,7 @@ public sealed class OrgUnitWritePathAbsenceDetectorTests
     // Edit is now caught too. Until 2026-08-21 this exact line was an ALLOWED case; it is the mutation the
     // widening exists for, so it is pinned here rather than left to the widened Fact alone.
     [InlineData("VersionOperationKind.Edit, username, Reason.Trim(), Supplemental);")]
+    [InlineData("VersionOperationKind.Replace, username, Reason.Trim(), Supplemental);")]
     public void Detects_any_operation_kind(string source)
     {
         OrgUnitWritePathAbsenceDetector.NamesAnyOperationKind(source).Should().BeTrue();

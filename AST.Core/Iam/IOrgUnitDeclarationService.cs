@@ -76,6 +76,29 @@ public interface IOrgUnitDeclarationService
     //   - the caller does not supply VersionOperationKind: it is Edit by construction.
     Task<ErrorOr<UpsertResult>> EditOrgUnitDeclarationAsync(EditOrgUnitDeclarationRequest request);
 
+    // Fifth gesture: replace one org unit WHOLLY with a
+    // corrected declaration. This is NOT a Close and NOT an Edit -- a Close says the unit existed and now
+    // ends; an Edit may not touch the period, the code or the parent. A replacement says the record was
+    // never right, and declares a new identity in its place.
+    //
+    // Load-bearing properties an implementation may not relax:
+    //   - the actor and the authorization scope are derived server-side, so the request carries neither,
+    //   - the caller does not supply VersionOperationKind: the successor's first version is Replace, and no
+    //     pre-existing row's kind or business columns are ever rewritten,
+    //   - the successor declares its OWN parent (requester, 2026-09-04). This does not relax parent
+    //     immutability: a unit's parent is still fixed for that unit's whole life; a replacement declares a
+    //     DIFFERENT unit,
+    //   - a root org unit is replaceable by a BREAK-GLASS administrator only, on either side -- predecessor
+    //     or successor -- and that write records a second audit row, exactly as Add/Edit/Close do,
+    //   - v1 covers an EMPTY predecessor only -- no child org unit and no user. That is a CLOSED scope
+    //     (requester, 2026-08-22), not a deferral,
+    //   - the whole gesture is ONE transaction, and inside it every active predecessor row is DEACTIVATED
+    //     before the root-overlap and code-in-use probes run, while the 'replaced' status and the successor
+    //     link are stamped only AFTER the successor identity exists -- replaced_by_org_unit_id is an FK that
+    //     MySQL checks immediately. That split is an invariant, not an optimisation.
+    Task<ErrorOr<ReplaceOrgUnitDeclarationResult>> ReplaceOrgUnitDeclarationAsync(
+        ReplaceOrgUnitDeclarationRequest request);
+
     // The canonical preview for an Edit. Returns the operations the write WOULD
     // perform that carry the old business data -- the remnants -- computed by THE SAME IPeriodEditor the
     // write path runs. It is ADVISORY: the service re-plans under the identity lock regardless and the
@@ -117,6 +140,21 @@ public sealed record AddOrgUnitDeclarationRequest(
 // `OrgUnitId` is the identity the service minted — the caller cannot know it in advance and needs it to
 // reload the record it just declared.
 public sealed record AddOrgUnitDeclarationResult(long OrgUnitId, UpsertResult Write);
+
+// ONE predecessor (requester, 2026-09-04). Period, OrgCode and ParentId are the CORRECTED values and are
+// unrelated to the predecessor's -- correcting them is the reason this gesture exists. ParentId null = the
+// successor is a root, which is break-glass-only.
+public sealed record ReplaceOrgUnitDeclarationRequest(
+    long PredecessorOrgUnitId,
+    Period Period,
+    string OrgCode,
+    long? ParentId,
+    string OrgNameFullVn,
+    string OrgNameShortVn,
+    string? Reason,
+    OrgUnitSupplementalDto? Supplemental);
+
+public sealed record ReplaceOrgUnitDeclarationResult(long OrgUnitId, UpsertResult Write);
 
 // NO desired-parent field: re-parenting is unexpressible, which is a stronger guarantee than rejecting it.
 //

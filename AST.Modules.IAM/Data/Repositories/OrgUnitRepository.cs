@@ -12,18 +12,30 @@ using ErrorOr;
 
 namespace AST.Modules.IAM.Data.Repositories;
 
-internal sealed class OrgUnitRepository(
-    IDbConnectionFactory connections,
-    IStandardScopeFilterBuilder scopeFilter,
-    IEffectivePeriodResolver resolver,
-    IPeriodEditor periodEditor,
-    ITemporalFkValidator fkValidator,
-    ITemporalFkRegistry fkRegistry,
-    IBusinessDateProvider dates,
-    IParentCoverageProvider parentCoverage)
-    : VersionedRepository<OrgUnitVersionEntity>(connections, scopeFilter, resolver, periodEditor, fkValidator, fkRegistry, dates),
+internal sealed class OrgUnitRepository
+    : VersionedRepository<OrgUnitVersionEntity>,
         IOrgUnitRepository
 {
+    // Own field: the primary-constructor parameter is also passed to the base, and C# forbids capturing
+    // that parameter into derived state (CS9107). Classic constructor keeps the same DI shape.
+    private readonly ITemporalFkValidator _fkValidator;
+    private readonly IParentCoverageProvider _parentCoverage;
+
+    public OrgUnitRepository(
+        IDbConnectionFactory connections,
+        IStandardScopeFilterBuilder scopeFilter,
+        IEffectivePeriodResolver resolver,
+        IPeriodEditor periodEditor,
+        ITemporalFkValidator fkValidator,
+        ITemporalFkRegistry fkRegistry,
+        IBusinessDateProvider dates,
+        IParentCoverageProvider parentCoverage)
+        : base(connections, scopeFilter, resolver, periodEditor, fkValidator, fkRegistry, dates)
+    {
+        _fkValidator = fkValidator;
+        _parentCoverage = parentCoverage;
+    }
+
     protected override string VersionTable => "org_unit_version";
     protected override string IdentityColumn => "org_unit_id";
 
@@ -34,7 +46,9 @@ internal sealed class OrgUnitRepository(
     // N6: future-plan cancellation ("Bị hủy") — SELECT includes `status` only when opted in.
     protected override bool SupportsCancellation => true;
 
-    // Phase 4d: org-unit history grid needs to know WHICH action (Add/Edit/Close/Cancel) produced each row.
+    // Phase 4d: org-unit history grid needs to know WHICH action (Add/Edit/Close/Cancel/Replace) produced
+    // each row. `Replace` joined the list 2026-09-04 with the Thay the gesture: it is the kind carried by a
+    // replacement SUCCESSOR's first version, and it is the one kind never preceded by an `Add`.
     protected override bool RecordsOperationKind => true;
 
     protected override string OrgUnitColumn => $"{Alias}.org_unit_id";
@@ -178,6 +192,81 @@ internal sealed class OrgUnitRepository(
             .ToList();
     }
 
+    // [4a] of the Thay thế gesture: every ACTIVE version's id, period AND parent_id in ONE read under the
+    // composite lock. Neither GetActivePeriodsAsync (no parent_id) nor GetActiveParentIdsAsync (no ids /
+    // periods) answers that alone; calling both would be two round-trips whose answers can disagree. A
+    // sibling is required so [4b]/[4c]/[4d] and the mark all decide against the same row set.
+    internal async Task<IReadOnlyList<ActivePredecessorVersion>> GetActivePredecessorVersionsAsync(
+        ICompositeWriteContext context, long orgUnitId)
+    {
+        var rows = await context.Connection.QueryAsync<(long Id, DateOnly EffectiveFrom, DateOnly EffectiveTo, long? ParentId)>(
+            """
+            SELECT id AS Id, effective_from AS EffectiveFrom, effective_to AS EffectiveTo, parent_id AS ParentId
+            FROM org_unit_version
+            WHERE org_unit_id = @orgUnitId AND isactive = 1
+            """,
+            new { orgUnitId },
+            transaction: context.Transaction);
+
+        return rows
+            .Select(r => new ActivePredecessorVersion(
+                r.Id, new EffectivePeriod(r.EffectiveFrom, r.EffectiveTo), r.ParentId))
+            .ToList();
+    }
+
+    // Replacement mark (§5): take one ACTIVE row out of force. AND isactive = 1 is load-bearing — a
+    // pre-existing inactive row must not be "marked" again (test 22). Per-id WHERE is load-bearing too:
+    // WHERE org_unit_id = @predecessor would touch every version of the identity. Returns affected-row
+    // count so the caller can compare against [4a] without a second read.
+    internal async Task<int> MarkVersionInactiveForReplaceAsync(ICompositeWriteContext context, long rowId)
+    {
+        return await context.Connection.ExecuteAsync(
+            """
+            UPDATE org_unit_version SET isactive = 0 WHERE id = @rowId AND isactive = 1
+            """,
+            new { rowId },
+            context.Transaction);
+    }
+
+    // Replacement stamp (§5): applied to exactly the ids the mark affected, AFTER the successor identity
+    // exists (replaced_by_org_unit_id is an FK MySQL checks immediately). Does not touch operation_kind
+    // or any business column.
+    internal async Task StampVersionReplacedAsync(
+        ICompositeWriteContext context, long rowId, long successorOrgUnitId)
+    {
+        await context.Connection.ExecuteAsync(
+            """
+            UPDATE org_unit_version
+            SET status = 'replaced', replaced_by_org_unit_id = @successorOrgUnitId
+            WHERE id = @rowId
+            """,
+            new { rowId, successorOrgUnitId },
+            context.Transaction);
+    }
+
+    // Predecessor-empty probe: total replacement is the documented fully-closed-parent case
+    // (ITemporalFkValidator.ValidateParentChange with an empty remaining-coverage list). Map
+    // TemporalFk.DependentsUncovered to OrgUnit.PredecessorNotEmpty with the requester-decided
+    // description — no numeric count (validator counts uncovered dependent version PERIODS, not units).
+    internal ErrorOr<Success> ProbePredecessorEmpty(ICompositeWriteContext context, long predecessorId)
+    {
+        var result = _fkValidator.ValidateParentChange(
+            "org_unit_version", predecessorId, remainingParentCoverage: [], context.Transaction);
+        if (!result.IsError)
+        {
+            return Result.Success;
+        }
+
+        if (result.Errors.Any(e => e.Code == "TemporalFk.DependentsUncovered"))
+        {
+            return Error.Validation(
+                "OrgUnit.PredecessorNotEmpty",
+                "Đơn vị còn tham số phụ thuộc, người dùng cần xử lý tham số phụ thuộc trước khi thực hiện thao tác.");
+        }
+
+        return result.Errors;
+    }
+
     // Compensating action for a failed first-version UpsertAsync right after the OWN-CONNECTION
     // CreateIdentityAsync above. NO production caller remains — the composite path rolls back instead of
     // compensating (§7). Kept for test fixtures only.
@@ -220,7 +309,7 @@ internal sealed class OrgUnitRepository(
 
         foreach (var candidate in candidates)
         {
-            var coverage = parentCoverage.GetActiveCoverage(VersionTable, candidate.IdentityId, null);
+            var coverage = _parentCoverage.GetActiveCoverage(VersionTable, candidate.IdentityId, null);
             if (!CoverageGap.TryFind(coverage, childPeriod, out _))
             {
                 eligible.Add(new OrgUnitPickerItem(candidate.IdentityId, $"{candidate.OrgCode} — {candidate.OrgNameShortVn}"));
@@ -564,3 +653,8 @@ internal sealed class OrgUnitRepository(
 // purpose: it exists so OrgUnitDeclarationService can ask which version ends where without the entity
 // leaving the data layer (rule-module-boundary item 2), and no public contract carries it.
 internal sealed record ActiveVersionPeriod(long VersionId, EffectivePeriod Period);
+
+// One ACTIVE predecessor version for the Thay thế gesture's [4a] read: id, period and parent_id together.
+// Sibling of ActiveVersionPeriod — that type deliberately omits parent_id (Edit asks periods and parents
+// separately); replacement needs all three from one authoritative row set.
+internal sealed record ActivePredecessorVersion(long VersionId, EffectivePeriod Period, long? ParentId);

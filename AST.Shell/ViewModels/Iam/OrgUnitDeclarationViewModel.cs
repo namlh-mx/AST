@@ -14,7 +14,7 @@ using Prism.Mvvm;
 
 namespace AST.Shell.ViewModels.Iam;
 
-public enum OrgUnitCardMode { ReadOnly, Adding, Editing, Closing }
+public enum OrgUnitCardMode { ReadOnly, Adding, Editing, Closing, Replacing }
 
 public enum ParentEligibilityState { Unresolved, Loading, Resolved, Failed }
 
@@ -27,9 +27,9 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 {
     private readonly IOrgUnitRepository _orgUnits;
     private readonly IOrgUnitDeclarationService _declaration;
-    // Backlog 0.8: needed for CanClose only. Same injection as RoleDeclarationViewModel's own break-glass
-    // dependency -- the AUTHORITY is the service's gate; this decides whether the button that reaches it
-    // is even enabled.
+    // Backlog 0.8 / card 238: needed for CanClose and CanReplace (and OffersRootParentOption). Same
+    // injection as RoleDeclarationViewModel's own break-glass dependency -- the AUTHORITY is the
+    // service's gate; this decides whether the button / picker affordance that reaches it is even shown.
     private readonly IBreakGlassPolicy _breakGlass;
     private readonly IBusinessDateProvider _dates;
     private readonly ICurrentWindowsUser _currentUser;
@@ -56,6 +56,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
         BeginAddCommand = new DelegateCommand(ExecuteBeginAdd, () => CanAdd).ObservesProperty(() => Mode);
         BeginEditCommand = new DelegateCommand(ExecuteBeginEdit, () => CanEdit).ObservesProperty(() => Mode).ObservesProperty(() => Status);
+        BeginReplaceCommand = new DelegateCommand(ExecuteBeginReplace, () => CanReplace).ObservesProperty(() => Mode).ObservesProperty(() => Status).ObservesProperty(() => IsRoot);
         BeginCloseCommand = new DelegateCommand(ExecuteBeginClose, () => CanClose).ObservesProperty(() => Mode).ObservesProperty(() => Status).ObservesProperty(() => IsRoot);
         CancelCommand = new AsyncDelegateCommand(ExecuteCancelAsync, () => CanCancel).ObservesProperty(() => Mode);
         SaveCommand = new AsyncDelegateCommand(ExecuteSaveAsync, () => CanSave).ObservesProperty(() => Mode);
@@ -322,6 +323,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             {
                 RaisePropertyChanged(nameof(CanOpenSupplemental));
                 RaisePropertyChanged(nameof(IsEffectivePeriodEnabled));
+                RaisePropertyChanged(nameof(OffersRootParentOption));
                 SyncCloseDateStatusHint();
             }
         }
@@ -335,8 +337,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // the pre-D1 defect (a same-day-effective version labels `Effective`, not `Pending`, yet the server
     // now cancels it too; see VersionCloseRules.Validate / D1). IsCloseCancelPlanBranch
     // consumes VersionCloseRules' own decision instead of re-deriving the `From >= today` comparison here.
+    // Replacing enables the period for the same reason Editing already does today. The one surface
+    // Replacing unlocks that Editing does not is the parent (card 238 / F-237-01) - not the period.
     public bool IsEffectivePeriodEnabled =>
-        Mode is OrgUnitCardMode.Adding or OrgUnitCardMode.Editing
+        Mode is OrgUnitCardMode.Adding or OrgUnitCardMode.Editing or OrgUnitCardMode.Replacing
         || (Mode == OrgUnitCardMode.Closing && !IsCloseCancelPlanBranch());
 
     // Server-authoritative branch: consumes VersionCloseRules.BranchFor (the single home of the
@@ -440,6 +444,14 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         && (!IsRoot || _breakGlass.IsBreakGlassAdmin(_currentUser.Username ?? "unknown"))
         && Status is VersionStatus.Effective or VersionStatus.Pending;
 
+    // Same shape as CanClose (card 238 / F-237-02 / F-237-03) - NOT CanEdit. Covers the predecessor-is-root
+    // half of OrgUnit.RootNotReplaceable; the successor-as-root half is the picker affordance
+    // OffersRootParentOption, not CanSave.
+    public bool CanReplace =>
+        Mode == OrgUnitCardMode.ReadOnly
+        && (!IsRoot || _breakGlass.IsBreakGlassAdmin(_currentUser.Username ?? "unknown"))
+        && Status is VersionStatus.Effective or VersionStatus.Pending;
+
     public bool CanCancel => Mode != OrgUnitCardMode.ReadOnly;
 
     public bool CanSave => Mode != OrgUnitCardMode.ReadOnly;
@@ -449,12 +461,20 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     {
         OrgUnitCardMode.Closing => true,
         OrgUnitCardMode.ReadOnly => _orgUnitId is not null,
-        OrgUnitCardMode.Adding or OrgUnitCardMode.Editing => HasRequiredIdentityFields(),
+        OrgUnitCardMode.Adding or OrgUnitCardMode.Editing or OrgUnitCardMode.Replacing => HasRequiredIdentityFields(),
         _ => false,
     };
 
+    // Affordance for RootNotReplaceable's successor half (card 238): ordinary actors in Replacing never
+    // get Add's empty-candidate "Đơn vị gốc (không có cha)" path. Break-glass sees that path normally.
+    public bool OffersRootParentOption =>
+        Mode == OrgUnitCardMode.Adding
+        || (Mode == OrgUnitCardMode.Replacing
+            && _breakGlass.IsBreakGlassAdmin(_currentUser.Username ?? "unknown"));
+
     public DelegateCommand BeginAddCommand { get; }
     public DelegateCommand BeginEditCommand { get; }
+    public DelegateCommand BeginReplaceCommand { get; }
     public DelegateCommand BeginCloseCommand { get; }
     public AsyncDelegateCommand CancelCommand { get; }
     public AsyncDelegateCommand SaveCommand { get; }
@@ -496,14 +516,18 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // EffectiveFrom/EffectiveTo/IsUndetermined setters above, so this re-evaluates on every edit, not just once.
     private void RecomputeParentEligibility()
     {
-        if (Mode != OrgUnitCardMode.Adding)
+        // F-237-04: Replacing unlocks the parent the same way unlocked Add does. Editing keeps parent
+        // Display-locked; that is the one surface Replacing opens that Editing does not (card 238).
+        if (Mode is not (OrgUnitCardMode.Adding or OrgUnitCardMode.Replacing))
         {
             return;
         }
 
         var formPeriod = TryBuildFormPeriod();
 
-        if (_addParentContext is { } ctx && (formPeriod is null || !CoverageGap.TryFind([ctx.Coverage], formPeriod.Value, out _)))
+        if (Mode == OrgUnitCardMode.Adding
+            && _addParentContext is { } ctx
+            && (formPeriod is null || !CoverageGap.TryFind([ctx.Coverage], formPeriod.Value, out _)))
         {
             IsParentLocked = true;
             ParentId = ctx.ParentId;
@@ -514,7 +538,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         }
 
         IsParentLocked = false;
-        if (ParentId == _addParentContext?.ParentId)
+        if (Mode == OrgUnitCardMode.Adding && ParentId == _addParentContext?.ParentId)
         {
             // Was locked to the tree-context candidate; the EP just typed no longer qualifies it -- clear the
             // stale pre-fill rather than leaving a picker-less selection standing.
@@ -578,6 +602,16 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     {
         _snapshot = CaptureSnapshot();
         Mode = OrgUnitCardMode.Editing;
+    }
+
+    private void ExecuteBeginReplace()
+    {
+        // Keep the current values on the card — do not Clear(). RecomputeParentEligibility unlocks the
+        // parent picker; period/code/names are already editable in Editing today, so Replacing's
+        // distinctive unlock against Editing is the parent only (card 238 / F-237-01).
+        _snapshot = CaptureSnapshot();
+        Mode = OrgUnitCardMode.Replacing;
+        RecomputeParentEligibility();
     }
 
     private void ExecuteBeginClose()
@@ -1113,6 +1147,15 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             return;
         }
 
+        // Replace: same posture as Add - the service owns authz, Global scope, root break-glass and the
+        // empty-predecessor probe. Do not ResolveScopeAsync here.
+        if (Mode == OrgUnitCardMode.Replacing)
+        {
+            var replacePeriod = new EffectivePeriod(EffectiveFrom!.Value, IsUndetermined ? EffectivePeriod.OpenEnd : EffectiveTo!.Value);
+            await ExecuteSaveReplaceAsync(replacePeriod);
+            return;
+        }
+
         var username = _currentUser.Username ?? "unknown";
 
         var authz = await ResolveScopeAsync();
@@ -1280,6 +1323,8 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // ---- Add path (IOrgUnitDeclarationService.AddOrgUnitDeclarationAsync) ----
         "OrgUnit.AddRequiresGlobalScope" =>
             PermissionDeniedMessage,
+        "OrgUnit.ReplaceRequiresGlobalScope" =>
+            PermissionDeniedMessage,
         // N1 as amended 2026-08-17: the rule is about the PERIOD, not about "a root exists". A root that has
         // been retired may be succeeded by a new one, so wording that said a root already exists permanently
         // would be wrong — it would tell the operator something is permanently impossible when only these dates are.
@@ -1352,6 +1397,17 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             "Chỉ quản trị viên cứu hộ mới được khai báo đơn vị gốc - nếu bạn khai báo đơn vị cấp dưới, hãy chọn đơn vị cấp trên.",
         "OrgUnit.RootNotEditable" =>
             "Chỉ quản trị viên cứu hộ mới được sửa đơn vị gốc.",
+        // RootNotReplaceable names the operator's permission, not a class of administrator.
+        // With the picker affordance in place this code is reachable mainly on a race.
+        "OrgUnit.RootNotReplaceable" =>
+            "Người dùng không có quyền thay thế đơn vị gốc.",
+        // Same house sentence as NotAFuturePlan / DependentSetChanged: stale card, reload the screen.
+        "OrgUnit.PredecessorMarksNothing" =>
+            "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
+        // Already the service Description and pinned by IAM integration tests 12/13; arm so the generic
+        // fallback cannot swallow it.
+        "OrgUnit.PredecessorNotEmpty" =>
+            "Đơn vị còn tham số phụ thuộc, người dùng cần xử lý tham số phụ thuộc trước khi thực hiện thao tác.",
         // The note is the only carrier of "why the period changed".
         "OrgUnit.ReasonRequiredForPeriodChange" =>
             "Khi thay đổi kỳ hiệu lực, người dùng phải nhập lý do.",
@@ -1524,6 +1580,40 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // on its own connection and hand-compensate with DeleteEmptyIdentityAsync when the version write failed,
     // which design-effective-period.md §7 forbids and which left an orphan identity whenever the
     // compensation itself did not run.
+    private async Task ExecuteSaveReplaceAsync(EffectivePeriod period)
+    {
+        // Settled confirm (card 238): what the gesture does, no dates and no values.
+        const string ReplaceConfirm =
+            "Đơn vị sẽ được thay thế toàn bộ thông tin. Người dùng cần xác nhận tiếp tục trước khi lưu.";
+        if (!await _confirmation.ConfirmAsync(ReplaceConfirm, Array.Empty<string>()))
+        {
+            return;
+        }
+
+        var result = await _declaration.ReplaceOrgUnitDeclarationAsync(
+            new ReplaceOrgUnitDeclarationRequest(
+                _orgUnitId!.Value,
+                period,
+                OrgCode.Trim().ToUpperInvariant(),
+                ParentId,
+                OrgNameFullVn.Trim(),
+                OrgNameShortVn.Trim(),
+                Reason.Trim(),
+                Supplemental));
+
+        if (result.IsError)
+        {
+            StatusMessage = string.Join("; ", result.Errors.Select(FormatWriteError));
+            Severity = StatusSeverity.Error;
+            return;
+        }
+
+        var newId = result.Value.OrgUnitId;
+        Mode = OrgUnitCardMode.ReadOnly;
+        var verification = await LoadAsync(newId, period.From);
+        await CompleteSaveAfterVerificationAsync(newId, verification, "Đã lưu.");
+    }
+
     private async Task ExecuteSaveAddAsync(EffectivePeriod period)
     {
         var result = await _declaration.AddOrgUnitDeclarationAsync(

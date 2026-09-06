@@ -403,6 +403,185 @@ internal sealed class OrgUnitDeclarationService(
             : new AddOrgUnitDeclarationResult(newOrgUnitId, upsertResult!);
     }
 
+    // Construction invariants (design §6) — NOT guards, and NOT covered by Task 2 tests:
+    //   - the successor is not the predecessor
+    //   - the successor is not already replaced
+    // Both are true because the successor is a freshly minted identity with no rows. They become real
+    // guards if the successor ever becomes an EXISTING identity. That is not this design.
+    // Do NOT state "the successor covers what is marked" here — it is neither a guard nor a construction
+    // fact; total replacement removed that requirement without making it automatic.
+    //
+    // Fifth gesture (spec 2026-09-04): replace one org unit wholly with a corrected declaration.
+    // Ordering inside the composite is an invariant — [4e] before every isactive-reading probe, [4j]
+    // after the successor identity exists. See design §6 / plan Task 4.
+    public async Task<ErrorOr<ReplaceOrgUnitDeclarationResult>> ReplaceOrgUnitDeclarationAsync(
+        ReplaceOrgUnitDeclarationRequest request)
+    {
+        var username = currentUser.Username ?? "unknown";
+
+        // [1] P7 -- before any lock/transaction opens.
+        var authz = await authorization.AuthorizeAsync(username, FunctionKey);
+        if (authz.IsError)
+        {
+            return authz.Errors;
+        }
+
+        // [2] Global scope gate — same reasoning as Add: there is no narrower unit to check against
+        // for a gesture that mints a new identity.
+        if (authz.Value.Level != ScopeLevel.Global)
+        {
+            return Error.Forbidden(
+                "OrgUnit.ReplaceRequiresGlobalScope",
+                $"Replacing an org unit requires {ScopeLevel.Global} scope; actor '{username}' holds {authz.Value.Level}.");
+        }
+
+        // [2b] Read break-glass ONCE; reuse for the root gate inside the composite AND the audit row.
+        // Unlike Add's root gate this one runs INSIDE the composite: the predecessor's parent is a
+        // STORED value that a concurrent writer can change, so it must be decided under the lock.
+        var isBreakGlassActor = breakGlass.IsBreakGlassAdmin(username);
+
+        // [3] Enlist in fixed order: predecessor identity, then request.ParentId when non-null.
+        var composite = new CompositeWrite(connections)
+            .Enlist(orgUnitRepository, request.PredecessorOrgUnitId);
+        if (request.ParentId is { } parentId)
+        {
+            composite = composite.Enlist(orgUnitRepository, parentId);
+        }
+
+        long successorOrgUnitId = 0;
+        UpsertResult? upsertResult = null;
+
+        var writeResult = await composite.ExecuteAsync(async context =>
+        {
+            // [4a] ACTIVE predecessor rows under the lock -> ids, periods, parent id(s).
+            var activeRows = await orgUnitRepository.GetActivePredecessorVersionsAsync(
+                context, request.PredecessorOrgUnitId);
+
+            // [4b] Decided from the READ, not from the mark's affected count.
+            if (activeRows.Count == 0)
+            {
+                return Error.NotFound(
+                    "OrgUnit.PredecessorMarksNothing",
+                    $"Org unit {request.PredecessorOrgUnitId} has no active version left to replace.");
+            }
+
+            var distinctParents = activeRows.Select(r => r.ParentId).Distinct().ToList();
+
+            // [4c] null IS an element — root-on-one-version + attached-on-another yields two.
+            if (distinctParents.Count > 1)
+            {
+                return Error.Conflict(
+                    "OrgUnit.ParentNotWellDefined",
+                    $"Org unit {request.PredecessorOrgUnitId} has {distinctParents.Count} distinct parents across its " +
+                    "active versions; its stored parent is not well-defined.");
+            }
+
+            var storedParent = distinctParents[0];
+
+            // [4d] ROOT GATE — singleton parent is null OR successor is declared as root.
+            if ((storedParent is null || request.ParentId is null) && !isBreakGlassActor)
+            {
+                return Error.Forbidden(
+                    "OrgUnit.RootNotReplaceable",
+                    $"A root org unit may only be replaced by a break-glass administrator; actor '{username}' is not one.");
+            }
+
+            // [4e] MARK isactive = 0 on [4a]'s ids — BEFORE every isactive-reading probe.
+            var markedVersionIds = new List<long>(activeRows.Count);
+            var markedCount = 0;
+            foreach (var row in activeRows)
+            {
+                markedCount += await orgUnitRepository.MarkVersionInactiveForReplaceAsync(context, row.VersionId);
+                markedVersionIds.Add(row.VersionId);
+            }
+
+            // Technical invariant: mark must affect exactly the rows [4a] read. Not a business code.
+            if (markedCount != activeRows.Count)
+            {
+                throw new InvalidOperationException(
+                    $"Replace mark affected {markedCount} rows but [4a] read {activeRows.Count}.");
+            }
+
+            // [4f] predecessor-empty probe — must see the predecessor already inactive.
+            var emptyProbe = orgUnitRepository.ProbePredecessorEmpty(context, request.PredecessorOrgUnitId);
+            if (emptyProbe.IsError)
+            {
+                return emptyProbe.Errors;
+            }
+
+            // [4g] N1 root-overlap when the successor is a root.
+            if (request.ParentId is null)
+            {
+                var rootPeriods = await orgUnitRepository.GetActiveRootPeriodsAsync(context);
+                if (rootPeriods.Any(p => p.Overlaps(request.Period)))
+                {
+                    return Error.Validation(
+                        "OrgUnit.RootPeriodOverlaps",
+                        $"Another root org unit is already effective during [{request.Period.From:yyyy-MM-dd}, {request.Period.To:yyyy-MM-dd}].");
+                }
+            }
+
+            // [4h] Mint the successor identity — after every replacement guard has passed.
+            successorOrgUnitId = await orgUnitRepository.CreateIdentityAsync(context);
+
+            // [4i] Successor's first version, kind Replace. P6 and D8 run HERE, inherited from UpsertAsync.
+            var write = await orgUnitRepository.UpsertAsync(
+                context, successorOrgUnitId, request.Period, request.OrgCode, request.OrgNameFullVn,
+                request.OrgNameShortVn, request.ParentId, VersionOperationKind.Replace, username, request.Reason,
+                request.Supplemental);
+            if (write.IsError)
+            {
+                return write.Errors;
+            }
+
+            upsertResult = write.Value;
+
+            // [4j] STAMP status + successor link, on exactly [4e]'s ids — AFTER the successor exists.
+            foreach (var versionId in markedVersionIds)
+            {
+                await orgUnitRepository.StampVersionReplacedAsync(context, versionId, successorOrgUnitId);
+            }
+
+            // [4k] Audit row. Unlike Add/Edit siblings the detail carries no versionId — the audit
+            // target already IS org_unit_version:{successor's first version id}.
+            var auditResult = await auditLog.WriteAsync(
+                new AuditLogEntry(
+                    "orgunit-replace",
+                    username,
+                    $"org_unit_version:{write.Value.NewVersionId}",
+                    BuildReplaceDetailJson(
+                        request.PredecessorOrgUnitId, successorOrgUnitId, markedVersionIds, request.Reason)),
+                context.Transaction);
+            if (auditResult.IsError)
+            {
+                return auditResult.Errors;
+            }
+
+            // Second, security-specific row when [4d] permitted a root write.
+            if ((storedParent is null || request.ParentId is null) && isBreakGlassActor)
+            {
+                var breakGlassAudit = await auditLog.WriteAsync(
+                    new AuditLogEntry(
+                        "orgunit-root-replace-breakglass",
+                        username,
+                        $"org_unit_version:{write.Value.NewVersionId}",
+                        BuildReplaceDetailJson(
+                            request.PredecessorOrgUnitId, successorOrgUnitId, markedVersionIds, request.Reason)),
+                    context.Transaction);
+                if (breakGlassAudit.IsError)
+                {
+                    return breakGlassAudit.Errors;
+                }
+            }
+
+            return Result.Success;
+        });
+
+        return writeResult.IsError
+            ? writeResult.Errors
+            : new ReplaceOrgUnitDeclarationResult(successorOrgUnitId, upsertResult!);
+    }
+
     // Third use-case: see IOrgUnitDeclarationService.EditOrgUnitDeclarationAsync's doc comment for the
     // load-bearing property (a new parent is UNEXPRESSIBLE). Step order deliberately mirrors
     // CloseOrgUnitDeclarationAsync above.
@@ -835,8 +1014,8 @@ internal sealed class OrgUnitDeclarationService(
     // TRIMMED ON PURPOSE (requester ruling 2026-08-17): `detail` carries the action's POINTERS -- identity,
     // version, parent, note -- and NOT a second copy of org_code / names / period / supplemental. Those live
     // on the org_unit_version row this points at, which is their authoritative home. The trim is safe HERE
-    // specifically because an Add's own version row records recorded_by, reason and operation_kind='Add'
-    // itself, and no later operation rewrites its business columns: a cut or split soft-deactivates it and
+    // specifically because that version row records recorded_by, reason and operation_kind for whichever
+    // operation produced it, and no later operation rewrites its business columns: a cut or split soft-deactivates it and
     // inserts new rows, and a cancel only flips isactive/status. Contrast the CANCEL branch, where
     // VersionedRepository.CancelVersionCoreAsync's no-predecessor path leaves the CREATOR's recorded_by
     // untouched -- there the audit row is the ONLY record of who acted, so nothing may be trimmed from it.
@@ -852,6 +1031,20 @@ internal sealed class OrgUnitDeclarationService(
         long OrgUnitId,
         long VersionId,
         long? ParentId,
+        string? Note);
+
+    // Unlike Add/Edit siblings this detail carries no versionId: the audit target already IS
+    // org_unit_version:{successor's first version id}, so a second copy would be redundant — not an oversight.
+    private static string BuildReplaceDetailJson(
+        long predecessorOrgUnitId, long successorOrgUnitId, IReadOnlyList<long> markedVersionIds, string? note) =>
+        JsonSerializer.Serialize(
+            new OrgUnitReplaceAuditDetail(predecessorOrgUnitId, successorOrgUnitId, markedVersionIds, note),
+            DetailJsonOptions);
+
+    private sealed record OrgUnitReplaceAuditDetail(
+        long PredecessorOrgUnitId,
+        long SuccessorOrgUnitId,
+        IReadOnlyList<long> MarkedVersionIds,
         string? Note);
 
     // Same POINTERS-only shape and same trim rationale as BuildAddDetailJson above: identity, version,

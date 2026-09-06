@@ -65,6 +65,9 @@ CREATE TABLE `org_unit_version` (
   -- 'Cancelled' and 'cancelléd', which pass the CHECK and then fail to materialize as an enum name.
   status                   VARCHAR(10)  COLLATE utf8mb4_0900_as_cs NOT NULL DEFAULT 'normal',
   -- the successor IDENTITY; set only on a `replaced` row and required there (chk_ouv_status below).
+  -- WRITER since 2026-09-04: OrgUnitDeclarationService.ReplaceOrgUnitDeclarationAsync, in TWO statements --
+  -- the MARK sets isactive = 0, then the STAMP sets status + this column AFTER the successor identity exists,
+  -- because this is an FK MySQL checks immediately. Before that date V010 shipped the column with no producer.
   replaced_by_org_unit_id  BIGINT UNSIGNED NULL,
   -- per-row action recorded on write (Add/Edit/Close/Cancel/Replace) -- Phase 4d history-grid read; nullable,
   -- no backfill for pre-4d rows; enum persisted verbatim via ToString()/Enum.Parse (no other enum-to-column

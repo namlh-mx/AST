@@ -10,7 +10,11 @@ CREATE TABLE `org_unit` (
 CREATE TABLE `org_unit_version` (
   id                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   org_unit_id              BIGINT UNSIGNED NOT NULL,       -- FK -> org_unit(id) (identity header)
-  org_code                 VARCHAR(8)   NOT NULL,          -- business code / natural key (P6); app: 4-8, letters+digits, ALL CAPS
+  org_code                 VARCHAR(8)   NOT NULL,          -- business code (P6); app: 4-8, letters+digits, ALL CAPS
+                                                           -- NOT a natural key: the 2026-09-04 Thay the gesture lets a
+                                                           -- corrected declaration change the code, so one real-world
+                                                           -- unit can span two codes across two identities. P6 is a
+                                                           -- uniqueness rule over ACTIVE rows in a period, not identity.
   org_name_full_vn         VARCHAR(100) NOT NULL,          -- full VN name (legal profile)
   org_name_short_vn        VARCHAR(100) NOT NULL,          -- short VN name (internal management)
   parent_id                BIGINT UNSIGNED NULL,           -- FK -> org_unit(id) (parent identity); NULL = root

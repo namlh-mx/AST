@@ -618,6 +618,12 @@
 
                                                 </DataTrigger>
 
+                                                <DataTrigger Binding="{Binding Mode}" Value="Replacing">
+
+                                                    <Setter Property="IsEnabled" Value="True" />
+
+                                                </DataTrigger>
+
                                                 <!--  Closing: EP on; From locked; undetermined locked off (must enter To).  -->
 
                                                 <DataTrigger Binding="{Binding Mode}" Value="Closing">
@@ -706,6 +712,12 @@
 
                                                         </DataTrigger>
 
+                                                        <DataTrigger Binding="{Binding Mode}" Value="Replacing">
+
+                                                            <Setter Property="IsEnabled" Value="True" />
+
+                                                        </DataTrigger>
+
                                                     </Style.Triggers>
 
                                                 </Style>
@@ -762,6 +774,12 @@
 
                                                         </DataTrigger>
 
+                                                        <DataTrigger Binding="{Binding Mode}" Value="Replacing">
+
+                                                            <Setter Property="IsEnabled" Value="True" />
+
+                                                        </DataTrigger>
+
                                                     </Style.Triggers>
 
                                                 </Style>
@@ -797,6 +815,12 @@
                                                         </DataTrigger>
 
                                                         <DataTrigger Binding="{Binding Mode}" Value="Editing">
+
+                                                            <Setter Property="IsEnabled" Value="True" />
+
+                                                        </DataTrigger>
+
+                                                        <DataTrigger Binding="{Binding Mode}" Value="Replacing">
 
                                                             <Setter Property="IsEnabled" Value="True" />
 
@@ -918,6 +942,12 @@
 
                                                     </DataTrigger>
 
+                                                    <DataTrigger Binding="{Binding Mode}" Value="Replacing">
+
+                                                        <Setter Property="IsEnabled" Value="True" />
+
+                                                    </DataTrigger>
+
                                                     <DataTrigger Binding="{Binding Mode}" Value="Closing">
 
                                                         <Setter Property="IsEnabled" Value="True" />
@@ -938,7 +968,7 @@
 
                                 <!--
 
-                                    §2.7.10 matrix via Command.CanExecute only — all five always visible;
+                                    §2.7.10 matrix via Command.CanExecute only — all six always visible;
 
                                     disable (do not collapse) when the settled Can* predicate is false.
 
@@ -977,6 +1007,24 @@
                                         <ui:Button.Icon>
 
                                             <ui:SymbolIcon Symbol="Edit24" />
+
+                                        </ui:Button.Icon>
+
+                                    </ui:Button>
+
+                                    <ui:Button
+
+                                        Appearance="Secondary"
+
+                                        Command="{Binding BeginReplaceCommand}"
+
+                                        Content="Thay thế"
+
+                                        Style="{StaticResource EqualActionButton}">
+
+                                        <ui:Button.Icon>
+
+                                            <ui:SymbolIcon Symbol="ArrowRepeatAll24" />
 
                                         </ui:Button.Icon>
 

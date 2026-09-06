@@ -355,6 +355,17 @@ public class OrgUnitDeclarationViewModelTests
                 request.Reason, request.Supplemental);
         }
 
+        public ErrorOr<ReplaceOrgUnitDeclarationResult> ReplaceResult { get; set; } =
+            new ReplaceOrgUnitDeclarationResult(0, new UpsertResult(0, [], []));
+        public ReplaceOrgUnitDeclarationRequest? LastReplaceRequest { get; private set; }
+
+        public Task<ErrorOr<ReplaceOrgUnitDeclarationResult>> ReplaceOrgUnitDeclarationAsync(
+            ReplaceOrgUnitDeclarationRequest request)
+        {
+            LastReplaceRequest = request;
+            return Task.FromResult(ReplaceResult);
+        }
+
         // Task 1b's canonical preview. This fake RETURNS what the test seeded instead of deriving the
         // remnants: a fake that ran the 8-case algebra itself would only ever prove itself, and the
         // preview-agrees-with-the-write claim belongs on real MySQL (OrgUnitDeclarationServiceTests).
@@ -3995,7 +4006,14 @@ public class OrgUnitDeclarationViewModelTests
         ["Authz.NotGranted"] = new("Người dùng không được cấp quyền."),
         ["Authz.ScopeInsufficient"] = new("Người dùng không được cấp quyền."),
         ["OrgUnit.AddRequiresGlobalScope"] = new("Người dùng không được cấp quyền."),
+        ["OrgUnit.ReplaceRequiresGlobalScope"] = new("Người dùng không được cấp quyền."),
         ["OrgUnit.NotInScope"] = new("Người dùng không được cấp quyền."),
+        ["OrgUnit.RootNotReplaceable"] =
+            new("Người dùng không có quyền thay thế đơn vị gốc."),
+        ["OrgUnit.PredecessorMarksNothing"] =
+            new("Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật."),
+        ["OrgUnit.PredecessorNotEmpty"] =
+            new("Đơn vị còn tham số phụ thuộc, người dùng cần xử lý tham số phụ thuộc trước khi thực hiện thao tác."),
         [VersionCloseRules.Codes.CloseDateRequired] =
             new("Ngày kết thúc hiệu lực chưa được khai báo."),
         [VersionCloseRules.Codes.CloseDateInPast] =
@@ -4164,5 +4182,169 @@ public class OrgUnitDeclarationViewModelTests
         vm.Severity.Should().Be(StatusSeverity.Error);
         vm.StatusMessage.Should().Be("Đơn vị không hiệu lực tại ngày đã chọn.");
         vm.StatusMessage.Should().NotContain("OrgUnitVersionRow");
+    }
+
+    // ---- Card 238: Thay thế (Replace) surface ----
+
+    [Fact]
+    public async Task CanReplace_ForANonRootUnit_IsTrueWithoutBreakGlass()
+    {
+        var (vm, repo) = Build(breakGlass: new FakeBreakGlassPolicy());
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 88, orgCode: "CN001");
+        await vm.LoadAsync(1, Today);
+
+        vm.IsRoot.Should().BeFalse();
+        vm.CanReplace.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CanReplace_ForARootUnit_IsTrueOnlyForABreakGlassActor()
+    {
+        var ordinary = Build(breakGlass: new FakeBreakGlassPolicy());
+        ordinary.Repo.ByIdentityResult = Dto(1, parentId: null, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 88, orgCode: "ROOT1");
+        await ordinary.Vm.LoadAsync(1, Today);
+        ordinary.Vm.IsRoot.Should().BeTrue();
+        ordinary.Vm.CanReplace.Should().BeFalse();
+
+        var rescuer = Build(breakGlass: new FakeBreakGlassPolicy("tester"));
+        rescuer.Repo.ByIdentityResult = Dto(1, parentId: null, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 88, orgCode: "ROOT1");
+        await rescuer.Vm.LoadAsync(1, Today);
+        rescuer.Vm.CanReplace.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CanReplace_WhenStatusIsExpired_IsFalse()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-30), Today.AddDays(-1), id: 88, orgCode: "CN001",
+            status: VersionLifecycleStatus.Normal);
+        // Force Expired via load-of-ended period: Status derives from dates vs today.
+        await vm.LoadAsync(1, Today);
+        vm.Status.Should().Be(VersionStatus.Expired);
+        vm.CanReplace.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task BeginReplaceCommand_KeepsCurrentValues_AndEntersReplacing()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30,
+            orgCode: "CN001", orgNameFullVn: "Chi nhánh một", orgNameShortVn: "CN1");
+        await vm.LoadAsync(3, Today);
+
+        vm.BeginReplaceCommand.Execute();
+
+        vm.Mode.Should().Be(OrgUnitCardMode.Replacing);
+        vm.OrgCode.Should().Be("CN001");
+        vm.OrgNameFullVn.Should().Be("Chi nhánh một");
+        vm.OrgNameShortVn.Should().Be("CN1");
+        vm.ParentId.Should().Be(1);
+        vm.IsParentLocked.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task OffersRootParentOption_InReplacing_IsTrueOnlyForBreakGlass()
+    {
+        var ordinary = Build(breakGlass: new FakeBreakGlassPolicy());
+        ordinary.Repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        await ordinary.Vm.LoadAsync(3, Today);
+        ordinary.Vm.BeginReplaceCommand.Execute();
+        ordinary.Vm.OffersRootParentOption.Should().BeFalse();
+
+        var rescuer = Build(breakGlass: new FakeBreakGlassPolicy("tester"));
+        rescuer.Repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        await rescuer.Vm.LoadAsync(3, Today);
+        rescuer.Vm.BeginReplaceCommand.Execute();
+        rescuer.Vm.OffersRootParentOption.Should().BeTrue();
+    }
+
+    [Fact]
+    public void OffersRootParentOption_InAdding_IsTrueWithoutBreakGlass()
+    {
+        var (vm, _) = Build(breakGlass: new FakeBreakGlassPolicy());
+        vm.BeginAddCommand.Execute();
+        vm.OffersRootParentOption.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Save_Replace_ConfirmAccepted_DelegatesFormValuesToReplaceRequest()
+    {
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            ReplaceResult = new ReplaceOrgUnitDeclarationResult(99, new UpsertResult(1, [], [])),
+        };
+        var (vm, repo, confirm) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.OrgCode = "CN009";
+        vm.OrgNameFullVn = "Chi nhánh mới";
+        vm.OrgNameShortVn = "CN moi";
+        vm.ParentId = 7;
+        vm.Reason = "khai bao lai";
+        repo.ByIdentityByOrgUnitId[99] = Dto(99, parentId: 7, Today.AddDays(-10), EffectivePeriod.OpenEnd,
+            orgCode: "CN009", orgNameFullVn: "Chi nhánh mới", orgNameShortVn: "CN moi");
+
+        await vm.SaveCommand.Execute();
+
+        confirm.CallCount.Should().Be(1);
+        confirm.LastMessage.Should().Be(
+            "Đơn vị sẽ được thay thế toàn bộ thông tin. Người dùng cần xác nhận tiếp tục trước khi lưu.");
+        confirm.LastDetails.Should().BeEmpty();
+        declaration.LastReplaceRequest.Should().NotBeNull();
+        declaration.LastReplaceRequest!.PredecessorOrgUnitId.Should().Be(3);
+        declaration.LastReplaceRequest.OrgCode.Should().Be("CN009");
+        declaration.LastReplaceRequest.OrgNameFullVn.Should().Be("Chi nhánh mới");
+        declaration.LastReplaceRequest.OrgNameShortVn.Should().Be("CN moi");
+        declaration.LastReplaceRequest.ParentId.Should().Be(7);
+        declaration.LastReplaceRequest.Reason.Should().Be("khai bao lai");
+    }
+
+    [Fact]
+    public async Task Save_Replace_ConfirmDeclined_LeavesFormAndDoesNotCallReplace()
+    {
+        var declaration = new FakeOrgUnitDeclarationService();
+        var (vm, repo, confirm) = BuildForEdit(confirmH2: false, declaration: declaration);
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.OrgNameShortVn = "CN1b";
+        vm.Reason = "thu";
+
+        await vm.SaveCommand.Execute();
+
+        confirm.CallCount.Should().Be(1);
+        declaration.LastReplaceRequest.Should().BeNull();
+        vm.Mode.Should().Be(OrgUnitCardMode.Replacing);
+        vm.OrgNameShortVn.Should().Be("CN1b");
+    }
+
+    [Theory]
+    [InlineData("OrgUnit.RootNotReplaceable",
+        "Người dùng không có quyền thay thế đơn vị gốc.")]
+    [InlineData("OrgUnit.PredecessorMarksNothing",
+        "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.")]
+    [InlineData("OrgUnit.ReplaceRequiresGlobalScope",
+        "Người dùng không được cấp quyền.")]
+    [InlineData("OrgUnit.PredecessorNotEmpty",
+        "Đơn vị còn tham số phụ thuộc, người dùng cần xử lý tham số phụ thuộc trước khi thực hiện thao tác.")]
+    public async Task Save_Replace_ServiceError_SurfacesSettledSentence(string code, string expected)
+    {
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            ReplaceResult = Error.Validation(code, "SEED-DESCRIPTION-MUST-NOT-LEAK"),
+        };
+        var (vm, repo, _) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.Reason = "thu";
+
+        await vm.SaveCommand.Execute();
+
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be(expected);
+        vm.StatusMessage.Should().NotContain("SEED-DESCRIPTION-MUST-NOT-LEAK");
+        vm.Mode.Should().Be(OrgUnitCardMode.Replacing);
     }
 }

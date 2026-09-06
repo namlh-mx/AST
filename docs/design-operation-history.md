@@ -58,9 +58,17 @@ the advisory that proposed appending terminal revisions.
 
 ### 1.3 Two vocabularies, never unified
 
-- `operation.kind` — what the **user did**: `Save`, `Close`, `Cancel`, `Delete`, `Sync`.
+- `operation.kind` — what the **user did**: `Save`, `Close`, `Cancel`, `Delete`, `Sync`, `Replace`.
 - `{table}.operation_kind` (existing, `VersionOperationKind`) — what happened to **that row**:
-  `Add`, `Edit`, `Close`, `Cancel`.
+  `Add`, `Edit`, `Close`, `Cancel`, `Replace`.
+
+⚠️ **Both lists gained `Replace` on 2026-09-04, and for different reasons.** The per-row value shipped
+2026-08-24 with V010 and is written by the org-unit replacement gesture (Thay thế) — the successor's
+first version carries it. The **gesture-level** value is a **requester ruling of 2026-09-04**: Thay thế
+gets its own header kind rather than reusing `Save`, so the header reads *"Thay thế"* instead of being
+indistinguishable from an ordinary Sửa. Nothing in the shipped replacement implementation depends on the
+header value — neither `operation` nor its columns exist yet — it is recorded here so this slice does not
+have to guess.
 
 One Save can write an `Edit` role row, a `Cancel` grant row and two `Add` grant rows. A scalar header
 field cannot carry that, and must not try to. Collapsing the two vocabularies re-creates exactly the
@@ -302,6 +310,24 @@ silently changing policy. A repository test alone proves neither.
 
 All in `AST.Infrastructure/VersionedRepository.cs`.
 
+⚠️ **Ten is no longer the whole inventory.** The org-unit replacement gesture (Thay thế, shipped
+2026-09-04) adds **two org-unit-local state-changing UPDATEs** that are *not* in this file and therefore
+not in the table below — `MarkVersionInactiveForReplaceAsync` and `StampVersionReplacedAsync`, both in
+`AST.Modules.IAM/Data/Repositories/OrgUnitRepository.cs`. They live there and not in the shared base
+because `replaced_by_org_unit_id` is org-unit-only: `chk_rv_status` and `chk_rpv_status` do not admit
+`'replaced'` at all.
+
+| Site (method) | What it does today | Must stamp |
+|---|---|---|
+| `MarkVersionInactiveForReplaceAsync` | `isactive = 0` on a predecessor version | `superseded_by` |
+| `StampVersionReplacedAsync` | `status = 'replaced'` + the successor link, on the rows just marked | **nothing** |
+
+⭐ **Which of the two owns the stamp matters, and the answer is the MARK** — it is the statement that
+sets `isactive = 0`. The stamp must **not** write `superseded_by_operation_id` a second time, or OP4's
+*"every state flip stamps it exactly once"* is broken by the very gesture that recorded it. Left
+unrecorded, the operation-history slice would leave replaced rows inactive with a null
+`superseded_by_operation_id`, which its own integrity query treats as a failure.
+
 | Site (method) | What it does today | Must stamp |
 |---|---|---|
 | `InsertNewAsync` | INSERT a new version | `created_by` |
@@ -380,9 +406,14 @@ performs a **separate repository transaction per function** inside a loop. So:
 
 ## 5. `audit_log` after this change
 
-Seven business write sites are removed: `RoleDeclarationService` ×5 (role save, grant revoke, grant
-add, role close, cascaded child) and `OrgUnitDeclarationService` ×2 (add, close/cancel). What remains
-is login, break-glass and signature-fail.
+Eight business write sites are removed: `RoleDeclarationService` ×5 (role save, grant revoke, grant
+add, role close, cascaded child) and `OrgUnitDeclarationService` ×3 (add, close/cancel, and
+**`orgunit-replace`**, added 2026-09-04 by the replacement gesture). What remains is login, break-glass
+and signature-fail.
+
+⚠️ **`orgunit-root-replace-breakglass` STAYS.** OP7 retires the *business* writers, not the security
+ones; the break-glass row is the record that a normally-forbidden operation was permitted, and it sits
+alongside `orgunit-root-add-breakglass` / `-edit-` / `-close-` which stay for the same reason.
 
 The atomicity property those sites carried does not disappear — it moves. Today a failing audit write
 rolls back the whole composite (`FailingAuditLogWriter` tests). After this change the same tests must
@@ -400,7 +431,7 @@ Expand → migrate → contract; every intermediate revision keeps the suite gre
 3. **Contract** — `created_by_operation_id` NOT NULL, once every writer and every fixture (§7) supplies
    one.
 4. **Switch reads** — history screens move to §3.
-5. **Remove** — the seven business `audit_log` writers and their now-duplicated tests.
+5. **Remove** — the eight business `audit_log` writers and their now-duplicated tests.
 
 **There is no backfill step, and that is a ruling, not an omission.** The requester, acting as DBA
 (2026-08-18, restating a decision from earlier sessions): the application has not been released, no

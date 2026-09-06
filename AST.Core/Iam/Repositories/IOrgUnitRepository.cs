@@ -12,9 +12,14 @@ namespace AST.Core.Iam.Repositories;
 public interface IOrgUnitRepository
 {
     // NO identity mint and NO compensating delete on this interface (2026-08-17, backlog 0.4b). Org-unit
-    // identity creation goes only through IOrgUnitDeclarationService.AddOrgUnitDeclarationAsync, which mints
-    // inside the same transaction as the first version (design-effective-period.md §7) -- so a zero-version
-    // header is not a state this interface can produce, and there is nothing for it to compensate.
+    // identity creation goes only through IOrgUnitDeclarationService, which mints inside the same transaction
+    // as the first version (design-effective-period.md §7) -- so a zero-version header is not a state this
+    // interface can produce, and there is nothing for it to compensate.
+    // WIDENED 2026-09-04: AddOrgUnitDeclarationAsync is no longer the ONLY mint path.
+    // ReplaceOrgUnitDeclarationAsync mints the SUCCESSOR identity the same way, inside the same transaction as
+    // its first version. The property above is unchanged -- both mints are on that one service -- but a reader
+    // must not infer "created" from operation_kind = 'Add': a replacement successor has no Add row anywhere in
+    // its history, and its creation date is the date of its FIRST row, whatever kind that row carries.
     // WIDENED 2026-08-21 (backlog 0.7): UpsertAsync is gone from here too. EVERY org-unit version write goes
     // through IOrgUnitDeclarationService IN PRODUCTION -- CloseVersionAsync/DeleteVersionAsync/CancelPlanAsync
     // below are the primitives that service drives, and they remain CALLABLE by anyone holding this interface.

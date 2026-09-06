@@ -1,7 +1,9 @@
 using AST.Core.Data;
 using AST.Core.EffectivePeriod;
 using AST.Core.Iam;
+using AST.Infrastructure;
 using Dapper;
+using ErrorOr;
 using FluentAssertions;
 using MySqlConnector;
 using AST.Core.Time;
@@ -651,6 +653,81 @@ public sealed class OrgUnitRepositoryTests : IamRepositoryTestBase
             new EffectivePeriod(new DateOnly(2020, 9, 1), new DateOnly(2020, 9, 30)));
     }
 
+    // Task 3 Step 2 — mark then stamp one row; operation_kind and business columns stay untouched.
+    [Fact]
+    public async Task MarkThenStamp_SetsInactiveReplacedAndSuccessorLink_LeavesOperationKindAndBusinessColumns()
+    {
+        SkipUnlessDbAvailable();
+
+        var id = await CreateOrgUnitAsync("MRK1", "Đơn vị Mark", "MRK1", null, OpenFrom2020);
+        var before = (await GetReplaceProbeRowsAsync(id)).Should().ContainSingle().Subject;
+        before.IsActive.Should().BeTrue();
+        before.Status.Should().Be("normal");
+        before.ReplacedByOrgUnitId.Should().BeNull();
+        before.OperationKind.Should().Be("Add");
+
+        var successorId = await OrgUnits.CreateIdentityAsync();
+
+        var write = await new CompositeWrite(Connections).Enlist(OrgUnits, id).ExecuteAsync(async context =>
+        {
+            var marked = await OrgUnits.MarkVersionInactiveForReplaceAsync(context, before.Id);
+            marked.Should().Be(1);
+            await OrgUnits.StampVersionReplacedAsync(context, before.Id, successorId);
+            return Result.Success;
+        });
+        write.IsError.Should().BeFalse(DescribeErrors(write.Errors));
+
+        var after = (await GetReplaceProbeRowsAsync(id)).Should().ContainSingle().Subject;
+        after.IsActive.Should().BeFalse();
+        after.Status.Should().Be("replaced");
+        after.ReplacedByOrgUnitId.Should().Be(successorId);
+        after.OperationKind.Should().Be(before.OperationKind);
+        after.OrgCode.Should().Be(before.OrgCode);
+        after.OrgNameFullVn.Should().Be(before.OrgNameFullVn);
+        after.OrgNameShortVn.Should().Be(before.OrgNameShortVn);
+        after.ParentId.Should().Be(before.ParentId);
+        after.EffectiveFrom.Should().Be(before.EffectiveFrom);
+        after.EffectiveTo.Should().Be(before.EffectiveTo);
+    }
+
+    // Task 3 Step 3 — empty-predecessor probe blocks on an active child and passes when that child is inactive.
+    [Fact]
+    public async Task ProbePredecessorEmpty_BlocksWhenActiveChildExists_PassesWhenOnlyInactiveDependent()
+    {
+        SkipUnlessDbAvailable();
+
+        var parent = await CreateOrgUnitAsync("PRBEPAR", "Cha probe", "PRBEPAR", null, OpenFrom2020);
+        var predecessor = await CreateOrgUnitAsync("PRBEOLD", "Đơn vị probe", "PRBEOLD", parent, OpenFrom2020);
+        var child = await CreateOrgUnitAsync("PRBECHLD", "Con phụ thuộc", "PRBECHLD", predecessor, OpenFrom2020);
+
+        var blocked = await new CompositeWrite(Connections).Enlist(OrgUnits, predecessor).ExecuteAsync(async context =>
+        {
+            var probe = OrgUnits.ProbePredecessorEmpty(context, predecessor);
+            probe.IsError.Should().BeTrue();
+            probe.FirstError.Code.Should().Be("OrgUnit.PredecessorNotEmpty");
+            probe.FirstError.Description.Should().Be(
+                "Đơn vị còn tham số phụ thuộc, người dùng cần xử lý tham số phụ thuộc trước khi thực hiện thao tác.");
+            return Result.Success;
+        });
+        blocked.IsError.Should().BeFalse(DescribeErrors(blocked.Errors));
+
+        await using (var connection = new MySqlConnection(ConnectionString))
+        {
+            await connection.OpenAsync(TestContext.Current.CancellationToken);
+            await connection.ExecuteAsync(
+                "UPDATE org_unit_version SET isactive = 0 WHERE org_unit_id = @child AND isactive = 1",
+                new { child });
+        }
+
+        var allowed = await new CompositeWrite(Connections).Enlist(OrgUnits, predecessor).ExecuteAsync(async context =>
+        {
+            var probe = OrgUnits.ProbePredecessorEmpty(context, predecessor);
+            probe.IsError.Should().BeFalse(DescribeErrors(probe.Errors));
+            return Result.Success;
+        });
+        allowed.IsError.Should().BeFalse(DescribeErrors(allowed.Errors));
+    }
+
     // Class (not a record) + init property: Dapper 2.1.79 materializes via reflection/property-setter
     // more reliably for this shape than a record (Dapper's constructor-mapping does not cooperate well with a custom
     // TypeHandler for DateOnly when matching a constructor -- see DapperDateOnlyTypeHandler).
@@ -663,6 +740,37 @@ public sealed class OrgUnitRepositoryTests : IamRepositoryTestBase
         public string OrgCode { get; init; } = string.Empty;
         public string OrgNameFullVn { get; init; } = string.Empty;
         public long? ParentId { get; init; }
+    }
+
+    private sealed class ReplaceProbeRow
+    {
+        public long Id { get; init; }
+        public bool IsActive { get; init; }
+        public string Status { get; init; } = string.Empty;
+        public long? ReplacedByOrgUnitId { get; init; }
+        public string? OperationKind { get; init; }
+        public string OrgCode { get; init; } = string.Empty;
+        public string OrgNameFullVn { get; init; } = string.Empty;
+        public string OrgNameShortVn { get; init; } = string.Empty;
+        public long? ParentId { get; init; }
+        public DateOnly EffectiveFrom { get; init; }
+        public DateOnly EffectiveTo { get; init; }
+    }
+
+    private async Task<List<ReplaceProbeRow>> GetReplaceProbeRowsAsync(long orgUnitId)
+    {
+        await using var connection = new MySqlConnection(ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        var rows = await connection.QueryAsync<ReplaceProbeRow>(
+            """
+            SELECT id AS Id, isactive AS IsActive, status AS Status,
+                   replaced_by_org_unit_id AS ReplacedByOrgUnitId, operation_kind AS OperationKind,
+                   org_code AS OrgCode, org_name_full_vn AS OrgNameFullVn, org_name_short_vn AS OrgNameShortVn,
+                   parent_id AS ParentId, effective_from AS EffectiveFrom, effective_to AS EffectiveTo
+            FROM org_unit_version WHERE org_unit_id = @orgUnitId
+            """,
+            new { orgUnitId });
+        return rows.ToList();
     }
 
     private async Task<List<RawVersionRow>> GetVersionRowsAsync(long orgUnitId)

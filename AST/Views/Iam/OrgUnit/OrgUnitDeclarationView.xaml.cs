@@ -73,7 +73,7 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
                 vm.PropertyChanged += OnViewModelPropertyChanged;
                 vm.CardClearedAfterSave -= OnCardClearedAfterSave;
                 vm.CardClearedAfterSave += OnCardClearedAfterSave;
-                Chrome.FormInEditing = vm.Mode == OrgUnitCardMode.Editing;
+                Chrome.FormInEditing = vm.Mode is OrgUnitCardMode.Editing or OrgUnitCardMode.Replacing;
                 RefreshParentSurface(vm);
                 RebuildHistoryRowsView(vm);
                 await vm.LoadTreeAsync(_dates.Today);
@@ -105,14 +105,15 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
             or nameof(OrgUnitDeclarationViewModel.ParentCandidates)
             or nameof(OrgUnitDeclarationViewModel.ParentId)
             or nameof(OrgUnitDeclarationViewModel.IsRoot)
-            or nameof(OrgUnitDeclarationViewModel.ParentEligibility))
+            or nameof(OrgUnitDeclarationViewModel.ParentEligibility)
+            or nameof(OrgUnitDeclarationViewModel.OffersRootParentOption))
         {
             RefreshParentSurface(vm);
         }
 
         if (e.PropertyName is nameof(OrgUnitDeclarationViewModel.Mode))
         {
-            Chrome.FormInEditing = vm.Mode == OrgUnitCardMode.Editing;
+            Chrome.FormInEditing = vm.Mode is OrgUnitCardMode.Editing or OrgUnitCardMode.Replacing;
             // After History→View, BeginAdd blanks the card — allow Xem again on the same row.
             if (vm.Mode == OrgUnitCardMode.Adding)
             {
@@ -230,7 +231,8 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
         // into isRootCreation via Count==0, or merely AND-ing a completeness flag onto isRootCreation,
         // flips showPicker to Editable-with-nothing (the original trap) or announces root creation while
         // candidates are still loading (the same bug one step later).
-        if (vm.Mode == OrgUnitCardMode.Adding && !vm.IsParentLocked)
+        // F-237-04 / card 238: Replacing unlocks the parent like unlocked Add. Editing stays Display.
+        if ((vm.Mode is OrgUnitCardMode.Adding or OrgUnitCardMode.Replacing) && !vm.IsParentLocked)
         {
             if (vm.ParentEligibility != ParentEligibilityState.Resolved)
             {
@@ -241,6 +243,14 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
 
             if (vm.ParentId is null && vm.ParentCandidates.Count == 0)
             {
+                // Successor-as-root half of RootNotReplaceable: ordinary actors never get this path in
+                // Replacing; break-glass (and Add) see the root Display normally (card 238).
+                if (!vm.OffersRootParentOption)
+                {
+                    Chrome.ParentMode = AstOrgUnitPickerMode.Editable;
+                    return;
+                }
+
                 Chrome.ParentMode = AstOrgUnitPickerMode.Display;
                 Chrome.ParentDisplayText = "Đơn vị gốc (không có cha)";
                 return;
@@ -597,10 +607,10 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
             if (DataContext is not OrgUnitDeclarationViewModel vm || !vm.CanOpenSupplemental)
                 return;
 
-            // ReadOnly/Closing = view-locked draft; Adding/Editing = unlocked entry.
+            // ReadOnly/Closing = view-locked draft; Adding/Editing/Replacing = unlocked entry.
             // ReadOnly/Closing both forbid [Sửa] unlock inside the dialog.
             var lockFields = vm.Mode is OrgUnitCardMode.ReadOnly or OrgUnitCardMode.Closing;
-            var allowUnlock = vm.Mode is OrgUnitCardMode.Adding or OrgUnitCardMode.Editing;
+            var allowUnlock = vm.Mode is OrgUnitCardMode.Adding or OrgUnitCardMode.Editing or OrgUnitCardMode.Replacing;
 
             SupplementalHost.Dialogs = Dialogs;
             SupplementalHost.LoadDraft(Chrome.SupplementalDraft, lockFields, allowUnlock);
