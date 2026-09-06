@@ -713,6 +713,11 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
         var markedIds = new[] { (long)pred.Id };
         const string note = "thay thế";
 
+        // ContainSingle below proves each expected row's fields; this set proves there is no third
+        // security event on the same successor target.
+        delta.Where(a => a.Target == target).Select(a => a.EventType).Should().BeEquivalentTo(
+            ["orgunit-replace", "orgunit-root-replace-breakglass"]);
+
         var ordinary = delta.Should().ContainSingle(a => a.EventType == "orgunit-replace").Subject;
         ordinary.Target.Should().Be(target);
         ordinary.Actor.Should().Be(Actor);
