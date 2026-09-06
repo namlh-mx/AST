@@ -23,6 +23,15 @@ public enum IntegrityViolationKind
     // two identities and a lineage must never be reconstructed by code. What this kind reports is P6 --
     // two ACTIVE identities sharing a key over an overlapping period -- which is true of all five and says
     // nothing about identity. Requester authorized the SharedKernel rename 2026-09-04; second reader Assurance Advisor.
+    //
+    // ⭐ THE PROJECTION SET IS SIX PRODUCERS, NOT FIVE. Corrected 2026-09-05 after Assurance Advisor withheld
+    // second-reader approval (F-240-07, review round 4): the rename's measurement named only the five-key
+    // array driving FindDuplicateActiveKeysAsync. FindDuplicateAdminFlagRolesAsync (N-14: at most one
+    // role_version with is_admin_role = 1 active on any day) emits this SAME kind from OUTSIDE that array,
+    // and its collision is a partial uniqueness predicate rather than a key column. A consumer that
+    // groups solely by Kind will mix the two; the Detail string is what distinguishes them today.
+    // The same correction fixed the renamed-test count: THREE test methods were renamed, not four -- the
+    // fourth changed occurrence is an assertion inside the admin-flag test, whose name did not change.
     DuplicateActiveKey,
 }
 

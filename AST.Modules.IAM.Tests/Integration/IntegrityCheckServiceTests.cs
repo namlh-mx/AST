@@ -6,8 +6,9 @@ using MySqlConnector;
 
 namespace AST.Modules.IAM.Tests.Integration;
 
-// B3 -- the integrity-check grid (§12 docs/design-effective-period.md, C1 + [R3] duplicate-natural-key
-// addition). For EACH violation type: INSERT bad data via direct SQL (bypassing the repo -- because the
+// B3 -- the integrity-check grid (§12 docs/design-effective-period.md, C1 + [R3] duplicate-active-key
+// addition -- renamed from duplicate-natural-key 2026-09-04 because org_code is not a natural key).
+// For EACH violation type: INSERT bad data via direct SQL (bypassing the repo -- because the
 // repo/effective-period engine CORRECTLY blocks these cases, so we must work around it to build the bad
 // state we need to detect), then assert that IIntegrityCheckService.RunAllChecksAsync() DETECTS the right kind + identity.
 public sealed class IntegrityCheckServiceTests : IamRepositoryTestBase

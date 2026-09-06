@@ -157,8 +157,13 @@ internal sealed class IntegrityCheckService(
         return violations;
     }
 
-    // [R3] Duplicate natural key: 2 DIFFERENT identities, same table, active on the same day (intersecting periods),
-    // sharing the same natural-key value (username/code/function_key/(role_id,function_id)).
+    // [R3] Duplicate ACTIVE key: 2 DIFFERENT identities, same table, active on the same day (intersecting
+    // periods), sharing the same key value. ⚠ Do NOT call these natural keys as a set. Four of the five
+    // are (username / role_code / function_key / (role_id, function_id)); `org_unit_version.org_code` is
+    // NOT, because Thay thế can give a corrected declaration a different code -- see the
+    // IntegrityViolationKind.DuplicateActiveKey comment, which is the single home for that reasoning.
+    // What this method reports is P6 alone: two active identities colliding on a key over an overlapping
+    // period. It says nothing about which of those keys defines identity.
     private static async Task<List<IntegrityViolation>> FindDuplicateActiveKeysAsync(
         System.Data.IDbConnection connection, string table, string[] keyColumns)
     {
