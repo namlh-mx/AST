@@ -176,6 +176,12 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             if (!SetProperty(ref _parentId, value))
                 return;
             MarkDirty();
+            // Card 263: rebuild before the gate so ParentPickerItems matches the new ParentId
+            // (and caches its ordinary label while it is still in the real set) before
+            // StatusMessage / PeriodCommitBlocked flip. The gate reads ParentCandidates only,
+            // so either order preserves gate correctness; rebuild-first keeps display and
+            // selection consistent for observers of the same setter.
+            RebuildParentPickerItems();
             // Branch B opens the picker; selecting a candidate must re-run the gate. Early return when
             // Mode != Replacing leaves Adding/Editing untouched; the gate never assigns ParentId.
             // Safe during a load: every _isLoading ParentId writer either has Mode != Replacing, or
@@ -213,9 +219,9 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         }
     }
 
-    // Display list bound by AstOrgUnitPicker.Items (card 261). May carry the card's parent as an
-    // extra row when that parent is absent from ParentCandidates (Branch B). The gate must NOT read
-    // this — only ParentCandidates.
+    // Display list bound by AstOrgUnitPicker.Items (cards 261/263). May carry the card's parent
+    // and/or the live ParentId as extra rows when those ids are absent from ParentCandidates
+    // (Branch B). The gate must NOT read this — only ParentCandidates.
     private IReadOnlyList<OrgUnitPickerItem> _parentPickerItems = [];
     public IReadOnlyList<OrgUnitPickerItem> ParentPickerItems
     {
@@ -227,6 +233,9 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // appears in the real eligible set so Branch B can re-offer it with an ordinary label after it
     // drops out. Cleared when leaving / re-entering Replacing.
     private OrgUnitPickerItem? _replaceCardParentPickerItem;
+
+    // Same cache for the live ParentId when it is not the card parent (card 263 / backlog 3.52).
+    private OrgUnitPickerItem? _replaceLiveParentPickerItem;
 
     private bool _isParentLocked;
     public bool IsParentLocked
@@ -398,6 +407,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
                 if (value is not OrgUnitCardMode.Replacing)
                 {
                     _replaceCardParentPickerItem = null;
+                    _replaceLiveParentPickerItem = null;
                     RebuildParentPickerItems();
                 }
             }
@@ -865,6 +875,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // distinctive unlock against Editing is the parent only (card 238 / F-237-01).
         _snapshot = CaptureSnapshot();
         _replaceCardParentPickerItem = null;
+        _replaceLiveParentPickerItem = null;
         Mode = OrgUnitCardMode.Replacing;
         RecomputeParentEligibility();
     }
@@ -1267,21 +1278,30 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // carrying the card's parent as an extra row. Gate keeps reading ParentCandidates only.
     private void RebuildParentPickerItems()
     {
-        // Extra-row identity is the parent on the card at BeginReplace (_snapshot.ParentId), not the
-        // live ParentId. That stays correct when the operator has already picked a real candidate and
-        // wants to go back to the original parent while it is still outside the real set.
-        if (Mode != OrgUnitCardMode.Replacing || _snapshot.ParentId is not long cardParentId)
+        // Display list = real eligible set
+        //   + card parent (_snapshot.ParentId) when absent from it
+        //   + live ParentId when absent from it and not the card parent.
+        // Gate keeps reading ParentCandidates only — never ParentPickerItems.
+        if (Mode != OrgUnitCardMode.Replacing)
         {
             ParentPickerItems = ParentCandidates;
             return;
         }
 
-        var inReal = ParentCandidates.FirstOrDefault(c => c.Id == cardParentId);
-        if (inReal is not null)
+        // Cache ordinary labels while an id is still in the real set, so a later drop-out
+        // re-offers the same label the operator already saw.
+        if (_snapshot.ParentId is long cardId)
         {
-            _replaceCardParentPickerItem = inReal;
-            ParentPickerItems = ParentCandidates;
-            return;
+            var cardInReal = ParentCandidates.FirstOrDefault(c => c.Id == cardId);
+            if (cardInReal is not null)
+                _replaceCardParentPickerItem = cardInReal;
+        }
+
+        if (ParentId is long liveId)
+        {
+            var liveInReal = ParentCandidates.FirstOrDefault(c => c.Id == liveId);
+            if (liveInReal is not null)
+                _replaceLiveParentPickerItem = liveInReal;
         }
 
         // Branch A: empty real set → Display surface; keep display list empty.
@@ -1291,12 +1311,36 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             return;
         }
 
-        // Branch B: real set non-empty and card parent absent → carry it with an ordinary label.
-        var extra = _replaceCardParentPickerItem
-            ?? FindTreePickerItem(cardParentId)
-            ?? new OrgUnitPickerItem(cardParentId, string.Empty);
-        ParentPickerItems = ParentCandidates.Concat([extra]).ToList();
+        List<OrgUnitPickerItem>? extras = null;
+
+        if (_snapshot.ParentId is long cardParentId
+            && ParentCandidates.All(c => c.Id != cardParentId))
+        {
+            extras = [ResolveInjectedPickerItem(cardParentId, _replaceCardParentPickerItem)];
+        }
+
+        if (ParentId is long selectedId
+            && selectedId != _snapshot.ParentId
+            && ParentCandidates.All(c => c.Id != selectedId))
+        {
+            extras ??= [];
+            extras.Add(ResolveInjectedPickerItem(selectedId, _replaceLiveParentPickerItem));
+        }
+
+        ParentPickerItems = extras is null
+            ? ParentCandidates
+            : ParentCandidates.Concat(extras).ToList();
     }
+
+    // Label for an injected Branch B row. Prefer the cache (last real sighting), then the tree.
+    // Empty-string fallback: unreachable when GetEligibleParentsAsync respects D8 STRICT at
+    // BeginReplace — the form period equals the unit's current period, so the card parent is in
+    // the first real set and _replaceCardParentPickerItem is populated before any drop-out. The
+    // live-selection cache is populated the same way when the operator picks a still-eligible
+    // candidate (ParentId setter → rebuild while the id is in ParentCandidates). Kept only as a
+    // last resort for fabricated eligible sets that omit a parent D8 would have returned.
+    private OrgUnitPickerItem ResolveInjectedPickerItem(long id, OrgUnitPickerItem? cached) =>
+        cached ?? FindTreePickerItem(id) ?? new OrgUnitPickerItem(id, string.Empty);
 
     private OrgUnitPickerItem? FindTreePickerItem(long id)
     {

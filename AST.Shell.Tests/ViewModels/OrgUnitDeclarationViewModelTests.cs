@@ -5049,4 +5049,163 @@ public class OrgUnitDeclarationViewModelTests
         vm.PeriodCommitBlocked.Should().BeTrue();
         vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
     }
+
+    // Card 263 / backlog 3.52: two-hop Branch B — select a real candidate, then drive that
+    // candidate out of the real set. Display list must carry both the card parent and the live
+    // selection; gate still reads ParentCandidates only.
+    [Fact]
+    public async Task ReplaceParentPeriodGate_TwoHop_SelectedCandidateLeavesRealSet_DisplayCarriesBothIds()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        // Reachable start: card parent present in the first real set (D8 at BeginReplace).
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(1, "PAR - Cha"),
+            new OrgUnitPickerItem(9, "KHDN - Khối KHDN"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.ParentCandidates.Should().Contain(c => c.Id == 1);
+        vm.PeriodCommitBlocked.Should().BeFalse();
+
+        // Drive card parent out → Branch B; select a still-eligible real candidate.
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "KHDN - Khối KHDN"),
+        ];
+        vm.EffectiveFrom = Today.AddDays(-5);
+        vm.ParentCandidates.Should().NotContain(c => c.Id == 1);
+        vm.ParentPickerItems.Should().Contain(c => c.Id == 1);
+        vm.PeriodCommitBlocked.Should().BeTrue();
+
+        vm.ParentId = 9;
+        vm.ParentId.Should().Be(9);
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.ParentPickerItems.Should().Contain(c => c.Id == 1);
+
+        // Second hop: selected candidate also leaves the real set.
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+        ];
+        vm.EffectiveFrom = Today.AddDays(-6);
+
+        vm.ParentCandidates.Should().NotContain(c => c.Id == 1);
+        vm.ParentCandidates.Should().NotContain(c => c.Id == 9);
+        vm.ParentCandidates.Should().ContainSingle(c => c.Id == 10);
+        vm.ParentPickerItems.Should().Contain(c => c.Id == 1, "card parent stays offered while absent from the real set");
+        vm.ParentPickerItems.Should().Contain(c => c.Id == 9, "live selection must stay on the display list when it leaves the real set");
+        vm.ParentPickerItems.Should().OnlyHaveUniqueItems(c => c.Id);
+        vm.ParentId.Should().Be(9);
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
+        vm.PeriodCommitBlocked.Should().BeTrue();
+        vm.CanSave.Should().BeFalse();
+
+        // Gate reads the real set: both injected ids are on the display list, so a predicate that
+        // read ParentPickerItems would clear. It must stay raised.
+        vm.IsReplaceParentAbsentFromCandidates.Should().BeTrue(
+            "gate must keep reading ParentCandidates; both injected rows would clear it if it read the display list");
+    }
+
+    [Fact]
+    public async Task ReplaceParentPeriodGate_TwoHop_PeriodBack_LiveExtraRowGone_GateClears()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(1, "PAR - Cha"),
+            new OrgUnitPickerItem(9, "KHDN - Khối KHDN"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "KHDN - Khối KHDN"),
+        ];
+        vm.EffectiveFrom = Today.AddDays(-5);
+        vm.ParentId = 9;
+
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+        ];
+        vm.EffectiveFrom = Today.AddDays(-6);
+        vm.ParentPickerItems.Should().Contain(c => c.Id == 9);
+        vm.PeriodCommitBlocked.Should().BeTrue();
+
+        // Period back: selected candidate eligible again; its extra display row disappears.
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "KHDN - Khối KHDN"),
+        ];
+        vm.EffectiveFrom = Today.AddDays(-5);
+
+        vm.ParentCandidates.Should().Contain(c => c.Id == 9);
+        vm.ParentCandidates.Should().NotContain(c => c.Id == 1);
+        vm.ParentPickerItems.Should().Contain(c => c.Id == 9);
+        vm.ParentPickerItems.Should().Contain(c => c.Id == 1, "card parent still absent from the real set");
+        vm.ParentPickerItems.Count(c => c.Id == 9).Should().Be(1, "live id is in the real set — no second injected row");
+        vm.ParentId.Should().Be(9);
+        vm.StatusMessage.Should().BeNull();
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.CanSave.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ReplaceParentPeriodGate_BranchB_LiveParentIsCardParent_SingleExtraRow()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+
+        vm.ParentId.Should().Be(1);
+        vm.ParentPickerItems.Should().Contain(c => c.Id == 1);
+        vm.ParentPickerItems.Count(c => c.Id == 1).Should().Be(1);
+        vm.ParentPickerItems.Should().HaveCount(vm.ParentCandidates.Count + 1,
+            "ordinary Branch B: exactly one extra row when live ParentId is the card parent");
+        vm.PeriodCommitBlocked.Should().BeTrue();
+    }
+
+    // Card 263 Part 2: on the reachable path the card-parent label is never empty — D8 at
+    // BeginReplace puts the parent in the first real set, so the cache is populated before any drop-out.
+    [Fact]
+    public async Task RebuildParentPickerItems_ReachableBranchB_CardParentLabelNeverEmpty()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(1, "PAR - Cha"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        vm.EffectiveFrom = Today.AddDays(-5);
+
+        var cardRow = vm.ParentPickerItems.Should().ContainSingle(c => c.Id == 1).Subject;
+        cardRow.Display.Should().NotBeNullOrEmpty(
+            "reachable Branch B must reuse the ordinary label cached while the card parent was in the real set");
+        cardRow.Display.Should().Be("PAR - Cha");
+    }
 }
