@@ -106,9 +106,14 @@ public abstract class VersionedRepository<TVersion> : IVersionedWriteTarget wher
     // other IAM repos have no `status` column; SELECT includes it only when overridden true.
     protected virtual bool SupportsCancellation => false;
 
-    // Opt-in: entity records WHICH user-facing action (Add/Edit/Close/Cancel) produced each written row
-    // (Phase 4d history-grid read). Default false — other IAM repos have no `operation_kind` column;
-    // INSERT includes it only when overridden true (exact mirror of SupportsCancellation above).
+    // Opt-in: entity records WHICH user-facing action (Add/Edit/Close/Cancel/Replace) produced each
+    // written row (Phase 4d history-grid read). Default false — other IAM repos have no
+    // `operation_kind` column; INSERT includes it only when overridden true (exact mirror of
+    // SupportsCancellation above). ⚠ The list is the WHOLE of VersionOperationKind and must stay that
+    // way: `Replace` was added 2026-09-04 and reaches this very path today — OrgUnitDeclarationService
+    // passes it to OrgUnitRepository.UpsertAsync, which overrides RecordsOperationKind to true, and
+    // InsertNewAsync persists it verbatim. A guard or CHECK built from a shorter list would refuse or
+    // miss a replacement successor (F-244-03, Assurance Advisor review round 5).
     protected virtual bool RecordsOperationKind => false;
 
     // Opt-in (spec §16.1 capability 2 / §15.2 D-7 — P11 "aggregate auto-cut"): dependents this entity
