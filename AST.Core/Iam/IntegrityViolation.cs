@@ -16,8 +16,14 @@ public enum IntegrityViolationKind
     // this situation, but the grid still checks it to catch cases of direct data tampering/faulty migrations.
     OrphanedChild,
 
-    // [R3] 2 active identities on the same day sharing a natural key (username/code/function_key/(role_id,function_id)).
-    DuplicateNaturalKey,
+    // [R3] 2 active identities on the same day sharing a key column (username/code/function_key/(role_id,function_id)).
+    // ⚠ RENAMED 2026-09-04 from DuplicateNaturalKey, and the check is unchanged -- only the word was wrong.
+    // Four of the five keys ARE natural keys, but `org_unit_version.org_code` is NOT: the Thay the gesture
+    // can give a corrected declaration a different code, so one real-world unit can span two codes across
+    // two identities and a lineage must never be reconstructed by code. What this kind reports is P6 --
+    // two ACTIVE identities sharing a key over an overlapping period -- which is true of all five and says
+    // nothing about identity. Requester authorized the SharedKernel rename 2026-09-04; second reader Assurance Advisor.
+    DuplicateActiveKey,
 }
 
 // `Table`/`IdentityId` anchor the violation to the exact identity record; `Detail` is a human-readable

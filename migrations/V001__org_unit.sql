@@ -39,7 +39,9 @@ CREATE TABLE `org_unit_version` (
   org_reserve_3            VARCHAR(255) NULL,
   -- durable "Bị hủy" discriminator (§8 #10 / N6): a future plan closed while pending gets isactive=0 AND cancelled=1 --
   cancelled                TINYINT(1)   NOT NULL DEFAULT 0,
-  -- per-row action recorded on write (Add/Edit/Close/Cancel) -- Phase 4d history-grid read; nullable, no backfill
+  -- per-row action recorded on write (Add/Edit/Close/Cancel/Replace) -- Phase 4d history-grid read; nullable,
+  -- no backfill. `Replace` joined 2026-09-04 with the Thay thế gesture: it is the kind on a replacement
+  -- SUCCESSOR's first version, and the one kind never preceded by an `Add` on that identity.
   -- for pre-4d rows; enum persisted verbatim via ToString()/Enum.Parse.
   operation_kind           VARCHAR(10)  NULL,
   effective_from           DATE NOT NULL,

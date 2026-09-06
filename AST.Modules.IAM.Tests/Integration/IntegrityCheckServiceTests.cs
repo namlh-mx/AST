@@ -87,7 +87,7 @@ public sealed class IntegrityCheckServiceTests : IamRepositoryTestBase
     }
 
     [Fact]
-    public async Task RunAllChecksAsync_DetectsDuplicateNaturalKey_OrgUnitCode()
+    public async Task RunAllChecksAsync_DetectsDuplicateActiveKey_OrgUnitCode()
     {
         SkipUnlessDbAvailable();
 
@@ -103,13 +103,13 @@ public sealed class IntegrityCheckServiceTests : IamRepositoryTestBase
         var violations = await IntegrityChecks.RunAllChecksAsync();
 
         Assert.Contains(violations, v =>
-            v.Kind == IntegrityViolationKind.DuplicateNaturalKey &&
+            v.Kind == IntegrityViolationKind.DuplicateActiveKey &&
             v.Table == "org_unit_version" &&
             (v.IdentityId == first || v.IdentityId == second));
     }
 
     [Fact]
-    public async Task RunAllChecksAsync_DetectsDuplicateNaturalKey_UsernameCaseInsensitive()
+    public async Task RunAllChecksAsync_DetectsDuplicateActiveKey_UsernameCaseInsensitive()
     {
         SkipUnlessDbAvailable();
 
@@ -125,13 +125,13 @@ public sealed class IntegrityCheckServiceTests : IamRepositoryTestBase
         var violations = await IntegrityChecks.RunAllChecksAsync();
 
         Assert.Contains(violations, v =>
-            v.Kind == IntegrityViolationKind.DuplicateNaturalKey &&
+            v.Kind == IntegrityViolationKind.DuplicateActiveKey &&
             v.Table == "user_version" &&
             (v.IdentityId == userA || v.IdentityId == userB));
     }
 
     [Fact]
-    public async Task RunAllChecksAsync_DetectsDuplicateNaturalKey_RoleCode()
+    public async Task RunAllChecksAsync_DetectsDuplicateActiveKey_RoleCode()
     {
         SkipUnlessDbAvailable();
 
@@ -142,7 +142,7 @@ public sealed class IntegrityCheckServiceTests : IamRepositoryTestBase
         var violations = await IntegrityChecks.RunAllChecksAsync();
 
         violations.Should().Contain(v =>
-            v.Kind == IntegrityViolationKind.DuplicateNaturalKey &&
+            v.Kind == IntegrityViolationKind.DuplicateActiveKey &&
             v.Table == "role_version" &&
             (v.IdentityId == first || v.IdentityId == second));
     }
@@ -159,7 +159,7 @@ public sealed class IntegrityCheckServiceTests : IamRepositoryTestBase
         var violations = await IntegrityChecks.RunAllChecksAsync();
 
         violations.Should().Contain(v =>
-            v.Kind == IntegrityViolationKind.DuplicateNaturalKey &&
+            v.Kind == IntegrityViolationKind.DuplicateActiveKey &&
             v.Table == "role_version" &&
             v.Detail.Contains("is_admin_role") &&
             (v.IdentityId == first || v.IdentityId == second));

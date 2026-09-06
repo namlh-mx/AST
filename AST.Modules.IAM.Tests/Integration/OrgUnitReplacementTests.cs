@@ -13,9 +13,9 @@ using MySqlConnector;
 namespace AST.Modules.IAM.Tests.Integration;
 
 // Pins ReplaceOrgUnitDeclarationAsync (card 232 / plan 2026-09-04). Real MySQL; non-persistence seams
-// are hand-rolled fakes, never Moq. Until Task 4 replaces the stub, every service-path test fails with
-// NotImplementedException — that is the deliverable, not a behavioural defect. Test 19 asserts the
-// database CHECK and must pass already.
+// are hand-rolled fakes, never Moq.
+// OrgUnitVersion_ReplacedStatusContradictions_AreRejectedByChkOuvStatus asserts the database CHECK
+// chk_ouv_status independently of the service path.
 public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
 {
     private static readonly EffectivePeriod OpenFrom2020 = new(new DateOnly(2020, 1, 1), EffectivePeriod.OpenEnd);
@@ -131,8 +131,10 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
     }
 
     // =========================================================================================
-    // Shape tests (1–7, 14, 22) — succeed under a correct implementation; stub → NIE until Task 4.
+    // Shape tests: the successful-replacement shape, plus the row that must NOT be touched.
     // Parent coverage is stated in each fixture (R4). Audit assertions use deltas (R5).
+    // ⚠ A NotImplementedException from the service is a DEFECT here. It was the deliverable while the
+    // gesture was a stub; the gesture shipped 2026-09-04 and that waiver is gone.
     // =========================================================================================
 
     [Fact]
@@ -380,7 +382,7 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
     }
 
     // Criterion 6 only (R6). Criterion 12 cannot be discharged by a green same-code success — an
-    // exemption would also pass. Task 4 proves FindCodeInUseAsync unchanged by diff.
+    // exemption would also pass. FindCodeInUseAsync being unchanged is shown by diff, not by this test.
     [Fact]
     public async Task ReplaceOrgUnitDeclarationAsync_SameCodeWithoutThirdHolder_SucceedsAndIsTheP6OrderingControl()
     {
@@ -503,11 +505,15 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
     }
 
     // =========================================================================================
-    // Replacement-guard tests (8–13, 15) and inherited-check / CHECK / rollback / audit (16–21).
+    // Replacement-guard tests, the two inherited checks, the database CHECK, rollback and audit.
+    // ⚠ Criterion numbers are deliberately NOT listed here: they drifted once already. Each test names
+    // the criterion it discharges in its own comment, which is the anchor that survives renumbering.
     // =========================================================================================
 
+    // Criteria 7/8: name claims refusal + unchanged predecessor only — not BeforeMark. One
+    // transaction; a durable-state test cannot prove gate order (plan round 2).
     [Fact]
-    public async Task ReplaceOrgUnitDeclarationAsync_RootPredecessor_OrdinaryGlobalActor_ReturnsRootNotReplaceableBeforeMark()
+    public async Task ReplaceOrgUnitDeclarationAsync_RootPredecessor_OrdinaryGlobalActor_IsRefusedAndLeavesPredecessorUnchanged()
     {
         SkipUnlessDbAvailable();
 
@@ -529,8 +535,10 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
             before, opts => opts.WithStrictOrdering());
     }
 
+    // Criteria 7/8: name claims refusal + unchanged predecessor only — not BeforeMark. One
+    // transaction; a durable-state test cannot prove gate order (plan round 2).
     [Fact]
-    public async Task ReplaceOrgUnitDeclarationAsync_RootSuccessor_OrdinaryGlobalActor_ReturnsRootNotReplaceableBeforeMark()
+    public async Task ReplaceOrgUnitDeclarationAsync_RootSuccessor_OrdinaryGlobalActor_IsRefusedAndLeavesPredecessorUnchanged()
     {
         SkipUnlessDbAvailable();
 
@@ -1198,7 +1206,7 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
         public string? Actor { get; set; }
     }
 
-    // Mirrors the production OrgUnitReplaceAuditDetail shape Task 4 must implement (R2).
+    // Mirrors the production OrgUnitReplaceAuditDetail shape (R2).
     private sealed record OrgUnitReplaceAuditDetailDto(
         long PredecessorOrgUnitId,
         long SuccessorOrgUnitId,

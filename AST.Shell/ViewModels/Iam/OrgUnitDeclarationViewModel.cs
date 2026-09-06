@@ -36,7 +36,8 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     private readonly IAuthorizationService _authorization;
     private readonly IConfirmationPrompt _confirmation;
 
-    // Function-level P7 (N8): ONE key gates every DB-mutating command on this screen (Add/Edit/Close), per
+    // Function-level P7 (N8): ONE key gates every DB-mutating command on this screen
+    // (Add/Edit/Close/Replace -- Replace joined 2026-09-04 and is gated by the same key), per
     // §2.7.9 -- there is no per-operation key. Registering this key into the live function catalog (so
     // AuthorizeAsync stops NotFound-ing) is Phase 4c/platform wiring, tracked there, not silently dropped.
     private const string FunctionKey = "Iam.OrgUnit.Declare";
@@ -330,7 +331,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     }
 
     // AstEffectivePeriod.IsEnabled binding — single home for strip enablement (FR9).
-    // On in Adding/Editing/Closing; off in ReadOnly and Closing∧cancel-plan-branch. Literal
+    // On in Adding/Editing/Replacing/Closing; off in ReadOnly and Closing∧cancel-plan-branch. Literal
     // "enabled unless Closing∧cancel-plan" would wrongly enable ReadOnly — do not simplify that way.
     //
     // The cancel-plan-vs-retire branch is deliberately NOT `Status == VersionStatus.Pending` — that was
@@ -576,7 +577,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         {
             // Reads stay Global by policy (decision-log 2026-08-05, "Scope-checked writes" part 2): the
             // parent picker must offer every eligible parent regardless of the operator's own scope --
-            // only the eventual write (Add/Edit/Close) is gated by the caller's resolved scope.
+            // only the eventual write (Add/Edit/Close/Replace) is gated by the caller's resolved scope.
             var scope = new DataScope(ScopeLevel.Global, null, _currentUser.Username ?? "unknown");
             var candidates = await _orgUnits.GetEligibleParentsAsync(scope, formPeriod);
             if (generation == _parentRefreshGeneration)
@@ -636,7 +637,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     {
         // _snapshot was captured by the Begin* that entered mutating mode -- for Add it is whatever the card
         // showed BEFORE the blank new-entry form (e.g. the previously selected node, or nothing), so restoring
-        // it is correct for all three mutating modes, not just Edit/Close.
+        // it is correct for ALL mutating modes -- Add, Edit, Close and Replace -- not just Edit/Close.
         // Cancel restores in-memory fields only (no write) — do not hit the DB for a tree/history refresh (FR6).
         var leftClosing = Mode == OrgUnitCardMode.Closing;
         Mode = OrgUnitCardMode.ReadOnly;
@@ -885,7 +886,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     private async Task LoadHistoryCoreAsync(long? orgUnitId, int? generation = null)
     {
         // Reads stay Global by policy (decision-log 2026-08-05, "Scope-checked writes" part 2): only
-        // WRITES (Add/Edit/Close) are gated by the caller's resolved scope -- history is a read-only
+        // WRITES (Add/Edit/Close/Replace) are gated by the caller's resolved scope -- history is a read-only
         // audit trail and is deliberately shown system-wide regardless of who is viewing it.
         var scope = new DataScope(ScopeLevel.Global, null, _currentUser.Username ?? "unknown");
         var versions = await _orgUnits.GetHistoryInScopeAsync(scope, orgUnitId);
@@ -1049,7 +1050,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     private static readonly Regex OrgCodePattern = new(@"^[A-Z0-9]{4,8}$", RegexOptions.Compiled);
     private static readonly Regex NamePattern = new(@"^[\p{L}\p{N} .\-]{3,100}$", RegexOptions.Compiled);
 
-    // §2.2 identity fields without reason — gates the supplemental open affordance on Add/Edit.
+    // §2.2 identity fields without reason — gates the supplemental open affordance on Add/Edit/Replace.
     private bool HasRequiredIdentityFields()
     {
         if (!OrgCodePattern.IsMatch(OrgCode.Trim()))
@@ -1074,7 +1075,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     private string? ValidateFields()
     {
         // Note (Reason) is OPTIONAL on every card mode — close/cancel audit_log records the actor
-        // regardless; Add/Edit persist an empty reason rather than blocking the operator (requester F5).
+        // regardless; Add/Edit/Replace persist an empty reason rather than blocking the operator (requester F5).
         // Close-date rules live in VersionCloseRules via the service (not re-validated here).
         if (Mode == OrgUnitCardMode.Closing)
             return null;

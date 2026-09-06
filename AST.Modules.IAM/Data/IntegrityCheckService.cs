@@ -23,8 +23,9 @@ internal sealed class IntegrityCheckService(
         "org_unit_version", "role_version", "function_version", "user_version", "role_permission_version",
     ];
 
-    // [R3] Natural keys that must be checked for duplicates, per table (single or composite column).
-    private static readonly (string Table, string[] KeyColumns)[] NaturalKeys =
+    // [R3] Key columns checked for duplicate ACTIVE identities, per table (single or composite).
+    // Not "natural keys": org_code is not one since the Thay the gesture shipped (see IntegrityViolationKind).
+    private static readonly (string Table, string[] KeyColumns)[] ActiveKeys =
     [
         ("user_version", ["username"]),
         ("org_unit_version", ["org_code"]),
@@ -46,9 +47,9 @@ internal sealed class IntegrityCheckService(
         violations.AddRange(await FindCoverageGapsAsync(connection));
         violations.AddRange(await FindOrphansAsync(connection));
 
-        foreach (var (table, keyColumns) in NaturalKeys)
+        foreach (var (table, keyColumns) in ActiveKeys)
         {
-            violations.AddRange(await FindDuplicateNaturalKeysAsync(connection, table, keyColumns));
+            violations.AddRange(await FindDuplicateActiveKeysAsync(connection, table, keyColumns));
         }
 
         violations.AddRange(await FindDuplicateAdminFlagRolesAsync(connection));
@@ -158,7 +159,7 @@ internal sealed class IntegrityCheckService(
 
     // [R3] Duplicate natural key: 2 DIFFERENT identities, same table, active on the same day (intersecting periods),
     // sharing the same natural-key value (username/code/function_key/(role_id,function_id)).
-    private static async Task<List<IntegrityViolation>> FindDuplicateNaturalKeysAsync(
+    private static async Task<List<IntegrityViolation>> FindDuplicateActiveKeysAsync(
         System.Data.IDbConnection connection, string table, string[] keyColumns)
     {
         var identityColumn = IamVersionTables.IdentityColumnFor(table);
@@ -175,15 +176,15 @@ internal sealed class IntegrityCheckService(
             """);
 
         return rows.Select(r => new IntegrityViolation(
-            IntegrityViolationKind.DuplicateNaturalKey,
+            IntegrityViolationKind.DuplicateActiveKey,
             table,
             r.IdA,
-            $"căn cước #{r.IdA} (phiên bản #{r.VersionIdA}) và căn cước #{r.IdB} (phiên bản #{r.VersionIdB}) cùng dùng khóa tự nhiên trùng ({keyLabel}) trong cùng kỳ hoạt động"))
+            $"căn cước #{r.IdA} (phiên bản #{r.VersionIdA}) và căn cước #{r.IdB} (phiên bản #{r.VersionIdB}) cùng dùng trùng khóa ({keyLabel}) trong cùng kỳ hoạt động"))
             .ToList();
     }
 
     // N-14: at most one role_version with is_admin_role=1 may be active on any given day
-    // (overlapping active periods across DIFFERENT role identities). Reuses DuplicateNaturalKey
+    // (overlapping active periods across DIFFERENT role identities). Reuses DuplicateActiveKey
     // kind — IntegrityViolationKind is a SharedKernel enum outside this brief's Scope.
     private static async Task<List<IntegrityViolation>> FindDuplicateAdminFlagRolesAsync(
         System.Data.IDbConnection connection)
@@ -199,7 +200,7 @@ internal sealed class IntegrityCheckService(
             """);
 
         return rows.Select(r => new IntegrityViolation(
-            IntegrityViolationKind.DuplicateNaturalKey,
+            IntegrityViolationKind.DuplicateActiveKey,
             "role_version",
             r.IdA,
             $"căn cước #{r.IdA} (phiên bản #{r.VersionIdA}) và căn cước #{r.IdB} (phiên bản #{r.VersionIdB}) cùng bật is_admin_role trong cùng kỳ hoạt động (N-14)"))
