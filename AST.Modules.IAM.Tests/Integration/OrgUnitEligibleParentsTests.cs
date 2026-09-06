@@ -1,6 +1,7 @@
 using AST.Core.Data;
 using AST.Core.EffectivePeriod;
 using AST.Core.Iam;
+using FluentAssertions;
 
 namespace AST.Modules.IAM.Tests.Integration;
 
@@ -9,6 +10,48 @@ namespace AST.Modules.IAM.Tests.Integration;
 // CoverageGap) against real MySQL, not just the pure algebra (already covered by CoverageGapTests).
 public sealed class OrgUnitEligibleParentsTests : IamRepositoryTestBase
 {
+    [Fact]
+    public async Task ExcludedIdentityAndThreeLevelSubtree_AreAbsentWhileUnrelatedCoveringUnitRemains()
+    {
+        SkipUnlessDbAvailable();
+
+        var predecessor = await CreateOrgUnitAsync(
+            "XROOT", "Đơn vị bị thay thế", "Bị thay", null, new EffectivePeriod(new DateOnly(2020, 1, 1), EffectivePeriod.OpenEnd));
+        var child = await CreateOrgUnitAsync(
+            "XCHILD", "Đơn vị con", "Con", predecessor, new EffectivePeriod(new DateOnly(2020, 1, 1), EffectivePeriod.OpenEnd));
+        var grandchild = await CreateOrgUnitAsync(
+            "XGRAND", "Đơn vị cháu", "Cháu", child, new EffectivePeriod(new DateOnly(2020, 1, 1), EffectivePeriod.OpenEnd));
+        var unrelated = await CreateOrgUnitAsync(
+            "XOTHER", "Đơn vị độc lập", "Độc lập", null, new EffectivePeriod(new DateOnly(2020, 1, 1), EffectivePeriod.OpenEnd));
+
+        var childPeriod = new EffectivePeriod(new DateOnly(2020, 6, 1), EffectivePeriod.OpenEnd);
+        var eligible = await OrgUnits.GetEligibleParentsAsync(
+            new DataScope(ScopeLevel.Global, null, "tester"), childPeriod, predecessor);
+
+        var ids = eligible.Select(e => e.Id);
+        ids.Should().Contain(unrelated)
+            .And.NotContain(predecessor)
+            .And.NotContain(child)
+            .And.NotContain(grandchild);
+    }
+
+    [Fact]
+    public async Task NoExcludedSubtreeRoot_PreservesAddCandidateUniverse()
+    {
+        SkipUnlessDbAvailable();
+
+        var root = await CreateOrgUnitAsync(
+            "AROOT", "Đơn vị gốc", "Gốc", null, new EffectivePeriod(new DateOnly(2020, 1, 1), EffectivePeriod.OpenEnd));
+        var child = await CreateOrgUnitAsync(
+            "ACHILD", "Đơn vị con", "Con", root, new EffectivePeriod(new DateOnly(2020, 1, 1), EffectivePeriod.OpenEnd));
+
+        var childPeriod = new EffectivePeriod(new DateOnly(2020, 6, 1), EffectivePeriod.OpenEnd);
+        var eligible = await OrgUnits.GetEligibleParentsAsync(
+            new DataScope(ScopeLevel.Global, null, "tester"), childPeriod);
+
+        eligible.Select(e => e.Id).Should().Contain([root, child]);
+    }
+
     [Fact]
     public async Task CandidateCoveringWholeOpenEndedChildPeriod_IsEligible()
     {

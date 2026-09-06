@@ -51,7 +51,10 @@ public interface IOrgUnitRepository
 
     // N2: eligible parents for a child effective-period — active versions must CONTINUOUSLY cover the whole
     // `childPeriod` (no gap). Feeds AstOrgUnitPicker.Items directly; the picker itself does no filtering.
-    Task<IReadOnlyList<OrgUnitPickerItem>> GetEligibleParentsAsync(DataScope scope, Period childPeriod);
+    // `excludedSubtreeRootId` excludes that identity and every identity below it; null preserves Add's
+    // existing candidate universe because a new declaration has no identity of its own to exclude.
+    Task<IReadOnlyList<OrgUnitPickerItem>> GetEligibleParentsAsync(
+        DataScope scope, Period childPeriod, long? excludedSubtreeRootId = null);
 
     // Cut/close the period: shrinks effective_to of version `versionId` down to `newTo`. Reverse-FK (D8) BLOCKS if a
     // child (a sub-org-unit or a user belonging to this org unit) would lose coverage; a gap warning is returned alongside.

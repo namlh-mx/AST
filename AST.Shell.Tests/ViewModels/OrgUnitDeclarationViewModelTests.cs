@@ -189,7 +189,8 @@ public class OrgUnitDeclarationViewModelTests
         public Exception? EligibleParentsException { get; set; }
         public TaskCompletionSource<IReadOnlyList<OrgUnitPickerItem>>? EligibleParentsTcs { get; set; }
 
-        public Task<IReadOnlyList<OrgUnitPickerItem>> GetEligibleParentsAsync(DataScope scope, EffectivePeriod childPeriod)
+        public Task<IReadOnlyList<OrgUnitPickerItem>> GetEligibleParentsAsync(
+            DataScope scope, EffectivePeriod childPeriod, long? excludedSubtreeRootId = null)
         {
             if (EligibleParentsException is { } ex)
                 return Task.FromException<IReadOnlyList<OrgUnitPickerItem>>(ex);
@@ -4042,6 +4043,8 @@ public class OrgUnitDeclarationViewModelTests
         ["OrgUnit.RootNotReplaceable"] =
             new("Người dùng không có quyền thay thế đơn vị gốc."),
         ["OrgUnit.PredecessorMarksNothing"] =
+            new("Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật."),
+        ["OrgUnit.ParentWithinPredecessor"] =
             new("Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật."),
         ["OrgUnit.PredecessorNotEmpty"] =
             new("Đơn vị còn tham số phụ thuộc, người dùng cần xử lý tham số phụ thuộc trước khi thực hiện thao tác."),

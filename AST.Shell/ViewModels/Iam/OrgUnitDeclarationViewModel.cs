@@ -732,7 +732,8 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             // parent picker must offer every eligible parent regardless of the operator's own scope --
             // only the eventual write (Add/Edit/Close/Replace) is gated by the caller's resolved scope.
             var scope = new DataScope(ScopeLevel.Global, null, _currentUser.Username ?? "unknown");
-            var candidates = await _orgUnits.GetEligibleParentsAsync(scope, formPeriod);
+            var candidates = await _orgUnits.GetEligibleParentsAsync(
+                scope, formPeriod, Mode == OrgUnitCardMode.Replacing ? _orgUnitId : null);
             if (generation == _parentRefreshGeneration)
             {
                 ParentCandidates = candidates;
@@ -1593,6 +1594,8 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             "Người dùng không có quyền thay thế đơn vị gốc.",
         // Same house sentence as NotAFuturePlan / DependentSetChanged: stale card, reload the screen.
         "OrgUnit.PredecessorMarksNothing" =>
+            "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
+        "OrgUnit.ParentWithinPredecessor" =>
             "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
         // Already the service Description and pinned by IAM integration tests 12/13; arm so the generic
         // fallback cannot swallow it.

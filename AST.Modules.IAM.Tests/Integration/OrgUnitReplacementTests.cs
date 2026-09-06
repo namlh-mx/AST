@@ -600,6 +600,53 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
     }
 
     [Fact]
+    public async Task ReplaceOrgUnitDeclarationAsync_ParentIsPredecessorOrDescendant_RefusesEveryThreeLevelShape()
+    {
+        SkipUnlessDbAvailable();
+
+        var root = await AddRootAsync("R23ROOT", OpenFrom2020);
+        var predecessor = await AddChildAsync("R23OLD", root, OpenFrom2020);
+        var child = await AddChildAsync("R23CHI", predecessor, OpenFrom2020);
+        var grandchild = await AddChildAsync("R23GRA", child, OpenFrom2020);
+        var before = await ReadAllVersionRowsAsync(predecessor);
+
+        foreach (var (parentId, code) in new[]
+                 {
+                     (predecessor, "R23SELF"),
+                     (child, "R23CHNEW"),
+                     (grandchild, "R23GRNEW"),
+                 })
+        {
+            var result = await BuildService().ReplaceOrgUnitDeclarationAsync(
+                ReplaceRequest(predecessor, code, parentId));
+
+            result.IsError.Should().BeTrue();
+            result.FirstError.Code.Should().Be("OrgUnit.ParentWithinPredecessor");
+        }
+
+        (await ReadAllVersionRowsAsync(predecessor)).Should().BeEquivalentTo(
+            before, opts => opts.WithStrictOrdering());
+    }
+
+    [Fact]
+    public async Task ReplaceOrgUnitDeclarationAsync_UnrelatedCoveringUnit_IsAcceptedAsSuccessorParent()
+    {
+        SkipUnlessDbAvailable();
+
+        var root = await AddRootAsync("R24ROOT", OpenFrom2020);
+        var predecessor = await AddChildAsync("R24OLD", root, OpenFrom2020);
+        var unrelated = await AddChildAsync("R24OTHER", root, OpenFrom2020);
+
+        var result = await BuildService().ReplaceOrgUnitDeclarationAsync(
+            ReplaceRequest(predecessor, "R24NEW", unrelated));
+
+        result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
+        var successor = (await ReadAllVersionRowsAsync(result.Value.OrgUnitId))
+            .Should().ContainSingle().Subject;
+        successor.ParentId.Should().Be((ulong)unrelated);
+    }
+
+    [Fact]
     public async Task ReplaceOrgUnitDeclarationAsync_ClosedPredecessor_ReturnsMarksNothingBeforeParentGuard()
     {
         SkipUnlessDbAvailable();

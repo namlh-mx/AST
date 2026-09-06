@@ -299,16 +299,29 @@ internal sealed class OrgUnitRepository
         return ToDto(result.Value);
     }
 
-    public async Task<IReadOnlyList<OrgUnitPickerItem>> GetEligibleParentsAsync(DataScope scope, EffectivePeriod childPeriod)
+    public async Task<IReadOnlyList<OrgUnitPickerItem>> GetEligibleParentsAsync(
+        DataScope scope, EffectivePeriod childPeriod, long? excludedSubtreeRootId = null)
     {
         // Candidate universe: any identity with SOME version effective at the period's START -- if an identity's
         // continuous coverage begins exactly at childPeriod.From (the only way to have no leading gap), a version
         // effective at that date must exist. Anything absent here cannot possibly cover the whole period.
         var candidates = await QueryInScopeAsync(scope, childPeriod.From);
+        HashSet<long>? excludedIds = null;
+        if (excludedSubtreeRootId is { } rootId)
+        {
+            using var connection = Connections.CreateConnection();
+            excludedIds = await GetIdentitySubtreeIdsAsync(connection, transaction: null, rootId);
+        }
+
         var eligible = new List<OrgUnitPickerItem>();
 
         foreach (var candidate in candidates)
         {
+            if (excludedIds?.Contains(candidate.IdentityId) == true)
+            {
+                continue;
+            }
+
             var coverage = _parentCoverage.GetActiveCoverage(VersionTable, candidate.IdentityId, null);
             if (!CoverageGap.TryFind(coverage, childPeriod, out _))
             {
@@ -317,6 +330,40 @@ internal sealed class OrgUnitRepository
         }
 
         return eligible;
+    }
+
+    // Identity-level subtree shared by the picker affordance and the authoritative replacement guard.
+    // Parent is conceptually immutable for one identity, although legacy rows can still contain contrary
+    // values; traversing every recorded edge is therefore the conservative meaning of "the identity's whole
+    // subtree". UNION DISTINCT is the cycle guard and also collapses repeated per-version edges.
+    private const string IdentitySubtreeSql =
+        """
+        WITH RECURSIVE identity_subtree AS (
+          SELECT @subtreeRootId AS id
+          UNION DISTINCT
+          SELECT v.org_unit_id
+          FROM org_unit_version v
+          JOIN identity_subtree s ON v.parent_id = s.id
+        )
+        SELECT id FROM identity_subtree
+        """;
+
+    private static async Task<HashSet<long>> GetIdentitySubtreeIdsAsync(
+        IDbConnection connection, IDbTransaction? transaction, long subtreeRootId)
+    {
+        var rows = await connection.QueryAsync<long>(
+            IdentitySubtreeSql, new { subtreeRootId }, transaction);
+        return rows.ToHashSet();
+    }
+
+    // Runs on the replacement composite's connection/transaction. The composite has named locks for the
+    // predecessor and requested parent, but this hierarchy SELECT does not row-lock every intermediate
+    // identity; callers must not describe the read as fully atomic against out-of-protocol hierarchy writes.
+    internal async Task<bool> IsInIdentitySubtreeAsync(
+        ICompositeWriteContext context, long subtreeRootId, long candidateId)
+    {
+        var subtree = await GetIdentitySubtreeIdsAsync(context.Connection, context.Transaction, subtreeRootId);
+        return subtree.Contains(candidateId);
     }
 
     public async Task<ErrorOr<UpsertResult>> UpsertAsync(
