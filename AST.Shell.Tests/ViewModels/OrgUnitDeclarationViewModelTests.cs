@@ -287,7 +287,7 @@ public class OrgUnitDeclarationViewModelTests
             return Task.FromResult(CloseResult);
         }
 
-        // Add (backlog 0.4b, 2026-08-17). The REAL service mints the identity and then writes the first
+        // Add (an earlier ruling, 2026-08-17). The REAL service mints the identity and then writes the first
         // version through the repository, so this fake does the same against the repository fake -- the Add
         // tests keep asserting the values that actually reached the write, and LastAddRequest is what proves
         // the VM DELEGATED rather than writing the version itself (it can no longer reach either call).
@@ -325,7 +325,7 @@ public class OrgUnitDeclarationViewModelTests
             return write.IsError ? write.Errors : new AddOrgUnitDeclarationResult(newId, write.Value);
         }
 
-        // Edit (backlog 0.7, 2026-08-21). Delegates to the repository fake for the same reason Add does --
+        // Edit (earlier ruling). Delegates to the repository fake for the same reason Add does --
         // the existing Edit tests assert the values that reached the write, and they must keep working while
         // the CALLER changes. What the fake does NOT re-implement is the immutability guard itself: it writes
         // the request's ExpectedParentId straight through, so nothing here can make an over-permissive VM
@@ -1400,7 +1400,7 @@ public class OrgUnitDeclarationViewModelTests
             "Kỳ hiệu lực của đơn vị vượt ngoài kỳ hiệu lực của đơn vị cấp trên.");
     }
 
-    // Replaces Save_Add_RepositoryError_DeletesTheOrphanedIdentity (deleted 2026-08-17, backlog 0.4b): the
+    // Replaces Save_Add_RepositoryError_DeletesTheOrphanedIdentity (deleted 2026-08-17, an earlier ruling): the
     // VM no longer mints, so there is no orphan for it to compensate -- the service's transaction rolls both
     // rows back instead, proven on real MySQL by AST.Modules.IAM.Tests. What the VM still owes is that it
     // DELEGATES the whole Add, carrying the form's values and asserting no authority of its own.
@@ -2269,7 +2269,7 @@ public class OrgUnitDeclarationViewModelTests
         Assert.True(repo.HistoryCallCount >= 1);
     }
 
-    // Backlog 0.8: `CanClose` used to carry a bare `&& !IsRoot`, which disables the ONE button that reaches
+    // an earlier ruling: `CanClose` used to carry a bare `&& !IsRoot`, which disables the ONE button that reaches
     // the service -- and the service derives close-vs-cancel server-side, so it blocked the cancel path too.
     // With the service-side carve-out in place, a bare `!IsRoot` here would leave the rescuer's remedy
     // UNREACHABLE and the requester's third ruling unimplemented. That is why this VM half is required, not
@@ -2302,7 +2302,7 @@ public class OrgUnitDeclarationViewModelTests
         vm.CanClose.Should().BeTrue();
     }
 
-    // Backlog 0.7: the screen delegates the Edit write instead of performing it. What this pins that the
+    // an earlier ruling: the screen delegates the Edit write instead of performing it. What this pins that the
     // existing Edit tests cannot: the ECHO the VM sends -- the version and parent it actually READ -- which
     // is what the service verifies under the lock. A VM that sent its own editable ParentId would still
     // write the right row here and be wrong for the one reason this slice exists.
@@ -2483,7 +2483,7 @@ public class OrgUnitDeclarationViewModelTests
     // to edit/close/add an org unit outside that scope, even though AuthorizeAsync/ResolveScopeAsync
     // succeeds (it only proves they hold the FUNCTION grant, not that the TARGET unit is in scope).
 
-    // REWRITTEN 2026-08-21 (backlog 0.7). This used to seed repo.WithinScopeResult = false and prove the
+    // REWRITTEN 2026-08-21 (earlier ruling). This used to seed repo.WithinScopeResult = false and prove the
     // ViewModel's OWN gate fired. That gate is gone -- it moved into IOrgUnitDeclarationService, where a
     // caller that is not this screen cannot skip it, and where real MySQL covers it
     // (OrgUnitDeclarationServiceTests.EditOrgUnitDeclarationAsync_TargetOutsideScope_...).
@@ -2568,7 +2568,7 @@ public class OrgUnitDeclarationViewModelTests
         Assert.Null(repo.LastCancelOrgUnitId);
     }
 
-    // The Global-scope gate itself moved into IOrgUnitDeclarationService (2026-08-17, backlog 0.4b) and is
+    // The Global-scope gate itself moved into IOrgUnitDeclarationService (2026-08-17, an earlier ruling) and is
     // proven there on real MySQL. What stays this screen's job is the WORDING: the service reports a code,
     // and the operator must read a Vietnamese sentence, never the English Description.
     [Theory]
@@ -2687,7 +2687,7 @@ public class OrgUnitDeclarationViewModelTests
         // (decision-log 2026-08-05), not an oversight to silently fix here.
         //
         // It guarded THREE call sites until 2026-08-17: the N1 root-existence probe was the third. That
-        // probe no longer exists in this ViewModel (backlog 0.4b) -- it runs inside
+        // probe no longer exists in this ViewModel (an earlier ruling) -- it runs inside
         // OrgUnitDeclarationService's own transaction and takes no DataScope at all, so "hardcoded Global"
         // stopped being a meaningful description of it. Its leg was removed rather than left: it kept
         // passing, but on RefreshTreeAndHistoryAsync's post-save tree reload, which resolves its scope from
@@ -3180,7 +3180,7 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     // Hardening (2026-08-10): a blank date on the retire branch must never reach the service.
-    // Backlog 3.37: CloseDateRequired on mode entry / blank To disables Lưu and raises no sentence —
+    // an earlier ruling: CloseDateRequired on mode entry / blank To disables Lưu and raises no sentence —
     // the operator never reaches Save with that state via the button.
     [Fact]
     public async Task Save_Close_RetireBranch_BlankDate_DisablesSave_NeverCallsService()
@@ -4382,7 +4382,7 @@ public class OrgUnitDeclarationViewModelTests
         vm.Mode.Should().Be(OrgUnitCardMode.Replacing);
     }
 
-    // --- Backlog 3.37 / 3.38: period commit gates (card 247) ---
+    // --- an earlier ruling / 3.38: period commit gates (card 247) ---
 
     [Fact]
     public async Task CloseDateCommitGate_EmptyToOnRetireEntry_DisablesSave_WithoutMessage()
@@ -4521,6 +4521,7 @@ public class OrgUnitDeclarationViewModelTests
         vm.CanSave.Should().BeTrue();
         vm.ParentId.Should().Be(1);
         vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
     }
 
     [Fact]
@@ -4538,6 +4539,7 @@ public class OrgUnitDeclarationViewModelTests
         vm.ParentEligibility.Should().Be(ParentEligibilityState.Unresolved);
         vm.PeriodCommitBlocked.Should().BeFalse();
         vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
         vm.ParentId.Should().Be(1);
     }
 
@@ -4556,6 +4558,7 @@ public class OrgUnitDeclarationViewModelTests
         vm.PeriodCommitBlocked.Should().BeFalse();
         vm.CanSave.Should().BeTrue();
         vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
         vm.ParentId.Should().Be(1);
     }
 
@@ -4581,12 +4584,16 @@ public class OrgUnitDeclarationViewModelTests
         vm.ParentCandidates.Should().HaveCount(2);
         vm.ParentCandidates.Should().NotContain(c => c.Id == 1);
         vm.OffersRootParentOption.Should().BeFalse();
-        vm.ParentId.Should().Be(1, "ParentId must not be silently nulled");
+        // ViewModel keeps ParentId until the operator (or a hosted ComboBox) changes it. Under Branch B
+        // a ComboBox may clear a value absent from ItemsSource — that is intentional and not silent
+        // (Branch B sentence is up, Lưu is off). This assertion is the VM-level keep, not a ban on UI clear.
+        vm.ParentId.Should().Be(1, "ViewModel must not silently null ParentId when raising Branch B");
         vm.EffectiveFrom.Should().Be(periodFrom);
         vm.EffectiveTo.Should().Be(periodTo);
         vm.IsUndetermined.Should().Be(undetermined);
         vm.Severity.Should().Be(StatusSeverity.Error);
-        vm.StatusMessage.Should().Be("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
         vm.PeriodCommitBlocked.Should().BeTrue();
         vm.CanSave.Should().BeFalse();
         vm.SaveCommand.CanExecute().Should().BeFalse();
@@ -4612,6 +4619,7 @@ public class OrgUnitDeclarationViewModelTests
         vm.CanSave.Should().BeTrue();
         vm.ParentId.Should().Be(1);
         vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
     }
 
     [Fact]
@@ -4627,7 +4635,7 @@ public class OrgUnitDeclarationViewModelTests
         await vm.LoadAsync(3, Today);
         vm.BeginReplaceCommand.Execute();
         vm.PeriodCommitBlocked.Should().BeTrue();
-        vm.StatusMessage.Should().Be("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
 
         // Foreign status via parent-list load failure — not published by this gate.
         repo.EligibleParentsException = new InvalidOperationException("db down");
@@ -4652,6 +4660,93 @@ public class OrgUnitDeclarationViewModelTests
         vm.StatusMessage.Should().Be(parentListFailure,
             "clearing this gate must not wipe a status message it did not publish");
         vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
+    }
+
+    [Fact]
+    public async Task ReplaceParentPeriodGate_ParentIdSelection_FromBranchB_ClearsGate_EnablesSave()
+    {
+        // Worked example (card 257): CN Cầu Giấy under Khối Bán lẻ; replace period leaves Bán lẻ out of
+        // candidates but Ngân hàng X (10) and Khối KHDN (9) remain. Operator picks KHDN → gate clears.
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Ngân hàng X"),
+            new OrgUnitPickerItem(9, "KHDN - Khối KHDN"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
+        vm.PeriodCommitBlocked.Should().BeTrue();
+        vm.CanSave.Should().BeFalse();
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+
+        vm.ParentId = 9;
+
+        vm.ParentId.Should().Be(9);
+        vm.StatusMessage.Should().BeNull();
+        vm.Severity.Should().Be(StatusSeverity.None);
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.CanSave.Should().BeTrue();
+        vm.SaveCommand.CanExecute().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ReplaceParentPeriodGate_ParentIdNull_FromBranchB_DoesNotClearGate()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.PeriodCommitBlocked.Should().BeTrue();
+
+        vm.ParentId = null;
+
+        vm.ParentId.Should().BeNull();
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
+        vm.PeriodCommitBlocked.Should().BeTrue();
+        vm.CanSave.Should().BeFalse();
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ReplaceParentPeriodGate_BranchAAndBranchB_Sentences_DoNotLeakIntoEachOther()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
+
+        repo.EligibleParentsResult = [];
+        vm.EffectiveFrom = Today.AddDays(-5);
+        vm.ParentCandidates.Should().BeEmpty();
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
+        vm.PeriodCommitBlocked.Should().BeTrue();
+
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        vm.EffectiveFrom = Today.AddDays(-4);
+        vm.ParentCandidates.Should().HaveCount(2);
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.PeriodCommitBlocked.Should().BeTrue();
     }
 
     [Fact]
@@ -4668,5 +4763,6 @@ public class OrgUnitDeclarationViewModelTests
         vm.PeriodCommitBlocked.Should().BeFalse();
         vm.CanSave.Should().BeTrue();
         vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
     }
 }

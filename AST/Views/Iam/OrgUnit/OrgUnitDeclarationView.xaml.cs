@@ -241,23 +241,30 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
                 return;
             }
 
-            // Backlog 3.41: parent on the card absent from candidates (empty or non-empty). Display the
-            // parent already on the card so the ComboBox is not present to TwoWay-null ParentId.
-            // Predicate lives on the ViewModel — do not re-express it here.
+            // an earlier ruling / card 257: parent on the card absent from candidates.
+            // Empty list (Branch A) → Display of the parent already on the card.
+            // Non-empty list (Branch B) → Editable over the real candidates so the operator can fix it.
+            // Blocked predicate stays on the ViewModel — only the Count==0 presentation discriminator here.
             if (vm.IsReplaceParentAbsentFromCandidates)
             {
-                Chrome.ParentMode = AstOrgUnitPickerMode.Display;
-                Chrome.ParentDisplayText = vm.ParentId is { } blockedParentId
-                    ? _historyRowParentLabel ?? FindTreeNodeLabel(vm.TreeRoots, blockedParentId) ?? string.Empty
-                    : string.Empty;
+                if (vm.ParentCandidates.Count == 0)
+                {
+                    Chrome.ParentMode = AstOrgUnitPickerMode.Display;
+                    Chrome.ParentDisplayText = vm.ParentId is { } blockedParentId
+                        ? _historyRowParentLabel ?? FindTreeNodeLabel(vm.TreeRoots, blockedParentId) ?? string.Empty
+                        : string.Empty;
+                    return;
+                }
+
+                Chrome.ParentMode = AstOrgUnitPickerMode.Editable;
                 return;
             }
 
             if (vm.ParentId is null && vm.ParentCandidates.Count == 0)
             {
                 // Root Display only: unlocked Add always OffersRootParentOption; break-glass Replacing
-                // with empty candidates lands here. Ordinary-actor Replacing (empty or parent-absent)
-                // is handled by the 3.41 branch above — this arm now sees only unlocked Adding and
+                // with empty candidates lands here. Ordinary-actor Replacing empty-list (Branch A) is
+                // handled by the 3.41 branch above — this arm now sees only unlocked Adding and
                 // break-glass Replacing.
                 Chrome.ParentMode = AstOrgUnitPickerMode.Display;
                 Chrome.ParentDisplayText = "Đơn vị gốc (không có cha)";

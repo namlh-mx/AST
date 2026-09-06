@@ -27,7 +27,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 {
     private readonly IOrgUnitRepository _orgUnits;
     private readonly IOrgUnitDeclarationService _declaration;
-    // Backlog 0.8 / card 238: needed for CanClose and CanReplace (and OffersRootParentOption). Same
+    // an earlier ruling / card 238: needed for CanClose and CanReplace (and OffersRootParentOption). Same
     // injection as RoleDeclarationViewModel's own break-glass dependency -- the AUTHORITY is the
     // service's gate; this decides whether the button / picker affordance that reaches it is even shown.
     private readonly IBreakGlassPolicy _breakGlass;
@@ -162,7 +162,15 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     public long? ParentId
     {
         get => _parentId;
-        set { if (SetProperty(ref _parentId, value)) MarkDirty(); }
+        set
+        {
+            if (!SetProperty(ref _parentId, value))
+                return;
+            MarkDirty();
+            // Branch B opens the picker; selecting a candidate must re-run the gate. Early return when
+            // Mode != Replacing leaves Adding/Editing untouched; the gate never assigns ParentId.
+            SyncReplaceParentPeriodGate();
+        }
     }
 
     private string _reason = string.Empty;
@@ -344,7 +352,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
                 if (value == OrgUnitCardMode.Closing)
                 {
                     // Mode entry blanks To under _isLoading (skips OnCloseDateFieldEdited); still evaluate
-                    // Lưu enablement for CloseDateRequired without raising that sentence (backlog 3.37).
+                    // Lưu enablement for CloseDateRequired without raising that sentence (earlier ruling).
                     ApplyCloseDateCommitGate();
                 }
                 else
@@ -467,7 +475,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         }
     }
 
-    // Backlog 3.37: judge the close date at EffectiveTo commit via the whole of VersionCloseRules.Validate.
+    // an earlier ruling: judge the close date at EffectiveTo commit via the whole of VersionCloseRules.Validate.
     // CloseDateRequired (empty To on retire, including mode entry) disables Lưu but raises no sentence.
     // Silence is not authorisation to delete — clear/overwrite only status this gate published (F-246-01).
     private void ApplyCloseDateCommitGate()
@@ -562,7 +570,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     public bool CanEdit => Mode == OrgUnitCardMode.ReadOnly && Status is VersionStatus.Effective or VersionStatus.Pending;
 
-    // A root is closable ONLY by a break-glass rescuer (backlog 0.8, requester ruling 2026-08-21). This is
+    // A root is closable ONLY by a break-glass rescuer (earlier ruling). This is
     // the button-disabling affordance, NOT the guard -- CloseOrgUnitDeclarationAsync re-reads the parent
     // under its own lock and refuses with OrgUnit.RootNotClosable regardless of what this property says.
     // Without this clause the service-side carve-out would be UNREACHABLE from the UI: this is the one
@@ -588,7 +596,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     public bool CanCancel => Mode != OrgUnitCardMode.ReadOnly;
 
     // PeriodCommitBlocked is observed by SaveCommand — adding a validity term without that observation
-    // leaves the button stale in the app (backlog 3.37 / 3.38).
+    // leaves the button stale in the app (an earlier ruling / 3.38).
     public bool CanSave => Mode != OrgUnitCardMode.ReadOnly && !PeriodCommitBlocked;
 
     private bool _periodCommitBlocked;
@@ -618,7 +626,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         || (Mode == OrgUnitCardMode.Replacing
             && _breakGlass.IsBreakGlassAdmin(_currentUser.Username ?? "unknown"));
 
-    // Backlog 3.41: single home for the replace-parent-period gate. Both SyncReplaceParentPeriodGate and
+    // an earlier ruling: single home for the replace-parent-period gate. Both SyncReplaceParentPeriodGate and
     // RefreshParentSurface read this — do not re-express the predicate in the view code-behind.
     // ParentId absent includes null and the empty-candidate case (3.38); a non-empty list that omits
     // the card's ParentId is the discriminating 3.41 state.
@@ -716,7 +724,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             // Count==0 during that await as root-creation is the same misleading-text bug one step later.
             ParentEligibility = ParentEligibilityState.Loading;
             if (Severity == StatusSeverity.Error
-                && StatusMessage == ReplacePeriodNoEligibleParentMessage)
+                && IsReplaceParentPeriodGateMessage(StatusMessage))
             {
                 StatusMessage = null;
                 Severity = StatusSeverity.None;
@@ -765,7 +773,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         }
     }
 
-    // Backlog 3.38: empty eligible-parent list in Replacing (ordinary actor) is a screen-visible state —
+    // an earlier ruling: empty eligible-parent list in Replacing (ordinary actor) is a screen-visible state —
     // not a service error code. Sentence is requester verbatim (§1.8a); no code behind it.
     private void SyncReplaceParentPeriodGate()
     {
@@ -774,14 +782,17 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
         if (IsReplaceParentAbsentFromCandidates)
         {
-            StatusMessage = ReplacePeriodNoEligibleParentMessage;
+            // Presentation discriminator only — blocked predicate stays IsReplaceParentAbsentFromCandidates.
+            StatusMessage = ParentCandidates.Count == 0
+                ? ReplacePeriodNoEligibleParentMessage
+                : ReplacePeriodParentCoverageMismatchMessage;
             Severity = StatusSeverity.Error;
             PeriodCommitBlocked = true;
             return;
         }
 
         if (Severity == StatusSeverity.Error
-            && StatusMessage == ReplacePeriodNoEligibleParentMessage)
+            && IsReplaceParentPeriodGateMessage(StatusMessage))
         {
             StatusMessage = null;
             Severity = StatusSeverity.None;
@@ -1503,9 +1514,17 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // null-date guard above — one wording, one home (rule-prefer-existing).
     private const string CloseDateRequiredMessage = "Ngày kết thúc hiệu lực chưa được khai báo.";
 
-    // Operator-message rules §1.8a — screen-authored; no service error code behind it.
+    // the operator-message rules — screen-authored; no service error code behind either arm.
     private const string ReplacePeriodNoEligibleParentMessage =
         "Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.";
+
+    private const string ReplacePeriodParentCoverageMismatchMessage =
+        "Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.";
+
+    // Single home for "did this gate publish StatusMessage?" — both §1.8a arms.
+    private static bool IsReplaceParentPeriodGateMessage(string? message) =>
+        message is ReplacePeriodNoEligibleParentMessage
+            or ReplacePeriodParentCoverageMismatchMessage;
 
     // Brief 163 FR1: one permission-family sentence for every Authz / scope / admin-flag denial on this screen.
     private const string PermissionDeniedMessage = "Người dùng không được cấp quyền.";
@@ -1555,7 +1574,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             "Thao tác hủy kỳ hiệu lực không yêu cầu nhập ngày kết thúc hiệu lực.",
         "OrgUnit.NotInScope" =>
             PermissionDeniedMessage,
-        // Backlog 0.7: the parent a stale card echoed is not the one stored. There is no "chọn lại đơn vị
+        // an earlier ruling: the parent a stale card echoed is not the one stored. There is no "chọn lại đơn vị
         // cha" advice to give -- the parent is immutable, so reloading is the only move.
         "OrgUnit.ParentMismatch" =>
             "Đơn vị cha đã thay đổi ở nơi khác - hãy tải lại thẻ rồi lưu lại.",
@@ -1564,7 +1583,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // itself and only an administrator can resolve which parent is correct.
         "OrgUnit.ParentNotWellDefined" =>
             "Đơn vị này có nhiều đơn vị cha khác nhau trong lịch sử nên không xác định được cha hiện tại - báo quản trị viên trước khi sửa.",
-        // Widened when Edit joined the service (backlog 0.7): these two used to say "để đóng/hủy" because
+        // Widened when Edit joined the service (earlier ruling): these two used to say "để đóng/hủy" because
         // close/cancel was the only branch that could produce them. Edit reaches both now, so naming a
         // single operation would have made the message wrong on the branch that was just added.
         "OrgUnit.VersionNotFound" or "VersionedRepository.VersionNotFound" =>
@@ -1657,7 +1676,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     public string FormatWriteErrorPublic(Error error) => FormatWriteError(error);
     public string FormatLoadErrorPublic(Error error) => FormatLoadError(error);
 
-    // Edit write path: one call into IOrgUnitDeclarationService (backlog 0.7, 2026-08-21). The service owns
+    // Edit write path: one call into IOrgUnitDeclarationService (earlier ruling). The service owns
     // P7, the scope-membership check and the parent-immutability guard unbypassably -- this screen used to
     // hold the first two itself and write straight to the repository, so any other caller got neither.
     //
@@ -1817,7 +1836,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     // Add write path: one call into IOrgUnitDeclarationService. The service owns P7, the Global-scope gate,
     // root uniqueness, the identity mint, the first version and the audit row — all in ONE transaction
-    // (backlog 0.4b, 2026-08-17). Do NOT reintroduce any of them here: this screen used to mint the header
+    // (an earlier ruling, 2026-08-17). Do NOT reintroduce any of them here: this screen used to mint the header
     // on its own connection and hand-compensate with DeleteEmptyIdentityAsync when the version write failed,
     // which design-effective-period.md §7 forbids and which left an orphan identity whenever the
     // compensation itself did not run.
