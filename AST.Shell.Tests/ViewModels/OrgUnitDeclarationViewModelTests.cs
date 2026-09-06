@@ -4591,9 +4591,9 @@ public class OrgUnitDeclarationViewModelTests
         vm.ParentCandidates.Should().HaveCount(2);
         vm.ParentCandidates.Should().NotContain(c => c.Id == 1);
         vm.OffersRootParentOption.Should().BeFalse();
-        // ViewModel keeps ParentId until the operator (or a hosted ComboBox) changes it. Under Branch B
-        // a ComboBox may clear a value absent from ItemsSource — that is intentional and not silent
-        // (Branch B sentence is up, Lưu is off). This assertion is the VM-level keep, not a ban on UI clear.
+        // ViewModel keeps ParentId until the operator changes it. Card 261 keeps the card parent on
+        // ParentPickerItems so a hosted ComboBox has a matching item and does not coerce SelectedValue
+        // to null (B5/B6). This assertion is the VM-level keep.
         vm.ParentId.Should().Be(1, "ViewModel must not silently null ParentId when raising Branch B");
         vm.EffectiveFrom.Should().Be(periodFrom);
         vm.EffectiveTo.Should().Be(periodTo);
@@ -4700,28 +4700,9 @@ public class OrgUnitDeclarationViewModelTests
         vm.SaveCommand.CanExecute().Should().BeTrue();
     }
 
-    [Fact]
-    public async Task ReplaceParentPeriodGate_ParentIdNull_FromBranchB_DoesNotClearGate()
-    {
-        var (vm, repo) = Build();
-        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
-        repo.EligibleParentsResult =
-        [
-            new OrgUnitPickerItem(10, "ROOT - Gốc"),
-            new OrgUnitPickerItem(9, "OTHER - Khác"),
-        ];
-        await vm.LoadAsync(3, Today);
-        vm.BeginReplaceCommand.Execute();
-        vm.PeriodCommitBlocked.Should().BeTrue();
-
-        vm.ParentId = null;
-
-        vm.ParentId.Should().BeNull();
-        vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
-        vm.PeriodCommitBlocked.Should().BeTrue();
-        vm.CanSave.Should().BeFalse();
-        vm.SaveCommand.CanExecute().Should().BeFalse();
-    }
+    // Card 261 Part 2 replaced this pin: a null write in Replacing outside loading is rejected
+    // (see ParentId_NullWrite_InReplacing_OutsideLoading_IsRejected). The All-still-blocks-when-null
+    // behaviour is covered by IsReplaceParentAbsentFromCandidates_WithNullParentId_StillBlocksViaAll.
 
     [Fact]
     public async Task ReplaceParentPeriodGate_BranchAAndBranchB_Sentences_DoNotLeakIntoEachOther()
@@ -4875,5 +4856,197 @@ public class OrgUnitDeclarationViewModelTests
     public void RootParentDisplayLabel_IsTheSettledShortForm()
     {
         OrgUnitDeclarationViewModel.RootParentDisplayLabel.Should().Be("Đơn vị gốc");
+    }
+
+    // Card 261 / backlog 3.51 Part 1: Branch B display list carries the card's parent; gate still
+    // reads the real eligible set (ParentCandidates).
+    [Fact]
+    public async Task ReplaceParentPeriodGate_BranchB_DisplayListCarriesCardParent_GateUnchanged()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+
+        vm.ParentCandidates.Should().HaveCount(2);
+        vm.ParentCandidates.Should().NotContain(c => c.Id == 1);
+        vm.ParentPickerItems.Should().Contain(c => c.Id == 1, "display list must carry the card parent while it is absent from the real set");
+        vm.ParentId.Should().Be(1);
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
+        vm.PeriodCommitBlocked.Should().BeTrue();
+        vm.CanSave.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ReplaceParentPeriodGate_BranchB_SelectRealCandidate_ClearsGate_EnablesSave()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Ngân hàng X"),
+            new OrgUnitPickerItem(9, "KHDN - Khối KHDN"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.ParentPickerItems.Should().Contain(c => c.Id == 1);
+        vm.PeriodCommitBlocked.Should().BeTrue();
+
+        vm.ParentId = 9;
+
+        vm.ParentId.Should().Be(9);
+        vm.StatusMessage.Should().BeNull();
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.CanSave.Should().BeTrue();
+        vm.ParentPickerItems.Should().Contain(c => c.Id == 1,
+            "card parent stays on the display list while still absent from the real set");
+    }
+
+    [Fact]
+    public async Task ReplaceParentPeriodGate_BranchB_ReselectCardParent_RaisesGateAgain()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.ParentId = 9;
+        vm.PeriodCommitBlocked.Should().BeFalse();
+
+        vm.ParentId = 1;
+
+        vm.ParentId.Should().Be(1);
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
+        vm.PeriodCommitBlocked.Should().BeTrue();
+        vm.CanSave.Should().BeFalse();
+    }
+
+    // Card 261 / backlog 3.49: reachable B6 — parent starts present, period drives it out and back.
+    [Fact]
+    public async Task ReplaceParentPeriodGate_ReachableB6_PeriodOutAndBack_ParentIdStable_GateClears()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(1, "PAR - Cha"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.ParentCandidates.Should().Contain(c => c.Id == 1);
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.ParentId.Should().Be(1);
+
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        vm.EffectiveFrom = Today.AddDays(-5);
+
+        vm.ParentCandidates.Should().NotContain(c => c.Id == 1);
+        vm.ParentPickerItems.Should().Contain(c => c.Id == 1);
+        vm.ParentId.Should().Be(1, "ParentId must never be nulled on the B6 path");
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
+        vm.PeriodCommitBlocked.Should().BeTrue();
+
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(1, "PAR - Cha"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        vm.EffectiveFrom = Today.AddDays(-4);
+
+        vm.ParentCandidates.Should().Contain(c => c.Id == 1);
+        vm.ParentPickerItems.Should().Contain(c => c.Id == 1);
+        vm.ParentPickerItems.Should().HaveCount(vm.ParentCandidates.Count,
+            "extra display row is gone once the card parent is back in the real set");
+        vm.ParentId.Should().Be(1);
+        vm.StatusMessage.Should().BeNull();
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.CanSave.Should().BeTrue();
+    }
+
+    // Card 261 Part 2: Clear() from Replacing still nulls ParentId (lifecycle under _isLoading).
+    [Fact]
+    public async Task Clear_FromReplacing_EndsWithParentIdNull()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(1, "PAR - Cha"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.Mode.Should().Be(OrgUnitCardMode.Replacing);
+        vm.ParentId.Should().Be(1);
+
+        vm.Clear();
+
+        vm.ParentId.Should().BeNull();
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+    }
+
+    // Card 261 Part 2: null write in Replacing outside loading is rejected.
+    [Fact]
+    public async Task ParentId_NullWrite_InReplacing_OutsideLoading_IsRejected()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.ParentId.Should().Be(1);
+
+        vm.ParentId = null;
+
+        vm.ParentId.Should().Be(1, "null write must not land while Replacing and not loading");
+        vm.PeriodCommitBlocked.Should().BeTrue();
+    }
+
+    // Card 261 Part 3: ParentId-null disjunct removed; All alone still blocks when ParentId is null.
+    [Fact]
+    public async Task IsReplaceParentAbsentFromCandidates_WithNullParentId_StillBlocksViaAll()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+
+        // Force a null ParentId under _isLoading so the Part 2 guard does not apply — then prove the
+        // remaining All(c => c.Id != ParentId) disjunct alone keeps the gate raised.
+        var loading = typeof(OrgUnitDeclarationViewModel)
+            .GetField("_isLoading", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        loading.SetValue(vm, true);
+        vm.ParentId = null;
+        loading.SetValue(vm, false);
+
+        vm.ParentId.Should().BeNull();
+        vm.IsReplaceParentAbsentFromCandidates.Should().BeTrue();
+        vm.PeriodCommitBlocked.Should().BeTrue();
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
     }
 }

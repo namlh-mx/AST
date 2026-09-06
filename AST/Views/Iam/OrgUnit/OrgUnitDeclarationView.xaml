@@ -672,7 +672,7 @@
 
                                             DisplayText="{Binding Chrome.ParentDisplayText, RelativeSource={RelativeSource AncestorType={x:Type local:OrgUnitDeclarationView}}}"
 
-                                            Items="{Binding ParentCandidates}"
+                                            Items="{Binding ParentPickerItems}"
 
                                             Mode="{Binding Chrome.ParentMode, RelativeSource={RelativeSource AncestorType={x:Type local:OrgUnitDeclarationView}}}"
 
