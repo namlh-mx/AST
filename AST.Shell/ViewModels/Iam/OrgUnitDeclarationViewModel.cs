@@ -169,6 +169,8 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             MarkDirty();
             // Branch B opens the picker; selecting a candidate must re-run the gate. Early return when
             // Mode != Replacing leaves Adding/Editing untouched; the gate never assigns ParentId.
+            // Safe during a load: every _isLoading ParentId writer either has Mode != Replacing, or
+            // (Clear) has already cleared the period so ParentEligibility is Unresolved before this runs.
             SyncReplaceParentPeriodGate();
         }
     }

@@ -4765,4 +4765,48 @@ public class OrgUnitDeclarationViewModelTests
         vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
         vm.StatusMessage.Should().NotBe("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
     }
+
+    [Fact]
+    public async Task Clear_WhileReplaceGateClear_NeverPublishesGateTransient()
+    {
+        // Card 258 amendment: pins an implicit Clear() order, not a missing _isLoading guard.
+        // EffectiveFrom = null runs RecomputeParentEligibility (unguarded) and drives ParentEligibility
+        // to Unresolved before ParentId = null, so the replace-parent gate never publishes a transient.
+        // Goes RED if someone moves ParentId = null above EffectiveFrom = null in Clear(), or puts an
+        // _isLoading early-return on EffectiveFrom's RecomputeParentEligibility call.
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(1, "PAR - Cha"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+
+        vm.Mode.Should().Be(OrgUnitCardMode.Replacing);
+        vm.ParentEligibility.Should().Be(ParentEligibilityState.Resolved);
+        vm.ParentCandidates.Should().Contain(c => c.Id == 1);
+        vm.ParentId.Should().Be(1);
+        vm.StatusMessage.Should().BeNull();
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.CanSave.Should().BeTrue();
+
+        var statusMessages = new List<string?>();
+        var periodBlocked = new List<bool>();
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(vm.StatusMessage))
+                statusMessages.Add(vm.StatusMessage);
+            if (e.PropertyName == nameof(vm.PeriodCommitBlocked))
+                periodBlocked.Add(vm.PeriodCommitBlocked);
+        };
+
+        vm.Clear();
+
+        statusMessages.Should().NotContain("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        statusMessages.Should().NotContain("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
+        periodBlocked.Should().NotContain(true);
+    }
 }
