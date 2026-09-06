@@ -210,12 +210,28 @@ for a WPF-UI control MUST derive from the default:
   (lazy-initialized, see the skeleton). Keep VMs BCL-only — no `System.Windows` types.
 - Icons: Fluent System Icons (bundled) via WPF-UI `SymbolIcon` / `SymbolRegular`.
 
-## Generic rules (pointers — read the skill, do NOT copy here)
-- View↔VM wiring (Prism): skill `wpf-rule-view-viewmodel-wiring-prism`.
-- MVVM layer separation (no `System.Windows` in VMs): skill `wpf-rule-mvvm-constraints`.
-- Converters: skill `wpf-rule-converter-patterns`.
-- ResourceDictionary / style order: skill `wpf-rule-resourcedictionary-patterns`.
-- Virtualization (large lists): skill `wpf-rule-virtualization-patterns`.
+## Derived UI state — rules that always apply
+
+- **Facts that must agree live in one value.** Phase, item list, presentation mode, display label
+  and commit-permission for one surface are ONE atomically published value, not separate settable
+  properties. Separate properties drift; that drift is the defect, not its symptom.
+- **The View projects, it does not decide.** Code-behind maps that one value to the control. It must
+  not re-derive meaning from raw mode, phase or collection counts.
+- **"Not decided yet" fails closed.** Any pending, incomplete or failed phase renders the value the
+  card still holds — never blank — and disables commit. Never open a gate before the answer exists.
+- **Async results are keyed to the surface's lifetime**, not to a bare sequence counter: entity
+  identity + mode + the input that started them. Cancel, clear, load and mode change invalidate the
+  key, so a late completion cannot publish.
+- **A command re-checks its precondition when it executes.** `CanExecute` is not a guarantee: a
+  LostFocus commit fires during the click and can change state between enablement and execution.
+- **`Selector.SelectedValue` with no matching item clears the selection** and a TwoWay binding then
+  pushes null to the source. Never let an `ItemsSource` lose the id that is currently selected.
+- **Editors that commit on LostFocus/Enter do not update the ViewModel while typing.** Do not reason,
+  or write tests, as if keystrokes reach the ViewModel.
+- **A claim about what is rendered needs the rendering layer.** A ViewModel assertion cannot prove a
+  control's visible content or a button's enabled state. Synchronous fakes erase the await window
+  entirely; proving a transient needs a delayed fake plus a hosted test, or an F5 gate stated as
+  outstanding.
 
 ## AutomationId for FlaUI-readiness (new screens only — decided 2026-07-29)
 
