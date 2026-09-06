@@ -121,11 +121,15 @@ registered there.
 `isactive` back to `1` (verified — the engine inserts a remnant instead of reactivating).
 
 **"Exactly once" is enforced, not merely true today.** Every state-flip `UPDATE` currently predicates
-on `id` alone, so a second statement would silently overwrite the first gesture's provenance. Each of
-the seven flip sites (§4.1) therefore gains `AND superseded_by_operation_id IS NULL` to its `WHERE`,
-and validates the affected-row count: zero rows affected means the row was already superseded, which
-is a **clear failure**, never a silent no-op.
-*Falsified by:* a per-site test over all ten engine write sites (§4.1); a double-supersession test in
+on `id` alone, so a second statement would silently overwrite the first gesture's provenance. Each flip
+site (§4.1) therefore gains `AND superseded_by_operation_id IS NULL` to its `WHERE`, and validates the
+affected-row count: zero rows affected means the row was already superseded, which is a **clear
+failure**, never a silent no-op.
+⚠ **The counts in this section were written when every site lived in `VersionedRepository.cs`, and they
+no longer are the whole set.** §4.1 now also carries `MarkVersionInactiveForReplaceAsync` in
+`OrgUnitRepository.cs` — an **eighth** flip site outside that file. Take §4.1's table as authoritative and
+these numbers as historical; recount there, never here. (Found by review 240, `F-240-08`.)
+*Falsified by:* a per-site test over **every** write site listed in §4.1, engine and org-unit-local alike; a double-supersession test in
 which the second attempt affects zero rows and leaves the first operation id intact; an integrity query
 asserting no row has `isactive = 0` with `superseded_by_operation_id IS NULL`.
 
@@ -462,7 +466,7 @@ Every production path that must supply an operation context (verified at `b57e7e
 | Caller | Path |
 |---|---|
 | `RoleDeclarationService` | `SaveRoleDeclarationAsync` (role upsert, grant revoke, grant cancel, grant upsert); `CloseRoleDeclarationAsync` (close/cancel + cascade) |
-| `OrgUnitDeclarationService` | `AddOrgUnitDeclarationAsync`; `CloseOrgUnitDeclarationAsync` (close/cancel); `EditOrgUnitDeclarationAsync` (Edit — moved behind the service 2026-08-21, backlog 0.7) |
+| `OrgUnitDeclarationService` | `AddOrgUnitDeclarationAsync`; `CloseOrgUnitDeclarationAsync` (close/cancel); `EditOrgUnitDeclarationAsync` (Edit — moved behind the service 2026-08-21, backlog 0.7); **`ReplaceOrgUnitDeclarationAsync`** (Thay thế, 2026-09-04 — mints the successor identity, writes its first version through `UpsertAsync`, and runs the two org-unit-local UPDATEs of §4.1; the **mark** is the flip site that must stamp `superseded_by_operation_id`, the stamp must not) |
 | `FunctionCatalogSyncService` | `UpsertAsync` (metadata sync) and `CreateAsync` (new key), both directly on the repository |
 | `UserRepository.UpsertAsync` | no production caller today; still takes the parameter, so one cannot appear silently |
 

@@ -1,6 +1,7 @@
 using AST.Core.Data;
 using AST.Core.EffectivePeriod;
 using AST.Core.Iam;
+using AST.Core.Iam.Repositories;
 using AST.Infrastructure;
 using Dapper;
 using ErrorOr;
@@ -659,12 +660,34 @@ public sealed class OrgUnitRepositoryTests : IamRepositoryTestBase
     {
         SkipUnlessDbAvailable();
 
-        var id = await CreateOrgUnitAsync("MRK1", "Đơn vị Mark", "MRK1", null, OpenFrom2020);
+        var id = await OrgUnits.CreateIdentityAsync();
+        var seed = await OrgUnits.UpsertAsync(
+            id, OpenFrom2020, "MRK1", "Đơn vị Mark", "MRK1", null, VersionOperationKind.Add, "tester", "seed",
+            new OrgUnitSupplementalDto(
+                BusinessNumber: "MRK-BN-1",
+                AddrLineVn: "Địa chỉ VN MRK",
+                AddrLineEn: "Addr EN MRK",
+                AddrWardVn: "Phường MRK",
+                AddrWardEn: "Ward MRK",
+                AddrDistrictVn: "Quận MRK",
+                AddrDistrictEn: "District MRK",
+                AddrProvinceVn: "Tỉnh MRK",
+                AddrProvinceEn: "Province MRK",
+                AdminDivisionLevel: 3,
+                NameFullEn: "Mark Unit Full",
+                NameShortEn: "MarkShort",
+                Phone: "024-MRK-P",
+                Fax: "024-MRK-F",
+                Email: "mrk@example.test"));
+        seed.IsError.Should().BeFalse(DescribeErrors(seed.Errors));
+
         var before = (await GetReplaceProbeRowsAsync(id)).Should().ContainSingle().Subject;
         before.IsActive.Should().BeTrue();
         before.Status.Should().Be("normal");
         before.ReplacedByOrgUnitId.Should().BeNull();
         before.OperationKind.Should().Be("Add");
+        before.BusinessNumber.Should().Be("MRK-BN-1");
+        before.Fax.Should().Be("024-MRK-F");
 
         var successorId = await OrgUnits.CreateIdentityAsync();
 
@@ -688,6 +711,21 @@ public sealed class OrgUnitRepositoryTests : IamRepositoryTestBase
         after.ParentId.Should().Be(before.ParentId);
         after.EffectiveFrom.Should().Be(before.EffectiveFrom);
         after.EffectiveTo.Should().Be(before.EffectiveTo);
+        after.BusinessNumber.Should().Be(before.BusinessNumber);
+        after.AddrLineVn.Should().Be(before.AddrLineVn);
+        after.AddrLineEn.Should().Be(before.AddrLineEn);
+        after.AddrWardVn.Should().Be(before.AddrWardVn);
+        after.AddrWardEn.Should().Be(before.AddrWardEn);
+        after.AddrDistrictVn.Should().Be(before.AddrDistrictVn);
+        after.AddrDistrictEn.Should().Be(before.AddrDistrictEn);
+        after.AddrProvinceVn.Should().Be(before.AddrProvinceVn);
+        after.AddrProvinceEn.Should().Be(before.AddrProvinceEn);
+        after.AdminDivisionLevel.Should().Be(before.AdminDivisionLevel);
+        after.NameFullEn.Should().Be(before.NameFullEn);
+        after.NameShortEn.Should().Be(before.NameShortEn);
+        after.Phone.Should().Be(before.Phone);
+        after.Fax.Should().Be(before.Fax);
+        after.Email.Should().Be(before.Email);
     }
 
     // Task 3 Step 3 — empty-predecessor probe blocks on an active child and passes when that child is inactive.
@@ -755,6 +793,21 @@ public sealed class OrgUnitRepositoryTests : IamRepositoryTestBase
         public long? ParentId { get; init; }
         public DateOnly EffectiveFrom { get; init; }
         public DateOnly EffectiveTo { get; init; }
+        public string? BusinessNumber { get; init; }
+        public string? AddrLineVn { get; init; }
+        public string? AddrLineEn { get; init; }
+        public string? AddrWardVn { get; init; }
+        public string? AddrWardEn { get; init; }
+        public string? AddrDistrictVn { get; init; }
+        public string? AddrDistrictEn { get; init; }
+        public string? AddrProvinceVn { get; init; }
+        public string? AddrProvinceEn { get; init; }
+        public byte AdminDivisionLevel { get; init; }
+        public string? NameFullEn { get; init; }
+        public string? NameShortEn { get; init; }
+        public string? Phone { get; init; }
+        public string? Fax { get; init; }
+        public string? Email { get; init; }
     }
 
     private async Task<List<ReplaceProbeRow>> GetReplaceProbeRowsAsync(long orgUnitId)
@@ -766,7 +819,15 @@ public sealed class OrgUnitRepositoryTests : IamRepositoryTestBase
             SELECT id AS Id, isactive AS IsActive, status AS Status,
                    replaced_by_org_unit_id AS ReplacedByOrgUnitId, operation_kind AS OperationKind,
                    org_code AS OrgCode, org_name_full_vn AS OrgNameFullVn, org_name_short_vn AS OrgNameShortVn,
-                   parent_id AS ParentId, effective_from AS EffectiveFrom, effective_to AS EffectiveTo
+                   parent_id AS ParentId, effective_from AS EffectiveFrom, effective_to AS EffectiveTo,
+                   org_business_number AS BusinessNumber, org_addr_line_vn AS AddrLineVn,
+                   org_addr_line_en AS AddrLineEn, org_addr_ward_vn AS AddrWardVn,
+                   org_addr_ward_en AS AddrWardEn, org_addr_district_vn AS AddrDistrictVn,
+                   org_addr_district_en AS AddrDistrictEn, org_addr_province_vn AS AddrProvinceVn,
+                   org_addr_province_en AS AddrProvinceEn,
+                   org_admin_division_level AS AdminDivisionLevel, org_name_full_en AS NameFullEn,
+                   org_name_short_en AS NameShortEn, org_phone AS Phone, org_fax AS Fax,
+                   org_email AS Email
             FROM org_unit_version WHERE org_unit_id = @orgUnitId
             """,
             new { orgUnitId });

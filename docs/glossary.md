@@ -33,7 +33,7 @@
 | VN | EN | Note |
 |---|---|---|
 | đơn vị | org unit | table `org_unit`, parent-child tree |
-| mã đơn vị | org code | `org_unit_version.org_code`, business code / natural key (P6); app: 4-8 chars, letters+digits, ALL CAPS |
+| mã đơn vị | org code | `org_unit_version.org_code`, business code (P6); app: 4-8 chars, letters+digits, ALL CAPS. ⚠ **Not a natural key** since 2026-09-04: [[thay thế (đơn vị)]] can give a corrected declaration a different code, so one real-world unit can span two codes across two identities. P6 is uniqueness over ACTIVE rows in a period, not identity |
 | tên đầy đủ (đơn vị) | full name (VN) | `org_unit_version.org_name_full_vn`, legal profile name |
 | tên viết tắt (đơn vị) | short name (VN) | `org_unit_version.org_name_short_vn`, internal-management name |
 | thông tin bổ sung (đơn vị) | supplemental fields | optional org-unit columns (`org_business_number`, address, EN names, phone/fax/email, reserves) — catalog in declaration-screens spec §2.4 |

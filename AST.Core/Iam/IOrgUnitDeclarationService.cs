@@ -78,8 +78,14 @@ public interface IOrgUnitDeclarationService
 
     // Fifth gesture: replace one org unit WHOLLY with a
     // corrected declaration. This is NOT a Close and NOT an Edit -- a Close says the unit existed and now
-    // ends; an Edit may not touch the period, the code or the parent. A replacement says the record was
-    // never right, and declares a new identity in its place.
+    // ends; an Edit may not touch the parent, which is UNEXPRESSIBLE in EditOrgUnitDeclarationRequest. A
+    // replacement says the record was never right, and declares a new identity in its place.
+    //
+    // NOT a claim about the period or the org code AS SHIPPED. Under the requester's five-gesture model
+    // (2026-09-04) those belong to Thay the alone -- but EditOrgUnitDeclarationRequest still carries
+    // `Period` and `OrgCode` and the Edit path still writes them. Locking them out of Sua is backlog 3.29,
+    // deliberately blocked on this gesture existing. Do not read the target model as the current contract.
+    // Found by review 240 (F-240-06), after the same over-claim was corrected in the glossary.
     //
     // Load-bearing properties an implementation may not relax:
     //   - the actor and the authorization scope are derived server-side, so the request carries neither,

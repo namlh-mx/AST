@@ -1574,12 +1574,6 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private static string FormatDate(DateOnly d) => d == EffectivePeriod.OpenEnd ? "Không xác định" : d.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
-    // Add write path: one call into IOrgUnitDeclarationService. The service owns P7, the Global-scope gate,
-    // root uniqueness, the identity mint, the first version and the audit row — all in ONE transaction
-    // (backlog 0.4b, 2026-08-17). Do NOT reintroduce any of them here: this screen used to mint the header
-    // on its own connection and hand-compensate with DeleteEmptyIdentityAsync when the version write failed,
-    // which design-effective-period.md §7 forbids and which left an orphan identity whenever the
-    // compensation itself did not run.
     private async Task ExecuteSaveReplaceAsync(EffectivePeriod period)
     {
         // Settled confirm (card 238): what the gesture does, no dates and no values.
@@ -1614,6 +1608,12 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         await CompleteSaveAfterVerificationAsync(newId, verification, "Đã lưu.");
     }
 
+    // Add write path: one call into IOrgUnitDeclarationService. The service owns P7, the Global-scope gate,
+    // root uniqueness, the identity mint, the first version and the audit row — all in ONE transaction
+    // (backlog 0.4b, 2026-08-17). Do NOT reintroduce any of them here: this screen used to mint the header
+    // on its own connection and hand-compensate with DeleteEmptyIdentityAsync when the version write failed,
+    // which design-effective-period.md §7 forbids and which left an orphan identity whenever the
+    // compensation itself did not run.
     private async Task ExecuteSaveAddAsync(EffectivePeriod period)
     {
         var result = await _declaration.AddOrgUnitDeclarationAsync(

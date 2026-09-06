@@ -37,7 +37,12 @@ CREATE TABLE `org_unit` (
 CREATE TABLE `org_unit_version` (
   id                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   org_unit_id              BIGINT UNSIGNED NOT NULL,       -- FK -> org_unit(id) (IDENTITY)
-  org_code                 VARCHAR(8)   NOT NULL,          -- business code / natural key (P6); app: 4-8, letters+digits, ALL CAPS
+  -- business code (P6); app: 4-8, letters+digits, ALL CAPS. NOT a natural key: since 2026-09-04 the Thay
+  -- the gesture can replace a unit with a corrected declaration carrying a DIFFERENT code, so one real-world
+  -- unit can span two codes across two identities. P6 is uniqueness over ACTIVE rows in a period, not
+  -- identity, and a lineage must never be reconstructed by code. (role_code below IS still a natural key:
+  -- chk_rv_status does not admit 'replaced', so roles have no replacement gesture.)
+  org_code                 VARCHAR(8)   NOT NULL,
   org_name_full_vn         VARCHAR(100) NOT NULL,          -- full VN name (legal profile)
   org_name_short_vn        VARCHAR(100) NOT NULL,          -- short VN name (internal management)
   parent_id                BIGINT UNSIGNED NULL,           -- FK -> org_unit(id) (parent IDENTITY); resolved by date; NULL = root
