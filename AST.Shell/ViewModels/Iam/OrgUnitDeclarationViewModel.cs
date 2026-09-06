@@ -579,6 +579,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // button that reaches the service, and the service derives close-vs-cancel itself, so a bare !IsRoot
     // blocks the cancel path too.
     //
+    // DELIBERATELY UNLIKE CanReplace (card 259 / requester ruling 2026-09-06): a mis-declared root must
+    // keep an in-app remedy, and that remedy is Đóng (break-glass), not Thay thế. Do not "restore"
+    // symmetry with CanReplace — the asymmetry is the ruling.
+    //
     // No ObservesProperty for break-glass membership: it comes from the signed §⑤ admin list and cannot
     // change within a session, so there is nothing to raise a change for. IsRoot IS observed (see
     // BeginCloseCommand) because loading a different card changes it.
@@ -587,12 +591,15 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         && (!IsRoot || _breakGlass.IsBreakGlassAdmin(_currentUser.Username ?? "unknown"))
         && Status is VersionStatus.Effective or VersionStatus.Pending;
 
-    // Same shape as CanClose (card 238 / F-237-02 / F-237-03) - NOT CanEdit. Covers the predecessor-is-root
-    // half of OrgUnit.RootNotReplaceable; the successor-as-root half is the picker affordance
-    // OffersRootParentOption, not CanSave.
+    // Predecessor-is-root half of OrgUnit.RootNotReplaceable (card 238 / F-237-02 / F-237-03) — NOT CanEdit.
+    // The successor-as-root half is the picker affordance OffersRootParentOption, not CanSave.
+    //
+    // DELIBERATELY UNLIKE CanClose (card 259 / requester ruling 2026-09-06): the root may only be
+    // re-declared via Đóng cái cũ → tạo cái mới. Thay thế is never a back door — no break-glass carve-out
+    // here. Do not copy CanClose's (!IsRoot || IsBreakGlassAdmin(...)) shape back onto this property.
     public bool CanReplace =>
         Mode == OrgUnitCardMode.ReadOnly
-        && (!IsRoot || _breakGlass.IsBreakGlassAdmin(_currentUser.Username ?? "unknown"))
+        && !IsRoot
         && Status is VersionStatus.Effective or VersionStatus.Pending;
 
     public bool CanCancel => Mode != OrgUnitCardMode.ReadOnly;
@@ -621,12 +628,16 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         _ => false,
     };
 
-    // Affordance for RootNotReplaceable's successor half (card 238): ordinary actors in Replacing never
-    // get Add's empty-candidate "Đơn vị gốc (không có cha)" path. Break-glass sees that path normally.
-    public bool OffersRootParentOption =>
-        Mode == OrgUnitCardMode.Adding
-        || (Mode == OrgUnitCardMode.Replacing
-            && _breakGlass.IsBreakGlassAdmin(_currentUser.Username ?? "unknown"));
+    // Affordance for RootNotReplaceable's successor half (card 238 / 259): only Adding may land on the
+    // empty-candidate root path (RootParentDisplayLabel). Replacing never offers it — not even to
+    // break-glass (requester ruling 2026-09-06: re-declare the root via Đóng → tạo mới, not Thay thế).
+    // That also makes !OffersRootParentOption always true in Replacing, so the 3.41/257 parent-period
+    // gate applies to every actor there (earlier ruling).
+    public bool OffersRootParentOption => Mode == OrgUnitCardMode.Adding;
+
+    // Settled display label for a root's parent field (card 259). Not a message — inventory home is
+    // the operator-message rules; do not lengthen back to "Đơn vị gốc (không có cha)".
+    public const string RootParentDisplayLabel = "Đơn vị gốc";
 
     // an earlier ruling: single home for the replace-parent-period gate. Both SyncReplaceParentPeriodGate and
     // RefreshParentSurface read this — do not re-express the predicate in the view code-behind.

@@ -4232,7 +4232,7 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
-    public async Task CanReplace_ForARootUnit_IsTrueOnlyForABreakGlassActor()
+    public async Task CanReplace_ForARootUnit_IsFalseEvenForABreakGlassActor()
     {
         var ordinary = Build(breakGlass: new FakeBreakGlassPolicy());
         ordinary.Repo.ByIdentityResult = Dto(1, parentId: null, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 88, orgCode: "ROOT1");
@@ -4243,7 +4243,9 @@ public class OrgUnitDeclarationViewModelTests
         var rescuer = Build(breakGlass: new FakeBreakGlassPolicy("tester"));
         rescuer.Repo.ByIdentityResult = Dto(1, parentId: null, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 88, orgCode: "ROOT1");
         await rescuer.Vm.LoadAsync(1, Today);
-        rescuer.Vm.CanReplace.Should().BeTrue();
+        // Card 259: CanReplace has no break-glass carve-out. CanClose still does — see
+        // RootUnit_BreakGlassActor_CanCloseRemainsTrue_AndCanReplaceIsFalse.
+        rescuer.Vm.CanReplace.Should().BeFalse();
     }
 
     [Fact]
@@ -4277,7 +4279,7 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
-    public async Task OffersRootParentOption_InReplacing_IsTrueOnlyForBreakGlass()
+    public async Task OffersRootParentOption_InReplacing_IsFalseForEveryone()
     {
         var ordinary = Build(breakGlass: new FakeBreakGlassPolicy());
         ordinary.Repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
@@ -4289,7 +4291,8 @@ public class OrgUnitDeclarationViewModelTests
         rescuer.Repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
         await rescuer.Vm.LoadAsync(3, Today);
         rescuer.Vm.BeginReplaceCommand.Execute();
-        rescuer.Vm.OffersRootParentOption.Should().BeTrue();
+        // Card 259: Replacing never offers the root path, including to break-glass.
+        rescuer.Vm.OffersRootParentOption.Should().BeFalse();
     }
 
     [Fact]
@@ -4543,8 +4546,10 @@ public class OrgUnitDeclarationViewModelTests
         vm.ParentId.Should().Be(1);
     }
 
+    // Card 259 restates the 3.38-era pin: break-glass no longer keeps the root path in Replacing,
+    // so an empty candidate list is Branch A for every actor — not the root display label.
     [Fact]
-    public async Task ReplaceParentPeriodGate_BreakGlass_EmptyCandidates_KeepsRootPath_DoesNotBlock()
+    public async Task ReplaceParentPeriodGate_BreakGlass_EmptyCandidates_RaisesBranchA_NotRootLabel()
     {
         var (vm, repo) = Build(breakGlass: new FakeBreakGlassPolicy("tester"));
         repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
@@ -4552,14 +4557,16 @@ public class OrgUnitDeclarationViewModelTests
         await vm.LoadAsync(3, Today);
         vm.BeginReplaceCommand.Execute();
 
-        vm.OffersRootParentOption.Should().BeTrue();
+        vm.OffersRootParentOption.Should().BeFalse();
         vm.ParentEligibility.Should().Be(ParentEligibilityState.Resolved);
         vm.ParentCandidates.Should().BeEmpty();
-        vm.PeriodCommitBlocked.Should().BeFalse();
-        vm.CanSave.Should().BeTrue();
-        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
-        vm.StatusMessage.Should().NotBe("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
-        vm.ParentId.Should().Be(1);
+        vm.ParentId.Should().Be(1, "ParentId must not be silently nulled");
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
+        vm.StatusMessage.Should().NotBe("Đơn vị gốc");
+        vm.StatusMessage.Should().NotBe("Đơn vị gốc (không có cha)");
+        vm.PeriodCommitBlocked.Should().BeTrue();
+        vm.CanSave.Should().BeFalse();
     }
 
     [Fact]
@@ -4808,5 +4815,65 @@ public class OrgUnitDeclarationViewModelTests
         statusMessages.Should().NotContain("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
         statusMessages.Should().NotContain("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
         periodBlocked.Should().NotContain(true);
+    }
+
+    // ---- Card 259: root Replace carve-out removed; Close remains the remedy ----
+
+    [Fact]
+    public async Task RootUnit_BreakGlassActor_CanCloseRemainsTrue_AndCanReplaceIsFalse()
+    {
+        var (vm, repo) = Build(breakGlass: new FakeBreakGlassPolicy("tester"));
+        repo.ByIdentityResult = Dto(1, parentId: null, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 88, orgCode: "ROOT1");
+        await vm.LoadAsync(1, Today);
+
+        vm.IsRoot.Should().BeTrue();
+        vm.CanClose.Should().BeTrue("Close is the in-app remedy for a mis-declared root");
+        vm.CanReplace.Should().BeFalse("Thay thế must not be a back door to re-declaring the root");
+    }
+
+    [Fact]
+    public async Task OffersRootParentOption_InReplacing_IsFalseEvenForBreakGlass_AndTrueInAdding()
+    {
+        var rescuer = Build(breakGlass: new FakeBreakGlassPolicy("tester"));
+        rescuer.Repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        await rescuer.Vm.LoadAsync(3, Today);
+        rescuer.Vm.BeginReplaceCommand.Execute();
+        rescuer.Vm.OffersRootParentOption.Should().BeFalse();
+
+        var (addVm, _) = Build(breakGlass: new FakeBreakGlassPolicy());
+        addVm.BeginAddCommand.Execute();
+        addVm.OffersRootParentOption.Should().BeTrue();
+    }
+
+    // Backlog 3.46: break-glass used to skip the gate via OffersRootParentOption; after card 259 the
+    // gate applies to every Replacing actor, so Branch B is what the operator meets.
+    [Fact]
+    public async Task ReplaceParentPeriodGate_ParentAbsentFromNonEmptyCandidates_BreakGlassActor_BlocksSave_KeepsParentId()
+    {
+        var (vm, repo) = Build(breakGlass: new FakeBreakGlassPolicy("tester"));
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(10, "ROOT - Gốc"),
+            new OrgUnitPickerItem(9, "OTHER - Khác"),
+        ];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+
+        vm.OffersRootParentOption.Should().BeFalse();
+        vm.ParentEligibility.Should().Be(ParentEligibilityState.Resolved);
+        vm.ParentCandidates.Should().HaveCount(2);
+        vm.ParentCandidates.Should().NotContain(c => c.Id == 1);
+        vm.ParentId.Should().Be(1, "ViewModel must not silently null ParentId when raising Branch B");
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
+        vm.PeriodCommitBlocked.Should().BeTrue();
+        vm.CanSave.Should().BeFalse();
+    }
+
+    [Fact]
+    public void RootParentDisplayLabel_IsTheSettledShortForm()
+    {
+        OrgUnitDeclarationViewModel.RootParentDisplayLabel.Should().Be("Đơn vị gốc");
     }
 }

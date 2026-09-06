@@ -262,12 +262,10 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
 
             if (vm.ParentId is null && vm.ParentCandidates.Count == 0)
             {
-                // Root Display only: unlocked Add always OffersRootParentOption; break-glass Replacing
-                // with empty candidates lands here. Ordinary-actor Replacing empty-list (Branch A) is
-                // handled by the 3.41 branch above — this arm now sees only unlocked Adding and
-                // break-glass Replacing.
+                // Root Display only: unlocked Add (OffersRootParentOption). Replacing empty-list is
+                // Branch A above for every actor (card 259) — this arm no longer sees Replacing.
                 Chrome.ParentMode = AstOrgUnitPickerMode.Display;
-                Chrome.ParentDisplayText = "Đơn vị gốc (không có cha)";
+                Chrome.ParentDisplayText = OrgUnitDeclarationViewModel.RootParentDisplayLabel;
                 return;
             }
 
@@ -281,7 +279,7 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
         // whichever tree node happens to be selected (History→View leaves selection cleared).
         if (vm.IsRoot)
         {
-            Chrome.ParentDisplayText = "Đơn vị gốc (không có cha)";
+            Chrome.ParentDisplayText = OrgUnitDeclarationViewModel.RootParentDisplayLabel;
             return;
         }
 

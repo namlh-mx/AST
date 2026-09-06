@@ -718,80 +718,45 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
     }
 
     [Fact]
-    public async Task ReplaceOrgUnitDeclarationAsync_RootSuccessorOverlapsSeparateActiveRoot_ReturnsRootPeriodOverlaps()
+    public async Task ReplaceOrgUnitDeclarationAsync_RootSuccessor_BreakGlassActor_IsRefusedWithRootNotReplaceable()
     {
         SkipUnlessDbAvailable();
 
-        // Separate active root overlaps the requested root-successor period; predecessor is non-root.
-        // Parent of predecessor covers OpenFrom2020. Break-glass so RootNotReplaceable does not fire first.
+        // Card 259: successor-as-root is refused for break-glass too. RootPeriodOverlaps on this path
+        // is unreachable; Add remains the only route that can still raise it for a root declaration.
         var parent = await AddRootAsync("R15PAR", OpenFrom2020);
         var predecessor = await AddChildAsync("R15OLD", parent, OpenFrom2020);
-        // Second overlapping root — CreateOrgUnitAsync (Add cannot mint a second overlapping root);
-        // deliberately unreachable through Add — that is the state the guard exists to refuse.
         await CreateOrgUnitAsync("R15OTH", "Gốc khác", "R15OTH", null, OpenFrom2020);
+        var before = await ReadAllVersionRowsAsync(predecessor);
 
         var result = await BuildBreakGlassService().ReplaceOrgUnitDeclarationAsync(
             ReplaceRequest(predecessor, "R15NEW", parentId: null));
 
         result.IsError.Should().BeTrue();
-        result.FirstError.Code.Should().Be("OrgUnit.RootPeriodOverlaps");
+        result.FirstError.Code.Should().Be("OrgUnit.RootNotReplaceable");
+        (await ReadAllVersionRowsAsync(predecessor)).Should().BeEquivalentTo(
+            before, opts => opts.WithStrictOrdering());
     }
 
     [Fact]
-    public async Task ReplaceOrgUnitDeclarationAsync_RootPredecessorToOverlappingRootSuccessor_BreakGlassSucceedsAndRecordsBothAudits()
+    public async Task ReplaceOrgUnitDeclarationAsync_RootPredecessor_BreakGlassActor_IsRefusedWithRootNotReplaceable()
     {
         SkipUnlessDbAvailable();
 
-        // Successor is a root — no parent coverage to state (R4). No other active root. Self-overlap
-        // of predecessor/successor periods is permitted after mark under break-glass.
+        // Card 259 restates the former break-glass success path: predecessor-is-root is refused for
+        // everyone. Close remains the remedy (see CloseOrgUnitDeclarationAsync_RootOrgUnit_BreakGlassActor_*).
         var predecessor = await AddRootAsync("R16ROOT", OpenFrom2020);
+        var before = await ReadAllVersionRowsAsync(predecessor);
         var auditsBefore = await SnapshotAuditAsync();
 
         var result = await BuildBreakGlassService().ReplaceOrgUnitDeclarationAsync(
             ReplaceRequest(predecessor, "R16NEW", parentId: null, fullVn: "Gốc mới R16", shortVn: "R16N"));
 
-        result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
-
-        var pred = (await ReadAllVersionRowsAsync(predecessor)).Should().ContainSingle().Subject;
-        pred.IsActive.Should().BeFalse();
-        pred.Status.Should().Be("replaced");
-        pred.ReplacedByOrgUnitId.Should().Be((ulong)result.Value.OrgUnitId);
-
-        var succ = (await ReadAllVersionRowsAsync(result.Value.OrgUnitId)).Should().ContainSingle().Subject;
-        succ.ParentId.Should().BeNull();
-        succ.OperationKind.Should().Be("Replace");
-        succ.Status.Should().Be("normal");
-        succ.IsActive.Should().BeTrue();
-
-        var delta = await AuditDeltaAsync(auditsBefore);
-        var target = $"org_unit_version:{result.Value.Write.NewVersionId}";
-        var markedIds = new[] { (long)pred.Id };
-        const string note = "thay thế";
-
-        // ContainSingle below proves each expected row's fields; this set proves there is no third
-        // security event on the same successor target.
-        delta.Where(a => a.Target == target).Select(a => a.EventType).Should().BeEquivalentTo(
-            ["orgunit-replace", "orgunit-root-replace-breakglass"]);
-
-        var ordinary = delta.Should().ContainSingle(a => a.EventType == "orgunit-replace").Subject;
-        ordinary.Target.Should().Be(target);
-        ordinary.Actor.Should().Be(Actor);
-        var ordinaryDetail = JsonSerializer.Deserialize<OrgUnitReplaceAuditDetailDto>(ordinary.Detail!, AuditJsonOptions)!;
-        ordinaryDetail.PredecessorOrgUnitId.Should().Be(predecessor);
-        ordinaryDetail.SuccessorOrgUnitId.Should().Be(result.Value.OrgUnitId);
-        ordinaryDetail.MarkedVersionIds.Should().BeEquivalentTo(markedIds);
-        ordinaryDetail.Note.Should().Be(note);
-
-        var breakGlass = delta.Should()
-            .ContainSingle(a => a.EventType == "orgunit-root-replace-breakglass").Subject;
-        breakGlass.Target.Should().Be(target);
-        breakGlass.Actor.Should().Be(Actor);
-        var breakGlassDetail = JsonSerializer.Deserialize<OrgUnitReplaceAuditDetailDto>(
-            breakGlass.Detail!, AuditJsonOptions)!;
-        breakGlassDetail.PredecessorOrgUnitId.Should().Be(predecessor);
-        breakGlassDetail.SuccessorOrgUnitId.Should().Be(result.Value.OrgUnitId);
-        breakGlassDetail.MarkedVersionIds.Should().BeEquivalentTo(markedIds);
-        breakGlassDetail.Note.Should().Be(note);
+        result.IsError.Should().BeTrue();
+        result.FirstError.Code.Should().Be("OrgUnit.RootNotReplaceable");
+        (await ReadAllVersionRowsAsync(predecessor)).Should().BeEquivalentTo(
+            before, opts => opts.WithStrictOrdering());
+        (await AuditDeltaAsync(auditsBefore)).Should().BeEmpty();
     }
 
     [Fact]
@@ -915,11 +880,13 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
     }
 
     [Fact]
-    public async Task ReplaceOrgUnitDeclarationAsync_RootSecondAuditWriteFails_RollsBackWholeComposite()
+    public async Task ReplaceOrgUnitDeclarationAsync_RootSecondAuditWrite_Unreachable_BreakGlassRefusedBeforeAnyAudit()
     {
         SkipUnlessDbAvailable();
 
-        // Root path writes two audit rows; fail on the second after the first succeeds inside the TX.
+        // Card 259: orgunit-root-replace-breakglass is unreachable, so the former FailOnSecondAudit
+        // pin for that path cannot fire. Restate as: break-glass root replace is refused before any
+        // audit write (and the injected second-write failure therefore never runs).
         var predecessor = await AddRootAsync("RA2ROOT", OpenFrom2020);
         var before = await ReadAllVersionRowsAsync(predecessor);
         var headersBefore = await CountAllHeaderRowsAsync();
@@ -930,12 +897,11 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
                 ReplaceRequest(predecessor, "RA2NEW", parentId: null, fullVn: "Gốc RA2", shortVn: "RA2N"));
 
         result.IsError.Should().BeTrue();
-        result.FirstError.Code.Should().Be("AuditLog.Injected");
+        result.FirstError.Code.Should().Be("OrgUnit.RootNotReplaceable");
         (await ReadAllVersionRowsAsync(predecessor)).Should().BeEquivalentTo(
             before, opts => opts.WithStrictOrdering());
-        (await CountAllHeaderRowsAsync()).Should().Be(headersBefore, "an unaudited successor must not survive");
-        (await AuditDeltaAsync(auditsBefore)).Should().BeEmpty(
-            "a first audit row that committed early would leak here");
+        (await CountAllHeaderRowsAsync()).Should().Be(headersBefore);
+        (await AuditDeltaAsync(auditsBefore)).Should().BeEmpty();
     }
 
     [Fact]

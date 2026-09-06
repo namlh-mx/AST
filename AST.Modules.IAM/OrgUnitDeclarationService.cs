@@ -57,7 +57,7 @@ internal sealed class OrgUnitDeclarationService(
     // Same per-consumer-const convention as RoleDeclarationService.FunctionKey ("Iam.Role.Declare") --
     // no shared constant is extracted here (that is separate tracked debt, out of scope for this task).
     // This literal also lives as OrgUnitDeclarationViewModel's own private const FunctionKey. As of
-    // 2026-08-21 (backlog 0.7) the VM no longer AUTHORIZES anything with it -- Edit's P7 and scope gate
+    // 2026-08-21 (earlier ruling) the VM no longer AUTHORIZES anything with it -- Edit's P7 and scope gate
     // moved here, joining Add and Close. What the VM still does with the key is a non-authoritative
     // pre-check that fails the UI early; the authoritative gate is in this file. Both literals must stay
     // in sync until the const has a single shared home.
@@ -479,11 +479,15 @@ internal sealed class OrgUnitDeclarationService(
             var storedParent = distinctParents[0];
 
             // [4d] ROOT GATE — singleton parent is null OR successor is declared as root.
-            if ((storedParent is null || request.ParentId is null) && !isBreakGlassActor)
+            // Requester ruling 2026-09-06 (card 259): no break-glass carve-out. Re-declaring the root
+            // goes through Close → Add, never Replace. isBreakGlassActor is still read once above for
+            // the audit row that used to record a permitted root replace (F-57); that row is now
+            // unreachable and must not be "fixed" by re-opening this gate.
+            if (storedParent is null || request.ParentId is null)
             {
                 return Error.Forbidden(
                     "OrgUnit.RootNotReplaceable",
-                    $"A root org unit may only be replaced by a break-glass administrator; actor '{username}' is not one.");
+                    $"A root org unit may not be replaced (including by a break-glass administrator); actor '{username}'.");
             }
 
             // [4d2] PARENT/SUBTREE GATE — after the predecessor exists, its stored parent is coherent and
@@ -634,7 +638,7 @@ internal sealed class OrgUnitDeclarationService(
 
         // [2b] The resolved scope proves the actor holds SOME scope for this function, not that the TARGET
         // unit falls within it. This gate used to live in OrgUnitDeclarationViewModel.ExecuteSaveEditAsync,
-        // where every caller that was not that screen got none of it (backlog 0.7).
+        // where every caller that was not that screen got none of it (earlier ruling).
         if (!await orgUnitRepository.IsWithinScopeAsync(scope, request.OrgUnitId))
         {
             return Error.Forbidden(
