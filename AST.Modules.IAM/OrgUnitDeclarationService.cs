@@ -412,7 +412,7 @@ internal sealed class OrgUnitDeclarationService(
     // fact; total replacement removed that requirement without making it automatic.
     //
     // Fifth gesture (spec 2026-09-04): replace one org unit wholly with a corrected declaration.
-    // Ordering inside the composite is an invariant — [4f] before every isactive-reading probe, [4k]
+    // Ordering inside the composite is an invariant — [4e] before every isactive-reading probe, [4j]
     // after the successor identity exists. See design §6 / plan Task 4.
     public async Task<ErrorOr<ReplaceOrgUnitDeclarationResult>> ReplaceOrgUnitDeclarationAsync(
         ReplaceOrgUnitDeclarationRequest request)
@@ -486,9 +486,9 @@ internal sealed class OrgUnitDeclarationService(
                     $"A root org unit may only be replaced by a break-glass administrator; actor '{username}' is not one.");
             }
 
-            // [4e] PARENT/SUBTREE GATE — after the predecessor exists, its stored parent is coherent and
+            // [4d2] PARENT/SUBTREE GATE — after the predecessor exists, its stored parent is coherent and
             // root authority is decided, but before any mark or identity mint. This identity-history query
-            // does not read isactive, so it preserves the replacement invariant that [4f] precedes every
+            // does not read isactive, so it preserves the replacement invariant that [4e] precedes every
             // isactive-reading probe.
             if (request.ParentId is { } requestedParentId
                 && await orgUnitRepository.IsInIdentitySubtreeAsync(
@@ -500,7 +500,7 @@ internal sealed class OrgUnitDeclarationService(
                     "or an identity in its subtree.");
             }
 
-            // [4f] MARK isactive = 0 on [4a]'s ids — BEFORE every isactive-reading probe.
+            // [4e] MARK isactive = 0 on [4a]'s ids — BEFORE every isactive-reading probe.
             var markedVersionIds = new List<long>(activeRows.Count);
             var markedCount = 0;
             foreach (var row in activeRows)
@@ -516,14 +516,14 @@ internal sealed class OrgUnitDeclarationService(
                     $"Replace mark affected {markedCount} rows but [4a] read {activeRows.Count}.");
             }
 
-            // [4g] predecessor-empty probe — must see the predecessor already inactive.
+            // [4f] predecessor-empty probe — must see the predecessor already inactive.
             var emptyProbe = orgUnitRepository.ProbePredecessorEmpty(context, request.PredecessorOrgUnitId);
             if (emptyProbe.IsError)
             {
                 return emptyProbe.Errors;
             }
 
-            // [4h] N1 root-overlap when the successor is a root.
+            // [4g] N1 root-overlap when the successor is a root.
             if (request.ParentId is null)
             {
                 var rootPeriods = await orgUnitRepository.GetActiveRootPeriodsAsync(context);
@@ -535,10 +535,10 @@ internal sealed class OrgUnitDeclarationService(
                 }
             }
 
-            // [4i] Mint the successor identity — after every replacement guard has passed.
+            // [4h] Mint the successor identity — after every replacement guard has passed.
             successorOrgUnitId = await orgUnitRepository.CreateIdentityAsync(context);
 
-            // [4j] Successor's first version, kind Replace. P6 and D8 run HERE, inherited from UpsertAsync.
+            // [4i] Successor's first version, kind Replace. P6 and D8 run HERE, inherited from UpsertAsync.
             var write = await orgUnitRepository.UpsertAsync(
                 context, successorOrgUnitId, request.Period, request.OrgCode, request.OrgNameFullVn,
                 request.OrgNameShortVn, request.ParentId, VersionOperationKind.Replace, username, request.Reason,
@@ -550,13 +550,13 @@ internal sealed class OrgUnitDeclarationService(
 
             upsertResult = write.Value;
 
-            // [4k] STAMP status + successor link, on exactly [4f]'s ids — AFTER the successor exists.
+            // [4j] STAMP status + successor link, on exactly [4e]'s ids — AFTER the successor exists.
             foreach (var versionId in markedVersionIds)
             {
                 await orgUnitRepository.StampVersionReplacedAsync(context, versionId, successorOrgUnitId);
             }
 
-            // [4l] Audit row. Unlike Add/Edit siblings the detail carries no versionId — the audit
+            // [4k] Audit row. Unlike Add/Edit siblings the detail carries no versionId — the audit
             // target already IS org_unit_version:{successor's first version id}.
             var auditResult = await auditLog.WriteAsync(
                 new AuditLogEntry(
