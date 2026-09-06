@@ -256,14 +256,10 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
 
             if (vm.ParentId is null && vm.ParentCandidates.Count == 0)
             {
-                // Successor-as-root half of RootNotReplaceable: ordinary actors never get this path in
-                // Replacing; break-glass (and Add) see the root Display normally (card 238).
-                if (!vm.OffersRootParentOption)
-                {
-                    Chrome.ParentMode = AstOrgUnitPickerMode.Editable;
-                    return;
-                }
-
+                // Root Display only: unlocked Add always OffersRootParentOption; break-glass Replacing
+                // with empty candidates lands here. Ordinary-actor Replacing with empty candidates is
+                // handled by the 3.38 branch above — the former Editable arm (!OffersRootParentOption)
+                // is unreachable in both Adding and Replacing.
                 Chrome.ParentMode = AstOrgUnitPickerMode.Display;
                 Chrome.ParentDisplayText = "Đơn vị gốc (không có cha)";
                 return;

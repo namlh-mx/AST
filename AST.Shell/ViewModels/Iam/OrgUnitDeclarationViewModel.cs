@@ -117,9 +117,11 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             {
                 MarkDirty();
                 RecomputeParentEligibility();
-                // EffectiveFrom is an INPUT to IsCloseCancelPlanBranch (via VersionCloseRules.BranchFor), so
-                // it is an input to IsEffectivePeriodEnabled's formula too — must raise the same way Mode's
-                // and Status's setters do, or the strip's IsEnabled binding can go stale after an edit here.
+                // Defensive: IsEffectivePeriodEnabled depends on Mode, _snapshot and _dates.Today (via
+                // IsCloseCancelPlanBranch → TryBuildSnapshotTargetPeriod), not on this live value.
+                // CaptureSnapshot / RestoreSnapshot own _snapshot; mode entry raises Mode afterwards.
+                // Keep the raise so a future path that changes enablement without raising Mode cannot
+                // leave the strip's IsEnabled binding stale while unit tests stay green.
                 RaisePropertyChanged(nameof(IsEffectivePeriodEnabled));
                 SyncCloseDateStatusHint();
             }
