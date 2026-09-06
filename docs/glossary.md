@@ -38,7 +38,10 @@
 | tên viết tắt (đơn vị) | short name (VN) | `org_unit_version.org_name_short_vn`, internal-management name |
 | thông tin bổ sung (đơn vị) | supplemental fields | optional org-unit columns (`org_business_number`, address, EN names, phone/fax/email, reserves) — catalog in declaration-screens spec §2.4 |
 | bị hủy (kế hoạch tương lai) | cancelled (plan) | `org_unit_version.status = 'cancelled'` + `isactive = 0` (was a `cancelled` column until V010): a future version closed before it took effect (distinct from a naturally-ended/superseded version) |
-| bị thay thế | replaced | `org_unit_version.status = 'replaced'` + `isactive = 0` + a non-null `replaced_by_org_unit_id`: a version retired by a replacement gesture, told apart from a naturally-ended one only by that durable marker. Org-unit only in v1 — `chk_rv_status`/`chk_rpv_status` do not admit the value at all |
+| bị thay thế | replaced | `org_unit_version.status = 'replaced'` + `isactive = 0` + a non-null `replaced_by_org_unit_id`: a version whose record was never right, marked when the whole org unit was replaced by a corrected declaration. Told apart from a naturally-ended version only by that durable marker. Org-unit only in v1 — `chk_rv_status`/`chk_rpv_status` do not admit the value at all |
+| đóng (đơn vị) | close / retire (an org unit) | the gesture that ends an OPERATING unit: *it existed, and now it ends*. Last effective day ≥ `today - 1`. Leaves the rows `normal`; the history stays true |
+| thay thế (đơn vị) | replace (an org unit) | the gesture that replaces ONE unit wholly with a corrected declaration: *the record was never right*. The only route that can change an org unit's effective period or its org code. Predecessor must be empty. |
+| dữ liệu lịch sử bất biến | immutable history | data the app already recorded is not changed by anything that happens afterwards. The mechanism is the *đóng băng / freeze* row above — a recorded transaction points at a version row, which is never hard-deleted and whose business columns never change; it does not re-resolve the org unit at read time |
 | vai trò | role | `role` |
 | mã vai trò | role code | `role_version.role_code`, business code / natural key (P6) |
 | tên vai trò | role name | `role_version.role_name` |
