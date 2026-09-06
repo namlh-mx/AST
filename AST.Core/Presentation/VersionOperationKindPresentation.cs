@@ -3,8 +3,12 @@ using AST.Core.Data;
 namespace AST.Core.Presentation;
 
 // Single home of the version-operation-kind → VN label mapping (mirrors VersionStatusPresentation). Labels
-// are product UI copy (the one allowed Vietnamese), confirmed against the Screen A history-row labels
-// (Add/Edit) plus Close/Cancel following the same terse noun-form style.
+// are product UI copy (the one allowed Vietnamese). Provenance, all five: `Add`/`Edit` were confirmed
+// against the Screen A history-row labels; `Close`/`Cancel` followed the same terse noun-form style; and
+// `Replace` → "Thay thế" is the requester's own wording for the gesture, settled 2026-09-04 and pinned
+// by name in VersionOperationKindPresentationTests. ⚠ This list is the WHOLE of VersionOperationKind and
+// must stay that way — the four-value version of this sentence outlived the fifth arm from 2026-08-24
+// (`8198a67`) to 2026-09-05 (F-244-03, Assurance Advisor review round 6).
 [SharedComponent]
 public static class VersionOperationKindPresentation
 {
