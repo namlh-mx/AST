@@ -29,7 +29,7 @@ public class DdMmYyyySegmentEditorTests
         var fill = e.CaptureFillState();
         var filled = string.Concat(fill.Filled.Select(f => f ? '1' : '0'));
         var digits = new string(fill.Digits);
-        return $"{e.FormatDisplay()}|{e.ActivePart}|{e.TryGetDate(out var d)}|{(d == default ? "-" : d.ToString("O"))}|{filled}|{digits}";
+        return $"{e.FormatDisplay()}|{fill.ActivePart}|{fill.IndexInPart}|{fill.ReplacePart}|{e.TryGetDate(out var d)}|{(d == default ? "-" : d.ToString("O"))}|{filled}|{digits}";
     }
 
     private static void AssertNoInvalidAllFilledDate(DdMmYyyySegmentEditor e)
@@ -69,6 +69,178 @@ public class DdMmYyyySegmentEditorTests
         e.ApplyBackspace().Should().BeTrue();
         e.FormatDisplay().Should().Be("00/00/0000");
         e.HasAnyEnteredDigit.Should().BeFalse();
+    }
+
+    // --- Card 286 / backlog 3.69: finalize a partially entered segment ---
+
+    [Theory]
+    [InlineData('1', "10")]
+    [InlineData('2', "20")]
+    [InlineData('3', "30")]
+    [InlineData('4', "04")]
+    [InlineData('5', "05")]
+    [InlineData('6', "06")]
+    [InlineData('7', "07")]
+    [InlineData('8', "08")]
+    [InlineData('9', "09")]
+    public void FinalizePart_Day_case_table(char typed, string expectedDay)
+    {
+        var e = New();
+        e.ApplyDigit(typed).Should().BeTrue();
+        var activeBefore = e.ActivePart;
+
+        e.FinalizePart(DatePart.Day).Should().Be(
+            DdMmYyyySegmentEditor.PartFinalizationResult.Finalized);
+
+        e.FormatDisplay().Should().StartWith(expectedDay + "/");
+        e.ActivePart.Should().Be(activeBefore);
+    }
+
+    [Theory]
+    [InlineData('1', "10")]
+    [InlineData('2', "02")]
+    [InlineData('3', "03")]
+    [InlineData('4', "04")]
+    [InlineData('5', "05")]
+    [InlineData('6', "06")]
+    [InlineData('7', "07")]
+    [InlineData('8', "08")]
+    [InlineData('9', "09")]
+    public void FinalizePart_Month_case_table(char typed, string expectedMonth)
+    {
+        var e = New();
+        e.SelectPart(DatePart.Month);
+        e.ApplyDigit(typed).Should().BeTrue();
+        var activeBefore = e.ActivePart;
+
+        e.FinalizePart(DatePart.Month).Should().Be(
+            DdMmYyyySegmentEditor.PartFinalizationResult.Finalized);
+
+        e.FormatDisplay().Should().Contain("/" + expectedMonth + "/");
+        e.ActivePart.Should().Be(activeBefore);
+    }
+
+    [Theory]
+    [InlineData("2", "2000")]
+    [InlineData("22", "2200")]
+    [InlineData("201", "2010")]
+    public void FinalizePart_Year_case_table(string typed, string expectedYear)
+    {
+        var e = New();
+        e.SelectPart(DatePart.Year);
+        TypeAllAccepted(e, typed).Should().BeTrue();
+        var activeBefore = e.ActivePart;
+
+        e.FinalizePart(DatePart.Year).Should().Be(
+            DdMmYyyySegmentEditor.PartFinalizationResult.Finalized);
+
+        e.FormatDisplay().Should().EndWith("/" + expectedYear);
+        e.ActivePart.Should().Be(activeBefore);
+    }
+
+    [Theory]
+    [InlineData(DatePart.Day)]
+    [InlineData(DatePart.Month)]
+    public void FinalizePart_LoneZero_returns_segment_to_not_entered(DatePart part)
+    {
+        var e = New();
+        e.SelectPart(part);
+        e.ApplyDigit('0').Should().BeTrue();
+        e.HasAnyEnteredDigit.Should().BeTrue();
+
+        e.FinalizePart(part).Should().Be(
+            DdMmYyyySegmentEditor.PartFinalizationResult.NothingEntered);
+
+        e.HasAnyEnteredDigit.Should().BeFalse();
+        e.FormatDisplay().Should().Be("00/00/0000");
+        e.ActivePart.Should().Be(part);
+    }
+
+    [Fact]
+    public void FinalizePart_2902201_rejects_and_restores_every_editor_field()
+    {
+        var e = New();
+        TypeAllAccepted(e, "2902201").Should().BeTrue();
+        var before = CaptureState(e);
+
+        e.FinalizePart(DatePart.Year).Should().Be(
+            DdMmYyyySegmentEditor.PartFinalizationResult.Rejected);
+
+        CaptureState(e).Should().Be(before);
+        e.FormatDisplay().Should().Be("29/02/2010");
+    }
+
+    [Fact]
+    public void FinalizePart_29022_zero_fills_to_leap_year_2000()
+    {
+        var e = New();
+        TypeAllAccepted(e, "29022").Should().BeTrue();
+
+        e.FinalizePart(DatePart.Year).Should().Be(
+            DdMmYyyySegmentEditor.PartFinalizationResult.Finalized);
+
+        e.TryGetDate(out var date).Should().BeTrue();
+        date.Should().Be(new DateOnly(2000, 2, 29));
+    }
+
+    [Fact]
+    public void FinalizePart_Day3_with_unknown_month_becomes30_and_then_refuses_February()
+    {
+        var e = New();
+        e.ApplyDigit('3').Should().BeTrue();
+
+        e.FinalizePart(DatePart.Day).Should().Be(
+            DdMmYyyySegmentEditor.PartFinalizationResult.Finalized);
+        e.FormatDisplay().Should().StartWith("30/");
+
+        e.SelectPart(DatePart.Month);
+        e.ApplyDigit('2').Should().BeFalse();
+        e.FormatDisplay().Should().Be("30/00/0000");
+    }
+
+    [Fact]
+    public void FinalizePart_fully_filled_and_untouched_segments_are_no_ops_with_distinct_results()
+    {
+        var e = New();
+        e.SelectPart(DatePart.Month);
+        var untouchedBefore = CaptureState(e);
+
+        e.FinalizePart(DatePart.Month).Should().Be(
+            DdMmYyyySegmentEditor.PartFinalizationResult.NothingEntered);
+        CaptureState(e).Should().Be(untouchedBefore);
+
+        e.SetDate(new DateOnly(2026, 9, 7));
+        e.SelectPart(DatePart.Month);
+        var filledBefore = CaptureState(e);
+
+        e.FinalizePart(DatePart.Month).Should().Be(
+            DdMmYyyySegmentEditor.PartFinalizationResult.Finalized);
+        CaptureState(e).Should().Be(filledBefore);
+    }
+
+    [Fact]
+    public void FinalizePart_Year_preserves_entered_slots_and_zero_fills_arbitrary_holes()
+    {
+        var e = New();
+        e.SetDate(new DateOnly(2201, 1, 1));
+        e.SelectPart(DatePart.Day);
+        TypeAllAccepted(e, "01").Should().BeTrue();
+        e.SelectPart(DatePart.Month);
+        TypeAllAccepted(e, "01").Should().BeTrue(); // reaches the filled Year with a per-slot cursor
+
+        e.ApplyDelete().Should().BeTrue();
+        e.ApplyDigit('2').Should().BeTrue();
+        e.ApplyDelete().Should().BeTrue();
+        e.ApplyBackspace().Should().BeTrue();
+        var holes = e.CaptureFillState();
+        holes.Filled[4..8].Should().Equal(true, false, true, false); // 2_0_
+
+        e.FinalizePart(DatePart.Year).Should().Be(
+            DdMmYyyySegmentEditor.PartFinalizationResult.Finalized);
+
+        e.FormatDisplay().Should().Be("01/01/2000");
+        e.TryGetDate(out var date).Should().BeTrue();
+        date.Should().Be(new DateOnly(2000, 1, 1));
     }
 
     [Fact]

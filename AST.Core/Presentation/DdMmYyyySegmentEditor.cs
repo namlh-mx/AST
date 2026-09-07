@@ -13,6 +13,13 @@ public enum DatePart
 /// </summary>
 public sealed class DdMmYyyySegmentEditor
 {
+    public enum PartFinalizationResult
+    {
+        NothingEntered,
+        Finalized,
+        Rejected
+    }
+
     // Slots 0-1 day, 2-3 month, 4-7 year. Digit meaningful only when _filled[i].
     private readonly char[] _digits = ['0', '0', '0', '0', '0', '0', '0', '0'];
     private readonly bool[] _filled = new bool[8];
@@ -154,10 +161,65 @@ public sealed class DdMmYyyySegmentEditor
         return false;
     }
 
-    /// <summary>Test-only fill/digit snapshot for reject bit-identity (not for AstDateBox/P2).</summary>
-    internal FillSnapshot CaptureFillState() => new(_filled.ToArray(), _digits.ToArray());
+    /// <summary>
+    /// Finalizes the requested segment without selecting or navigating to another segment.
+    /// Missing slots become literal zeroes when that produces a legal value. Day and Month
+    /// may fall back to the existing single-digit, leading-zero reading; Year never does.
+    /// </summary>
+    public PartFinalizationResult FinalizePart(DatePart part)
+    {
+        if (part is not DatePart.Day and not DatePart.Month and not DatePart.Year)
+            throw new ArgumentOutOfRangeException(nameof(part), part, "Unknown date part.");
 
-    internal readonly record struct FillSnapshot(bool[] Filled, char[] Digits);
+        int filledCount = CountFilled(part);
+        if (filledCount == 0)
+            return PartFinalizationResult.NothingEntered;
+
+        if (filledCount == PartLen(part))
+            return PartFinalizationResult.Finalized;
+
+        var snap = Capture();
+        char singleEnteredDigit = filledCount == 1 ? SoleEnteredDigit(part) : '\0';
+
+        // A lone entered zero is visually indistinguishable from this segment's zero mask.
+        if (part is DatePart.Day or DatePart.Month && singleEnteredDigit == '0')
+        {
+            ClearPart(part);
+            return PartFinalizationResult.NothingEntered;
+        }
+
+        FillMissingSlotsWithZero(part);
+        if (IsFinalizedPartLegal(part))
+            return PartFinalizationResult.Finalized;
+
+        // Day and Month retain their existing keystroke interpretation for a single digit:
+        // the digit is the units value and the leading slot is zero. Year has no such rule.
+        if (part is DatePart.Day or DatePart.Month && singleEnteredDigit != '\0')
+        {
+            ClearPart(part);
+            WriteTwo(PartStart(part), singleEnteredDigit - '0');
+            if (IsFinalizedPartLegal(part))
+                return PartFinalizationResult.Finalized;
+        }
+
+        Restore(snap);
+        return PartFinalizationResult.Rejected;
+    }
+
+    /// <summary>Test-only fill/digit snapshot for reject bit-identity (not for AstDateBox/P2).</summary>
+    internal FillSnapshot CaptureFillState() => new(
+        _filled.ToArray(),
+        _digits.ToArray(),
+        _activePart,
+        _indexInPart,
+        _replacePart);
+
+    internal readonly record struct FillSnapshot(
+        bool[] Filled,
+        char[] Digits,
+        DatePart ActivePart,
+        int IndexInPart,
+        bool ReplacePart);
 
     public void SelectPart(DatePart part)
     {
@@ -397,6 +459,48 @@ public sealed class DdMmYyyySegmentEditor
         }
 
         return n;
+    }
+
+    private char SoleEnteredDigit(DatePart part)
+    {
+        int start = PartStart(part);
+        int len = PartLen(part);
+        for (int i = 0; i < len; i++)
+        {
+            if (_filled[start + i])
+                return _digits[start + i];
+        }
+
+        return '\0';
+    }
+
+    private void FillMissingSlotsWithZero(DatePart part)
+    {
+        int start = PartStart(part);
+        int len = PartLen(part);
+        for (int i = 0; i < len; i++)
+        {
+            if (!_filled[start + i])
+                SetSlot(start + i, '0');
+        }
+    }
+
+    private bool IsFinalizedPartLegal(DatePart part)
+    {
+        if (part == DatePart.Day)
+        {
+            int day = DigitValue(0, 1);
+            return day >= 1 && day <= MaxDay();
+        }
+
+        if (part == DatePart.Month)
+            return CanAcceptMonth(DigitValue(2, 3));
+
+        int year = DigitValue(4, 7);
+        if (year is < 1 or > 9999)
+            return false;
+
+        return !IsDayFullyFilled() || !IsMonthFullyFilled() || TryGetDate(out _);
     }
 
     private static int PartStart(DatePart part) => part switch
