@@ -4764,9 +4764,9 @@ public class OrgUnitDeclarationViewModelTests
         vm.SaveCommand.CanExecute().Should().BeTrue();
     }
 
-    // Card 261 Part 2 replaced this pin: a null write in Replacing outside loading is rejected
-    // (see ParentId_NullWrite_InReplacing_OutsideLoading_IsRejected). The All-still-blocks-when-null
-    // behaviour is covered by IsReplaceParentAbsentFromCandidates_WithNullParentId_StillBlocksViaAll.
+    // Card 261 Part 2's null-write pin remains below. The canonical decision now makes a published
+    // null-card-parent transient unrepresentable; ParentDecision_LoadStagingCannotPublishNullParentWithoutAReplacementDecision
+    // carries the remaining assertion that Branch B is still recognized and fails closed.
 
     [Fact]
     public async Task ReplaceParentPeriodGate_BranchAAndBranchB_Sentences_DoNotLeakIntoEachOther()
