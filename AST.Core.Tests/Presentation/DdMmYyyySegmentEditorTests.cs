@@ -156,6 +156,85 @@ public class DdMmYyyySegmentEditorTests
         e.ActivePart.Should().Be(part);
     }
 
+    [Theory]
+    [InlineData("0")]
+    [InlineData("00")]
+    [InlineData("000")]
+    public void FinalizePart_AllZeroPartialYear_only_input_returns_to_not_entered(string typed)
+    {
+        var e = New();
+        e.SelectPart(DatePart.Year);
+        TypeAllAccepted(e, typed).Should().BeTrue();
+        e.HasAnyEnteredDigit.Should().BeTrue();
+
+        e.FinalizePart(DatePart.Year).Should().Be(
+            DdMmYyyySegmentEditor.PartFinalizationResult.NothingEntered);
+
+        e.CaptureFillState().Filled[4..8].Should().OnlyContain(filled => !filled);
+        e.FormatDisplay().Should().Be("00/00/0000");
+        e.HasAnyEnteredDigit.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("00")]
+    [InlineData("000")]
+    public void FinalizePart_AllZeroPartialYear_with_day_and_month_clears_year_and_stays_incomplete(string typed)
+    {
+        var e = New();
+        e.SetDate(new DateOnly(2026, 9, 7));
+        e.SelectPart(DatePart.Year);
+        TypeAllAccepted(e, typed).Should().BeTrue();
+
+        e.FinalizePart(DatePart.Year).Should().Be(
+            DdMmYyyySegmentEditor.PartFinalizationResult.NothingEntered);
+
+        e.CaptureFillState().Filled[4..8].Should().OnlyContain(filled => !filled);
+        e.FormatDisplay().Should().Be("07/09/0000");
+        e.HasAnyEnteredDigit.Should().BeTrue();
+        e.TryGetDate(out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void FinalizePart_AllZeroYear_with_arbitrary_holes_returns_to_not_entered()
+    {
+        var e = New();
+        e.SetDate(new DateOnly(1201, 1, 1));
+        e.SelectPart(DatePart.Day);
+        TypeAllAccepted(e, "01").Should().BeTrue();
+        e.SelectPart(DatePart.Month);
+        TypeAllAccepted(e, "01").Should().BeTrue(); // reaches Year with a per-slot cursor
+
+        e.ApplyDelete().Should().BeTrue();
+        e.ApplyDigit('0').Should().BeTrue();
+        e.ApplyDelete().Should().BeTrue();
+        e.ApplyBackspace().Should().BeTrue();
+        var holes = e.CaptureFillState();
+        holes.Filled[4..8].Should().Equal(true, false, true, false); // 0_0_
+
+        e.FinalizePart(DatePart.Year).Should().Be(
+            DdMmYyyySegmentEditor.PartFinalizationResult.NothingEntered);
+
+        e.CaptureFillState().Filled[4..8].Should().OnlyContain(filled => !filled);
+        e.FormatDisplay().Should().Be("01/01/0000");
+        e.HasAnyEnteredDigit.Should().BeTrue();
+        e.TryGetDate(out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void FinalizePart_Year_zero_then_nonzero_digit_finalizes_normally()
+    {
+        var e = New();
+        e.SelectPart(DatePart.Year);
+        TypeAllAccepted(e, "01").Should().BeTrue();
+
+        e.FinalizePart(DatePart.Year).Should().Be(
+            DdMmYyyySegmentEditor.PartFinalizationResult.Finalized);
+
+        e.FormatDisplay().Should().Be("00/00/0100");
+        e.HasAnyEnteredDigit.Should().BeTrue();
+    }
+
     [Fact]
     public void FinalizePart_2902201_rejects_and_restores_every_editor_field()
     {

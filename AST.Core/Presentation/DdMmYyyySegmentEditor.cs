@@ -165,6 +165,8 @@ public sealed class DdMmYyyySegmentEditor
     /// Finalizes the requested segment without selecting or navigating to another segment.
     /// Missing slots become literal zeroes when that produces a legal value. Day and Month
     /// may fall back to the existing single-digit, leading-zero reading; Year never does.
+    /// This method does not normalize IndexInPart; callers must select a part or resync from Date
+    /// before using the editor's next-edit position again.
     /// </summary>
     public PartFinalizationResult FinalizePart(DatePart part)
     {
@@ -175,14 +177,16 @@ public sealed class DdMmYyyySegmentEditor
         if (filledCount == 0)
             return PartFinalizationResult.NothingEntered;
 
+        // A fully filled all-zero segment is unreachable through public operations: completing 00
+        // is rejected for Day and Month, and completing Year 0000 is rejected as year zero.
         if (filledCount == PartLen(part))
             return PartFinalizationResult.Finalized;
 
         var snap = Capture();
         char singleEnteredDigit = filledCount == 1 ? SoleEnteredDigit(part) : '\0';
 
-        // A lone entered zero is visually indistinguishable from this segment's zero mask.
-        if (part is DatePart.Day or DatePart.Month && singleEnteredDigit == '0')
+        // Entered zeroes are visually indistinguishable from this segment's zero mask.
+        if (AllEnteredDigitsAreZero(part))
         {
             ClearPart(part);
             return PartFinalizationResult.NothingEntered;
@@ -193,7 +197,10 @@ public sealed class DdMmYyyySegmentEditor
             return PartFinalizationResult.Finalized;
 
         // Day and Month retain their existing keystroke interpretation for a single digit:
-        // the digit is the units value and the leading slot is zero. Year has no such rule.
+        // the digit is the units value and the leading slot is zero. This fallback is unreachable
+        // through the real control: Day 4-9 and Month 2-9 pad immediately, Day 1-3 and Month 1
+        // zero-fill legally, zero is handled above, and a Day 3 is rejected up front when the known
+        // month cannot allow 30. It remains here to preserve the stated rule. Year has no such rule.
         if (part is DatePart.Day or DatePart.Month && singleEnteredDigit != '\0')
         {
             ClearPart(part);
@@ -204,6 +211,19 @@ public sealed class DdMmYyyySegmentEditor
 
         Restore(snap);
         return PartFinalizationResult.Rejected;
+    }
+
+    private bool AllEnteredDigitsAreZero(DatePart part)
+    {
+        int start = PartStart(part);
+        int len = PartLen(part);
+        for (int i = start; i < start + len; i++)
+        {
+            if (_filled[i] && _digits[i] != '0')
+                return false;
+        }
+
+        return true;
     }
 
     /// <summary>Test-only fill/digit snapshot for reject bit-identity (not for AstDateBox/P2).</summary>
