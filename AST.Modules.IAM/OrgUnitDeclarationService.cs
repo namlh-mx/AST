@@ -476,6 +476,8 @@ internal sealed class OrgUnitDeclarationService(
             // [4d] ROOT GATE — singleton parent is null OR successor is declared as root.
             // Requester ruling 2026-09-06 (card 259): no break-glass carve-out. Re-declaring the root
             // goes through Close → Add, never Replace.
+            // Unlike Add's root gate this one must stay INSIDE the composite: storedParent is a STORED
+            // value a concurrent writer can change, so the gate is only sound decided under the lock.
             if (storedParent is null || request.ParentId is null)
             {
                 return Error.Forbidden(
