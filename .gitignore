@@ -14,6 +14,9 @@ artifacts/
 .vscode/
 .idea/
 
+# Semgrep scan cache — written at the repo root and under migrations/
+.semgrep/
+
 # Local secrets / connection strings (never commit).
 # Copy mysql.secrets.sample.json to mysql.secrets.json and fill it in.
 appsettings.*.local.json
