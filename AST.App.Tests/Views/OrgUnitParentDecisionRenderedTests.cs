@@ -184,7 +184,9 @@ public class OrgUnitParentDecisionRenderedTests
         row.ViewModel.ParentDecision.Phase.Should().Be(ParentEligibilityState.Resolved);
         row.ViewModel.ParentDecision.Presentation.Should().Be(ParentPresentationDisposition.Editable);
         row.ViewModel.ParentDecision.CommitDisposition.Should().Be(ParentCommitDisposition.Allowed);
-        row.Save.IsEnabled.Should().BeTrue();
+        row.ViewModel.HasUnsavedInput.Should().BeFalse();
+        row.Save.IsEnabled.Should().BeFalse(
+            "Resolved+Allowed with a clean form still requires unsaved input (backlog 3.54)");
         row.Picker.ApplyTemplate();
         var combo = (FrameworkElement)row.Picker.Template.FindName("EditableComboBox", row.Picker)!;
         combo.Visibility.Should().Be(Visibility.Visible);

@@ -147,7 +147,8 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
             .ObservesProperty(() => Mode).ObservesProperty(() => Status);
         CancelCommand = new AsyncDelegateCommand(ExecuteCancelAsync, () => CanCancel).ObservesProperty(() => Mode);
         SaveCommand = new AsyncDelegateCommand(ExecuteSaveAsync, () => CanSave)
-            .ObservesProperty(() => Mode).ObservesProperty(() => GrantsReadiness);
+            .ObservesProperty(() => Mode).ObservesProperty(() => GrantsReadiness)
+            .ObservesProperty(() => IsDirty);
         AddGrantCommand = new DelegateCommand(ExecuteAddGrant, () => CanMutateGrants)
             .ObservesProperty(() => Mode).ObservesProperty(() => GrantsReadiness);
         RemoveEffectiveGrantCommand = new DelegateCommand<RoleGrantRow>(ExecuteRemoveEffectiveGrant, _ => CanMutateGrants)
@@ -421,10 +422,13 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
     public bool CanClose =>
         Mode == RoleCardMode.ReadOnly && Status is VersionStatus.Effective or VersionStatus.Pending;
     public bool CanCancel => Mode != RoleCardMode.ReadOnly;
+    // HasUnsavedInput is the requester's 2026-09-06 dirty term (backlog 3.54): every mutating
+    // arm — Closing included — stays dim until the operator has touched the form.
     public bool CanSave => Mode switch
     {
-        RoleCardMode.Adding or RoleCardMode.Editing => GrantsReadiness == GrantsReadiness.Resolved,
-        RoleCardMode.Closing => true,
+        RoleCardMode.Adding or RoleCardMode.Editing =>
+            GrantsReadiness == GrantsReadiness.Resolved && HasUnsavedInput,
+        RoleCardMode.Closing => HasUnsavedInput,
         _ => false,
     };
     public bool CanMutateGrants =>
@@ -525,6 +529,10 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
 
     private async Task ExecuteSaveAsync()
     {
+        // Re-read the dirty term at execution time. CanExecute is not a guarantee.
+        if (!HasUnsavedInput)
+            return;
+
         var generation = ++_saveGeneration;
         var username = _currentUser.Username ?? "unknown";
         RefreshAdminFlagEditable();

@@ -286,7 +286,7 @@ public class RoleDeclarationViewModelTests
     }
 
     [Fact]
-    public async Task MutatingMode_DisablesAddEditCloseAndEnablesCancelSave()
+    public async Task MutatingMode_DisablesAddEditCloseAndEnablesCancel_SaveStaysOffUntilTyped()
     {
         var h = Build();
         h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên");
@@ -298,7 +298,7 @@ public class RoleDeclarationViewModelTests
         h.Vm.CanEdit.Should().BeFalse();
         h.Vm.CanClose.Should().BeFalse();
         h.Vm.CanCancel.Should().BeTrue();
-        h.Vm.CanSave.Should().BeTrue();
+        h.Vm.CanSave.Should().BeFalse("clean Editing must not light Save — HasUnsavedInput term");
     }
 
     [Fact]
@@ -559,6 +559,7 @@ public class RoleDeclarationViewModelTests
         h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên");
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginEditCommand.Execute();
+        h.Vm.RoleName = "Tên mới đủ dài";
         h.Declaration.SaveResult = Error.Forbidden("Role.AdminFlagChangeNotAuthorized", "raw engine text");
 
         await h.Vm.SaveCommand.Execute();
@@ -597,6 +598,7 @@ public class RoleDeclarationViewModelTests
         h.Roles.ByIdentityResult = Role(5, "admin_role", "Vai trò thư ký");
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginEditCommand.Execute();
+        h.Vm.Note = "thử lại sau reload";
 
         await h.Vm.SaveCommand.Execute();
 
@@ -773,6 +775,7 @@ public class RoleDeclarationViewModelTests
         h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginCloseCommand.Execute();
+        h.Vm.Note = "đóng";
 
         // Close succeeds; FinishCloseSuccessAsync's post-close identity re-fetch also succeeds (the role
         // stays visible today) — only the reload's grants read fails.
@@ -1000,6 +1003,7 @@ public class RoleDeclarationViewModelTests
         h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginCloseCommand.Execute();
+        h.Vm.Note = "đóng";
 
         await h.Vm.SaveCommand.Execute();
 
@@ -1019,6 +1023,7 @@ public class RoleDeclarationViewModelTests
         await h.Vm.LoadAsync(6, Today.AddDays(3));
         h.Vm.Status.Should().Be(VersionStatus.Pending);
         h.Vm.BeginCloseCommand.Execute();
+        h.Vm.Note = "đóng";
 
         await h.Vm.SaveCommand.Execute();
 
@@ -1038,6 +1043,7 @@ public class RoleDeclarationViewModelTests
         h.Roles.ByIdentityResult = Role(6, "future_role", "Vai trò tương lai", from: Today.AddDays(3));
         await h.Vm.LoadAsync(6, Today.AddDays(3));
         h.Vm.BeginCloseCommand.Execute();
+        h.Vm.Note = "đóng";
 
         await h.Vm.SaveCommand.Execute();
 
@@ -1052,6 +1058,7 @@ public class RoleDeclarationViewModelTests
         h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginCloseCommand.Execute();
+        h.Vm.Note = "đóng";
         h.Declaration.CloseResult = Error.Failure("TemporalFk.DependentsUncovered", "raw engine text");
 
         await h.Vm.SaveCommand.Execute();
@@ -1067,6 +1074,7 @@ public class RoleDeclarationViewModelTests
         h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginCloseCommand.Execute();
+        h.Vm.Note = "đóng";
         h.Declaration.CloseResult = Error.Forbidden("Role.AdminFlagChangeNotAuthorized", "raw engine text");
 
         await h.Vm.SaveCommand.Execute();
@@ -1130,6 +1138,7 @@ public class RoleDeclarationViewModelTests
         h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginCloseCommand.Execute();
+        h.Vm.Note = "đóng";
 
         const string engineDescription =
             "Không thể auto-cut 'role_permission_version' identity=9: " +
@@ -1237,22 +1246,22 @@ public class RoleDeclarationViewModelTests
         h.Vm.BeginEditCommand.Execute();
         AssertReadinessCell(h, RoleCardMode.Editing, GrantsReadiness.Unresolved, canEdit: false, canSave: false, canClose: false, canMutate: false);
         AssertReadinessCell(h, RoleCardMode.Editing, GrantsReadiness.Loading, canEdit: false, canSave: false, canClose: false, canMutate: false);
-        AssertReadinessCell(h, RoleCardMode.Editing, GrantsReadiness.Resolved, canEdit: false, canSave: true, canClose: false, canMutate: true);
+        AssertReadinessCell(h, RoleCardMode.Editing, GrantsReadiness.Resolved, canEdit: false, canSave: false, canClose: false, canMutate: true);
         AssertReadinessCell(h, RoleCardMode.Editing, GrantsReadiness.Failed, canEdit: false, canSave: false, canClose: false, canMutate: false);
 
         h.Vm.OverrideGrantsReadinessForTest(GrantsReadiness.Resolved);
         await h.Vm.CancelCommand.Execute();
         h.Vm.BeginCloseCommand.Execute();
-        AssertReadinessCell(h, RoleCardMode.Closing, GrantsReadiness.Unresolved, canEdit: false, canSave: true, canClose: false, canMutate: false);
-        AssertReadinessCell(h, RoleCardMode.Closing, GrantsReadiness.Loading, canEdit: false, canSave: true, canClose: false, canMutate: false);
-        AssertReadinessCell(h, RoleCardMode.Closing, GrantsReadiness.Resolved, canEdit: false, canSave: true, canClose: false, canMutate: false);
-        AssertReadinessCell(h, RoleCardMode.Closing, GrantsReadiness.Failed, canEdit: false, canSave: true, canClose: false, canMutate: false);
+        AssertReadinessCell(h, RoleCardMode.Closing, GrantsReadiness.Unresolved, canEdit: false, canSave: false, canClose: false, canMutate: false);
+        AssertReadinessCell(h, RoleCardMode.Closing, GrantsReadiness.Loading, canEdit: false, canSave: false, canClose: false, canMutate: false);
+        AssertReadinessCell(h, RoleCardMode.Closing, GrantsReadiness.Resolved, canEdit: false, canSave: false, canClose: false, canMutate: false);
+        AssertReadinessCell(h, RoleCardMode.Closing, GrantsReadiness.Failed, canEdit: false, canSave: false, canClose: false, canMutate: false);
 
         await h.Vm.CancelCommand.Execute();
         h.Vm.BeginAddCommand.Execute();
         AssertReadinessCell(h, RoleCardMode.Adding, GrantsReadiness.Unresolved, canEdit: false, canSave: false, canClose: false, canMutate: false);
         AssertReadinessCell(h, RoleCardMode.Adding, GrantsReadiness.Loading, canEdit: false, canSave: false, canClose: false, canMutate: false);
-        AssertReadinessCell(h, RoleCardMode.Adding, GrantsReadiness.Resolved, canEdit: false, canSave: true, canClose: false, canMutate: true);
+        AssertReadinessCell(h, RoleCardMode.Adding, GrantsReadiness.Resolved, canEdit: false, canSave: false, canClose: false, canMutate: true);
         AssertReadinessCell(h, RoleCardMode.Adding, GrantsReadiness.Failed, canEdit: false, canSave: false, canClose: false, canMutate: false);
 
         await h.Vm.CancelCommand.Execute();
@@ -1382,6 +1391,7 @@ public class RoleDeclarationViewModelTests
         await h.Vm.LoadAsync(7, Today);
         h.Vm.IsCloseCancelPlanBranchPublic().Should().BeTrue();
         h.Vm.BeginCloseCommand.Execute();
+        h.Vm.Note = "đóng";
         h.Declaration.OnClose = () => dates.Today = dates.Today.AddDays(1);
 
         await h.Vm.SaveCommand.Execute();
@@ -1456,6 +1466,7 @@ public class RoleDeclarationViewModelTests
         h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginCloseCommand.Execute();
+        h.Vm.Note = "đóng";
         var gate = new TaskCompletionSource<ErrorOr<DataScope>>();
         h.Authorization.GateAuthorize = gate;
 
@@ -1678,6 +1689,7 @@ public class RoleDeclarationViewModelTests
         await h.Vm.LoadAsync(5, Today);
         h.Vm.IsCloseCancelPlanBranchPublic().Should().BeTrue();
         h.Vm.BeginCloseCommand.Execute();
+        h.Vm.Note = "đóng";
         var gate = new TaskCompletionSource<bool>();
         h.Confirmation.GateConfirm = gate;
 
@@ -1698,6 +1710,7 @@ public class RoleDeclarationViewModelTests
         h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginCloseCommand.Execute();
+        h.Vm.Note = "đóng";
         var gate = new TaskCompletionSource<ErrorOr<UpsertResult>>();
         h.Declaration.GateClose = gate;
 
@@ -1972,6 +1985,7 @@ public class RoleDeclarationViewModelTests
         h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên");
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginEditCommand.Execute();
+        h.Vm.RoleName = "Tên mới đủ dài";
         h.Declaration.SaveResult = Error.Conflict(
             "VersionedRepository.DependentSetChanged",
             "Có thay đổi khác vừa được ghi trong lúc thao tác này đang chuẩn bị. Vui lòng thử lại.");
@@ -1989,6 +2003,7 @@ public class RoleDeclarationViewModelTests
         h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginCloseCommand.Execute();
+        h.Vm.Note = "đóng";
         h.Declaration.CloseResult = Error.Validation(
             VersionCloseRules.Codes.VersionAlreadyEnded, "SEED-DESCRIPTION-MUST-NOT-LEAK");
 
@@ -2078,6 +2093,7 @@ public class RoleDeclarationViewModelTests
         h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
         await h.Vm.LoadAsync(5, Today);
         h.Vm.BeginCloseCommand.Execute();
+        h.Vm.Note = "đóng";
         h.Roles.ThrowOnGetHistory = new InvalidOperationException("history down");
 
         await h.Vm.SaveCommand.Execute();
@@ -2085,5 +2101,109 @@ public class RoleDeclarationViewModelTests
         h.Vm.StatusMessage.Should().Be("Đã lưu. Dữ liệu hiển thị chưa cập nhật.",
             "RefreshHistoryPreservingMessageAsync after close — same P2-S2 sentence");
         h.Vm.Severity.Should().Be(StatusSeverity.Warning);
+    }
+
+    // --- Backlog 3.54 / card 268: Save requires unsaved input ---
+
+    [Fact]
+    public async Task SaveRequiresUnsavedInput_EnteringEachMutatingMode_LeavesSaveDisabled()
+    {
+        var h = Build();
+        h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
+        await h.Vm.LoadAsync(5, Today);
+
+        h.Vm.BeginEditCommand.Execute();
+        h.Vm.IsDirty.Should().BeFalse();
+        h.Vm.HasUnsavedInput.Should().BeFalse();
+        h.Vm.CanSave.Should().BeFalse();
+        h.Vm.SaveCommand.CanExecute().Should().BeFalse();
+        await h.Vm.CancelCommand.Execute();
+
+        h.Vm.BeginCloseCommand.Execute();
+        h.Vm.IsDirty.Should().BeFalse();
+        h.Vm.HasUnsavedInput.Should().BeFalse();
+        h.Vm.CanSave.Should().BeFalse();
+        h.Vm.SaveCommand.CanExecute().Should().BeFalse();
+        await h.Vm.CancelCommand.Execute();
+
+        h.Vm.BeginAddCommand.Execute();
+        h.Vm.IsDirty.Should().BeFalse();
+        h.Vm.HasUnsavedInput.Should().BeFalse();
+        h.Vm.CanSave.Should().BeFalse();
+        h.Vm.SaveCommand.CanExecute().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SaveRequiresUnsavedInput_EditingOneField_EnablesSaveWhenGrantsResolved()
+    {
+        var h = Build();
+        h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
+        await h.Vm.LoadAsync(5, Today);
+        h.Vm.BeginEditCommand.Execute();
+        h.Vm.CanSave.Should().BeFalse();
+
+        var saveFired = 0;
+        h.Vm.SaveCommand.CanExecuteChanged += (_, _) => saveFired++;
+        h.Vm.RoleName = "Tên vai trò đã sửa";
+
+        h.Vm.IsDirty.Should().BeTrue();
+        h.Vm.HasUnsavedInput.Should().BeTrue();
+        h.Vm.GrantsReadiness.Should().Be(GrantsReadiness.Resolved);
+        h.Vm.CanSave.Should().BeTrue();
+        h.Vm.SaveCommand.CanExecute().Should().BeTrue();
+        saveFired.Should().BeGreaterThan(0, "SaveCommand must observe IsDirty so typing re-enables Lưu");
+    }
+
+    [Fact]
+    public async Task SaveRequiresUnsavedInput_DirtyForm_StillBlockedByUnresolvedGrants()
+    {
+        var h = Build();
+        h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
+        await h.Vm.LoadAsync(5, Today);
+        h.Vm.BeginEditCommand.Execute();
+        h.Vm.RoleName = "Tên vai trò đã sửa";
+        h.Vm.IsDirty.Should().BeTrue();
+        h.Vm.CanSave.Should().BeTrue();
+
+        h.Vm.OverrideGrantsReadinessForTest(GrantsReadiness.Unresolved);
+        h.Vm.CanSave.Should().BeFalse(
+            "mutation 'dirty means saveable' must turn this red if the GrantsReadiness gate is dropped");
+        h.Vm.SaveCommand.CanExecute().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SaveRequiresUnsavedInput_DirtyClosing_EnablesSave_IndependentOfGrants()
+    {
+        var h = Build();
+        h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
+        await h.Vm.LoadAsync(5, Today);
+        h.Vm.BeginCloseCommand.Execute();
+        h.Vm.CanSave.Should().BeFalse();
+
+        h.Vm.Note = "đóng vai trò";
+        h.Vm.IsDirty.Should().BeTrue();
+        h.Vm.OverrideGrantsReadinessForTest(GrantsReadiness.Failed);
+        h.Vm.CanSave.Should().BeTrue("Closing Save ignores GrantsReadiness but still requires unsaved input");
+        h.Vm.SaveCommand.CanExecute().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task SaveRequiresUnsavedInput_LoadCancelAndReenter_LeaveSaveDisabledUntilTyped()
+    {
+        var h = Build();
+        h.Roles.ByIdentityResult = Role(5, "admin_role", "Quản trị viên", from: Today.AddDays(-10));
+        await h.Vm.LoadAsync(5, Today);
+        h.Vm.BeginEditCommand.Execute();
+        h.Vm.RoleName = "Tên đã sửa";
+        h.Vm.CanSave.Should().BeTrue();
+
+        await h.Vm.CancelCommand.Execute();
+        h.Vm.IsDirty.Should().BeFalse();
+        h.Vm.CanSave.Should().BeFalse();
+
+        h.Vm.BeginCloseCommand.Execute();
+        h.Vm.IsDirty.Should().BeFalse();
+        h.Vm.CanSave.Should().BeFalse();
+        h.Vm.SaveCommand.CanExecute().Should().BeFalse();
     }
 }

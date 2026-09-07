@@ -3096,6 +3096,7 @@ public class OrgUnitDeclarationViewModelTests
         repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(1), EffectivePeriod.OpenEnd, id: 88);
         await vm.LoadAsync(1, Today);
         vm.BeginCloseCommand.Execute();
+        vm.Reason = "hủy kỳ pending";
 
         Assert.False(vm.IsEffectivePeriodEnabled);
         Assert.Equal(OrgUnitCardMode.Closing, vm.Mode);
@@ -3135,6 +3136,7 @@ public class OrgUnitDeclarationViewModelTests
         await vm.LoadAsync(1, Today);
         repo.ByIdentityResultAfterClose = Error.NotFound();
         vm.BeginCloseCommand.Execute();
+        vm.Reason = "hủy kỳ pending";
 
         await vm.SaveCommand.Execute();
 
@@ -4687,6 +4689,7 @@ public class OrgUnitDeclarationViewModelTests
         vm.ParentEligibility.Should().Be(ParentEligibilityState.Resolved);
         vm.ParentCandidates.Should().Contain(c => c.Id == 1);
         vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.Reason = "thay thế";
         vm.CanSave.Should().BeTrue();
         vm.ParentId.Should().Be(1);
         vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
@@ -4843,6 +4846,7 @@ public class OrgUnitDeclarationViewModelTests
         vm.ParentId.Should().Be(1);
         vm.StatusMessage.Should().BeNull();
         vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.Reason = "thay thế";
         vm.CanSave.Should().BeTrue();
 
         var statusMessages = new List<string?>();
@@ -5433,5 +5437,125 @@ public class OrgUnitDeclarationViewModelTests
         vm.ParentDecision.Should().BeSameAs(winner);
         vm.ParentId.Should().Be(2);
         laterPublications.Should().Be(0);
+    }
+
+    // --- Backlog 3.54 / card 268: Save requires unsaved input ---
+
+    [Fact]
+    public async Task SaveRequiresUnsavedInput_EnteringEachMutatingMode_LeavesSaveDisabled()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(5, "PAR — Cha")];
+        await vm.LoadAsync(1, Today);
+
+        vm.BeginEditCommand.Execute();
+        vm.IsDirty.Should().BeFalse();
+        vm.HasUnsavedInput.Should().BeFalse();
+        vm.CanSave.Should().BeFalse();
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+        await vm.CancelCommand.Execute();
+
+        vm.BeginReplaceCommand.Execute();
+        vm.IsDirty.Should().BeFalse();
+        vm.HasUnsavedInput.Should().BeFalse();
+        vm.PeriodCommitBlocked.Should().BeFalse("Replace on the loaded period must not be period-blocked");
+        vm.CanSave.Should().BeFalse("clean Replace must not light Save — dirty term, not a gate");
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+        await vm.CancelCommand.Execute();
+
+        vm.BeginAddCommand.Execute();
+        vm.IsDirty.Should().BeFalse();
+        vm.HasUnsavedInput.Should().BeFalse();
+        vm.CanSave.Should().BeFalse();
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+        await vm.CancelCommand.Execute();
+
+        vm.BeginCloseCommand.Execute();
+        vm.Mode.Should().Be(OrgUnitCardMode.Closing);
+        vm.IsUndetermined.Should().BeFalse("mode-entry default");
+        vm.EffectiveTo.Should().BeNull("mode-entry default");
+        vm.IsDirty.Should().BeFalse(
+            "ExecuteBeginClose must suppress MarkDirty for its mode-entry defaults — not rely on PeriodCommitBlocked alone");
+        vm.HasUnsavedInput.Should().BeFalse();
+        vm.CanSave.Should().BeFalse();
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SaveRequiresUnsavedInput_EditingOneField_EnablesSaveWhenNoGateBlocks()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(5, "PAR — Cha")];
+        await vm.LoadAsync(1, Today);
+        vm.BeginEditCommand.Execute();
+        vm.CanSave.Should().BeFalse();
+
+        var saveFired = 0;
+        vm.SaveCommand.CanExecuteChanged += (_, _) => saveFired++;
+        vm.OrgNameFullVn = "Tên đã sửa";
+
+        vm.IsDirty.Should().BeTrue();
+        vm.HasUnsavedInput.Should().BeTrue();
+        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.CanSave.Should().BeTrue();
+        vm.SaveCommand.CanExecute().Should().BeTrue();
+        saveFired.Should().BeGreaterThan(0, "SaveCommand must observe IsDirty so typing re-enables Lưu");
+    }
+
+    [Fact]
+    public async Task SaveRequiresUnsavedInput_DirtyForm_StillBlockedByPeriodCommitGate()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        vm.BeginCloseCommand.Execute();
+        vm.Reason = "đóng sớm";
+
+        vm.IsDirty.Should().BeTrue("mutation 'dirty means saveable' must turn this red if the gate is dropped");
+        vm.PeriodCommitBlocked.Should().BeTrue();
+        vm.CanSave.Should().BeFalse();
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SaveRequiresUnsavedInput_DirtyForm_StillBlockedByNonResolvedParentDecision()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(1, "PAR — Cha")];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.Reason = "đổi cha";
+        vm.IsDirty.Should().BeTrue();
+
+        vm.IsUndetermined = false;
+        vm.ParentDecision.CommitDisposition.Should().Be(ParentCommitDisposition.BlockedIncomplete);
+        vm.PeriodCommitBlocked.Should().BeTrue();
+        vm.CanSave.Should().BeFalse(
+            "mutation 'dirty means saveable' must turn this red if the parent decision gate is dropped");
+        vm.SaveCommand.CanExecute().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SaveRequiresUnsavedInput_LoadCancelAndReenter_LeaveSaveDisabledUntilTyped()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(5, "PAR — Cha")];
+        await vm.LoadAsync(1, Today);
+        vm.BeginEditCommand.Execute();
+        vm.OrgCode = "ABCD";
+        vm.CanSave.Should().BeTrue();
+
+        await vm.CancelCommand.Execute();
+        vm.IsDirty.Should().BeFalse();
+        vm.CanSave.Should().BeFalse();
+
+        vm.BeginReplaceCommand.Execute();
+        vm.IsDirty.Should().BeFalse();
+        vm.CanSave.Should().BeFalse();
+        vm.SaveCommand.CanExecute().Should().BeFalse();
     }
 }

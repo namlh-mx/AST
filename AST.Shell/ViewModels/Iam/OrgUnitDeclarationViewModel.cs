@@ -178,7 +178,8 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         CancelCommand = new AsyncDelegateCommand(ExecuteCancelAsync, () => CanCancel).ObservesProperty(() => Mode);
         SaveCommand = new AsyncDelegateCommand(ExecuteSaveAsync, () => CanSave)
             .ObservesProperty(() => Mode)
-            .ObservesProperty(() => PeriodCommitBlocked);
+            .ObservesProperty(() => PeriodCommitBlocked)
+            .ObservesProperty(() => IsDirty);
     }
 
     private bool _isLoading;
@@ -765,7 +766,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     // Save observes this projection. Parent readiness and close-date readiness remain different
     // domains, but each has one owner and the command consumes their combined fail-closed result.
-    public bool CanSave => Mode != OrgUnitCardMode.ReadOnly && !PeriodCommitBlocked;
+    // HasUnsavedInput is the requester's 2026-09-06 dirty term (backlog 3.54): mode entry alone
+    // must not light Lưu; MarkDirty stays suppressed while _isLoading (see ExecuteBeginClose).
+    public bool CanSave =>
+        Mode != OrgUnitCardMode.ReadOnly && !PeriodCommitBlocked && HasUnsavedInput;
 
     private bool _closeDateCommitBlocked;
     public bool PeriodCommitBlocked => _closeDateCommitBlocked || ParentDecisionBlocksCurrentCommit();
@@ -1781,8 +1785,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private async Task ExecuteSaveAsync()
     {
-        // Re-read the canonical decision at execution time. A click queued while Lưu was enabled
-        // cannot cross a later period/mode/query transition into confirmation or the write service.
+        // Re-read Save preconditions at execution time. CanExecute is not a guarantee: a click
+        // queued while Lưu was enabled must not cross a later clean/cancel or decision change.
+        if (!HasUnsavedInput)
+            return;
         if (ParentDecisionBlocksCurrentCommit())
             return;
 
