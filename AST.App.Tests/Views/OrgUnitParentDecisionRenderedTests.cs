@@ -72,6 +72,100 @@ public class OrgUnitParentDecisionRenderedTests
             });
     }
 
+    [Fact]
+    public void CancelThenReplaceSameNode_RendersHeldParentAndDisablesSaveUntilDelayedDecisionResolves()
+    {
+        var today = new DateOnly(2026, 9, 6);
+        Task<IReadOnlyList<OrgUnitPickerItem>> currentEligibility =
+            Task.FromResult<IReadOnlyList<OrgUnitPickerItem>>([new OrgUnitPickerItem(1, "PAR — Cha")]);
+        var delayed = new TaskCompletionSource<IReadOnlyList<OrgUnitPickerItem>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        OffscreenHost.Run(
+            window =>
+            {
+                window.Width = 900;
+                window.Height = 400;
+                var vm = BuildViewModel(today, () => currentEligibility);
+                vm.LoadAsync(3, today).GetAwaiter().GetResult().Should().Be(CardLoadOutcome.Loaded);
+                vm.BeginReplaceCommand.Execute();
+                return new ParentRowHost(vm, window.Resources);
+            },
+            (window, row) =>
+            {
+                try
+                {
+                    row.ViewModel.CancelCommand.Execute().GetAwaiter().GetResult();
+                    Sta.PumpToIdle();
+                    AssertHeldParentRendered(row, ParentEligibilityState.Incomplete);
+
+                    currentEligibility = delayed.Task;
+                    row.ViewModel.BeginReplaceCommand.Execute();
+                    Sta.PumpToIdle();
+
+                    AssertHeldParentRendered(row, ParentEligibilityState.Loading);
+
+                    delayed.SetResult([new OrgUnitPickerItem(1, "PAR — Cha")]);
+                    Sta.PumpToIdle();
+                    window.UpdateLayout();
+
+                    AssertResolvedEditable(row);
+                }
+                finally
+                {
+                    row.Dispose();
+                }
+            });
+    }
+
+    [Fact]
+    public void DifferentNodeRoundTrip_RendersHeldParentAndDisablesSaveUntilDelayedDecisionResolves()
+    {
+        var today = new DateOnly(2026, 9, 6);
+        Task<IReadOnlyList<OrgUnitPickerItem>> currentEligibility =
+            Task.FromResult<IReadOnlyList<OrgUnitPickerItem>>([new OrgUnitPickerItem(1, "PAR — Cha")]);
+        var delayed = new TaskCompletionSource<IReadOnlyList<OrgUnitPickerItem>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        OffscreenHost.Run(
+            window =>
+            {
+                window.Width = 900;
+                window.Height = 400;
+                var vm = BuildViewModel(today, () => currentEligibility);
+                vm.LoadAsync(3, today).GetAwaiter().GetResult().Should().Be(CardLoadOutcome.Loaded);
+                vm.BeginReplaceCommand.Execute();
+                return new ParentRowHost(vm, window.Resources);
+            },
+            (window, row) =>
+            {
+                try
+                {
+                    row.ViewModel.CancelCommand.Execute().GetAwaiter().GetResult();
+                    row.ViewModel.LoadAsync(4, today).GetAwaiter().GetResult().Should().Be(CardLoadOutcome.Loaded);
+                    row.ViewModel.LoadAsync(3, today).GetAwaiter().GetResult().Should().Be(CardLoadOutcome.Loaded);
+                    Sta.PumpToIdle();
+                    AssertHeldParentRendered(row, ParentEligibilityState.Incomplete);
+
+                    currentEligibility = delayed.Task;
+                    row.ViewModel.BeginReplaceCommand.Execute();
+                    Sta.PumpToIdle();
+
+                    AssertHeldParentRendered(row, ParentEligibilityState.Loading);
+
+                    delayed.SetResult([new OrgUnitPickerItem(1, "PAR — Cha")]);
+                    Sta.PumpToIdle();
+                    window.UpdateLayout();
+
+                    AssertResolvedEditable(row);
+                }
+                finally
+                {
+                    row.Dispose();
+                }
+            });
+    }
+
     private static void AssertHeldParentRendered(ParentRowHost row, ParentEligibilityState phase)
     {
         row.ViewModel.ParentDecision.Phase.Should().Be(phase);
@@ -85,12 +179,29 @@ public class OrgUnitParentDecisionRenderedTests
         display.Text.Should().Be("PAR — Cha");
     }
 
+    private static void AssertResolvedEditable(ParentRowHost row)
+    {
+        row.ViewModel.ParentDecision.Phase.Should().Be(ParentEligibilityState.Resolved);
+        row.ViewModel.ParentDecision.Presentation.Should().Be(ParentPresentationDisposition.Editable);
+        row.ViewModel.ParentDecision.CommitDisposition.Should().Be(ParentCommitDisposition.Allowed);
+        row.Save.IsEnabled.Should().BeTrue();
+        row.Picker.ApplyTemplate();
+        var combo = (FrameworkElement)row.Picker.Template.FindName("EditableComboBox", row.Picker)!;
+        combo.Visibility.Should().Be(Visibility.Visible);
+    }
+
     private static OrgUnitDeclarationViewModel BuildViewModel(
         DateOnly today,
         Func<Task<IReadOnlyList<OrgUnitPickerItem>>> currentEligibility)
     {
         var repository = new Mock<IOrgUnitRepository>();
         repository.Setup(repo => repo.GetByIdentityAsync(3, today)).ReturnsAsync(Dto(today));
+        repository.Setup(repo => repo.GetByIdentityAsync(4, today)).ReturnsAsync(Dto(
+            today,
+            orgUnitId: 4,
+            parentId: 2,
+            parentOrgCode: "PAR2",
+            parentOrgName: "Cha hai"));
         repository.Setup(repo => repo.GetEligibleParentsAsync(
                 It.IsAny<DataScope>(), It.IsAny<EffectivePeriod>(), It.IsAny<long?>()))
             .Returns(currentEligibility);
@@ -109,23 +220,28 @@ public class OrgUnitParentDecisionRenderedTests
             Mock.Of<IBreakGlassPolicy>());
     }
 
-    private static OrgUnitVersionDto Dto(DateOnly today) => new(
-        Id: 30,
-        OrgUnitId: 3,
+    private static OrgUnitVersionDto Dto(
+        DateOnly today,
+        long orgUnitId = 3,
+        long parentId = 1,
+        string parentOrgCode = "PAR",
+        string parentOrgName = "Cha") => new(
+        Id: orgUnitId * 10,
+        OrgUnitId: orgUnitId,
         EffectiveFrom: today.AddDays(-10),
         EffectiveTo: EffectivePeriod.OpenEnd,
         IsActive: true,
         OrgCode: "CN001",
         OrgNameFullVn: "Chi nhánh một",
         OrgNameShortVn: "CN1",
-        ParentId: 1,
+        ParentId: parentId,
         RecordedAt: DateTime.UtcNow,
         RecordedBy: "tester",
         Reason: null,
         Supplemental: new OrgUnitSupplementalDto(),
         Status: VersionLifecycleStatus.Normal,
-        ParentOrgCodeAsOf: "PAR",
-        ParentOrgNameFullVnAsOf: "Cha");
+        ParentOrgCodeAsOf: parentOrgCode,
+        ParentOrgNameFullVnAsOf: parentOrgName);
 
     // Real app controls/styles and bindings, hosted in a shown off-screen Window. The production View's
     // renderer is deliberately tiny and identical: it maps only the decision's two projection properties.
