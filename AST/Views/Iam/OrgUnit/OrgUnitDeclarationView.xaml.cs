@@ -33,14 +33,6 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
     // View owns accepted-as-of bookkeeping; VM._treeLoadGeneration cannot cover a stale post-await write here.
     private int _treeAsOfGeneration;
 
-    // Item 3 (2026-08-10 fix round): RefreshParentSurface resolves the parent label from TODAY's tree
-    // (FindTreeNodeLabel against vm.TreeRoots) -- correct for a tree/LoadAsync-driven card, but wrong for
-    // a history-row-driven one (LoadFromHistoryRow): a lapsed unit's parent is often absent from today's
-    // tree, so the label came up blank. Set to the row's own as-of ParentLabel exactly when a history row
-    // is the current card's source; cleared at every site that also calls Chrome.ClearHistoryViewConsumed()
-    // -- those are exactly the points where the card source stops being "the viewed history row."
-    private string? _historyRowParentLabel;
-
     // Local chrome (selection / supplemental progress / as-of) — tree/history collections are on the VM.
     public LocalChrome Chrome { get; } = new();
 
@@ -100,13 +92,7 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
         if (DataContext is not OrgUnitDeclarationViewModel vm)
             return;
 
-        if (e.PropertyName is nameof(OrgUnitDeclarationViewModel.Mode)
-            or nameof(OrgUnitDeclarationViewModel.IsParentLocked)
-            or nameof(OrgUnitDeclarationViewModel.ParentCandidates)
-            or nameof(OrgUnitDeclarationViewModel.ParentId)
-            or nameof(OrgUnitDeclarationViewModel.IsRoot)
-            or nameof(OrgUnitDeclarationViewModel.ParentEligibility)
-            or nameof(OrgUnitDeclarationViewModel.OffersRootParentOption))
+        if (e.PropertyName is nameof(OrgUnitDeclarationViewModel.ParentDecision))
         {
             RefreshParentSurface(vm);
         }
@@ -118,7 +104,6 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
             if (vm.Mode == OrgUnitCardMode.Adding)
             {
                 Chrome.ClearHistoryViewConsumed();
-                _historyRowParentLabel = null;
             }
         }
 
@@ -184,7 +169,6 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
         Chrome.SelectedTreeNode = null;
         Chrome.ClearHistoryViewConsumed();
         Chrome.SelectedHistoryRow = null;
-        _historyRowParentLabel = null;
         if (DataContext is OrgUnitDeclarationViewModel vm)
         {
             // Brief 045 FR2 D1: sticky filter within the screen; reset on leave of Screen A.
@@ -221,71 +205,15 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
         Chrome.SelectedTreeNode = null;
         Chrome.ClearHistoryViewConsumed();
         Chrome.SelectedHistoryRow = null;
-        _historyRowParentLabel = null;
     }
 
     private void RefreshParentSurface(OrgUnitDeclarationViewModel vm)
     {
-        // Unlocked Add: three eligibility states, not a boolean. Unresolved (no complete period yet)
-        // and Loading (query in flight, candidates still empty) must stay blank Display — folding them
-        // into isRootCreation via Count==0, or merely AND-ing a completeness flag onto isRootCreation,
-        // flips showPicker to Editable-with-nothing (the original trap) or announces root creation while
-        // candidates are still loading (the same bug one step later).
-        // F-237-04 / card 238: Replacing unlocks the parent like unlocked Add. Editing stays Display.
-        if ((vm.Mode is OrgUnitCardMode.Adding or OrgUnitCardMode.Replacing) && !vm.IsParentLocked)
-        {
-            if (vm.ParentEligibility != ParentEligibilityState.Resolved)
-            {
-                Chrome.ParentMode = AstOrgUnitPickerMode.Display;
-                Chrome.ParentDisplayText = string.Empty;
-                return;
-            }
-
-            // an earlier ruling / card 257: parent on the card absent from candidates.
-            // Empty list (Branch A) → Display of the parent already on the card.
-            // Non-empty list (Branch B) → Editable over the real candidates so the operator can fix it.
-            // Blocked predicate stays on the ViewModel — only the Count==0 presentation discriminator here.
-            if (vm.IsReplaceParentAbsentFromCandidates)
-            {
-                if (vm.ParentCandidates.Count == 0)
-                {
-                    Chrome.ParentMode = AstOrgUnitPickerMode.Display;
-                    Chrome.ParentDisplayText = vm.ParentId is { } blockedParentId
-                        ? _historyRowParentLabel ?? FindTreeNodeLabel(vm.TreeRoots, blockedParentId) ?? string.Empty
-                        : string.Empty;
-                    return;
-                }
-
-                Chrome.ParentMode = AstOrgUnitPickerMode.Editable;
-                return;
-            }
-
-            if (vm.ParentId is null && vm.ParentCandidates.Count == 0)
-            {
-                // Root Display only: unlocked Add (OffersRootParentOption). Replacing empty-list is
-                // Branch A above for every actor (card 259) — this arm no longer sees Replacing.
-                Chrome.ParentMode = AstOrgUnitPickerMode.Display;
-                Chrome.ParentDisplayText = OrgUnitDeclarationViewModel.RootParentDisplayLabel;
-                return;
-            }
-
-            Chrome.ParentMode = AstOrgUnitPickerMode.Editable;
-            return;
-        }
-
-        Chrome.ParentMode = AstOrgUnitPickerMode.Display;
-
-        // Resolve locked-parent / viewing text from ParentId against vm.TreeRoots -- never from
-        // whichever tree node happens to be selected (History→View leaves selection cleared).
-        if (vm.IsRoot)
-        {
-            Chrome.ParentDisplayText = OrgUnitDeclarationViewModel.RootParentDisplayLabel;
-            return;
-        }
-
-        Chrome.ParentDisplayText = vm.ParentId is { } parentId
-            ? _historyRowParentLabel ?? FindTreeNodeLabel(vm.TreeRoots, parentId) ?? string.Empty
-            : string.Empty;
+        var decision = vm.ParentDecision;
+        Chrome.ParentMode = decision.Presentation == ParentPresentationDisposition.Editable
+            ? AstOrgUnitPickerMode.Editable
+            : AstOrgUnitPickerMode.Display;
+        Chrome.ParentDisplayText = decision.DisplayText;
     }
 
     private DateOnly CurrentTreeAsOf() =>
@@ -308,7 +236,6 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
         CloseSupplementalOverlayIfOpen();
         Chrome.SelectedTreeNode = node;
         Chrome.ClearHistoryViewConsumed();
-        _historyRowParentLabel = null;
         OrgUnitTree.SelectSilently(node);
 
         if (DataContext is OrgUnitDeclarationViewModel vm)
@@ -345,7 +272,6 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
             Chrome.SelectedTreeNode = null;
             Chrome.ClearHistoryViewConsumed();
             Chrome.SelectedHistoryRow = null;
-            _historyRowParentLabel = null;
             if (DataContext is OrgUnitDeclarationViewModel vm)
             {
                 vm.Clear();
@@ -498,7 +424,6 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
         Chrome.SelectedTreeNode = null;
         Chrome.ClearHistoryViewConsumed();
         Chrome.SelectedHistoryRow = null;
-        _historyRowParentLabel = null;
         if (DataContext is OrgUnitDeclarationViewModel vm)
         {
             vm.Clear();
@@ -591,17 +516,13 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
             // requirement, so it never fails on them.
             if (row.Status is VersionStatus.Effective or VersionStatus.Pending)
             {
-                // Not a history-row-driven load -- the parent label resolves from today's tree same as
-                // any other LoadAsync (item 3's override applies only to the LoadFromHistoryRow branch).
-                _historyRowParentLabel = null;
-                await vm.LoadAsync(row.OrgUnitId, row.EffectiveFrom);
+                var parentItem = row.ParentId is { } parentId && !string.IsNullOrWhiteSpace(row.ParentLabel)
+                    ? new OrgUnitPickerItem(parentId, row.ParentLabel)
+                    : null;
+                await vm.LoadAsync(row.OrgUnitId, row.EffectiveFrom, parentItem);
             }
             else
             {
-                // Set BEFORE LoadFromHistoryRow (item 3): its Clear()+field assignments raise
-                // PropertyChanged synchronously, and RefreshParentSurface must see the override the first
-                // time it reacts to this load, not one round-trip later.
-                _historyRowParentLabel = row.ParentId is null ? null : row.ParentLabel;
                 vm.LoadFromHistoryRow(row);
             }
 
@@ -681,27 +602,6 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
         {
             Log.Error(ex, "Failed to close supplemental overlay");
         }
-    }
-
-    // Resolve a tree node's Label by org-unit id (recursive). Visited-set guards against any future
-    // non-tree data (FR2 defense-in-depth — LoadTreeCoreAsync already cuts cycles at attach time).
-    private static string? FindTreeNodeLabel(IEnumerable<OrgUnitTreeNode> roots, long id) =>
-        FindTreeNodeLabel(roots, id, new HashSet<long>());
-
-    private static string? FindTreeNodeLabel(IEnumerable<OrgUnitTreeNode> roots, long id, HashSet<long> visited)
-    {
-        foreach (var node in roots)
-        {
-            if (!visited.Add(node.Id))
-                continue;
-            if (node.Id == id)
-                return node.Label;
-            var nested = FindTreeNodeLabel(node.Children, id, visited);
-            if (nested is not null)
-                return nested;
-        }
-
-        return null;
     }
 
     private static T? FindAncestor<T>(DependencyObject? node) where T : DependencyObject

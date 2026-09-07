@@ -16,7 +16,123 @@ namespace AST.Shell.ViewModels.Iam;
 
 public enum OrgUnitCardMode { ReadOnly, Adding, Editing, Closing, Replacing }
 
-public enum ParentEligibilityState { Unresolved, Loading, Resolved, Failed }
+public enum ParentEligibilityState
+{
+    Incomplete,
+    // Compatibility name for callers/tests written before the state became the phase of the
+    // canonical decision. It is the same value, not a fifth state.
+    Unresolved = Incomplete,
+    Loading,
+    Resolved,
+    Failed,
+}
+
+public enum ParentPresentationDisposition { Display, Editable }
+
+public enum ParentCommitDisposition
+{
+    NotApplicable,
+    Allowed,
+    BlockedIncomplete,
+    BlockedLoading,
+    BlockedFailed,
+    BlockedSelectionRequired,
+    BlockedNoEligibleParent,
+    BlockedParentMismatch,
+}
+
+public readonly record struct ParentDecisionKey(
+    long? OrgUnitId,
+    OrgUnitCardMode Mode,
+    EffectivePeriod? Period,
+    int Generation);
+
+// One immutable publication unit for every fact the parent surface and Save must agree on. The
+// constructor is private so a caller cannot publish an id without its ordinary display row, or a
+// display list that would make WPF's selector clear the live selection.
+public sealed class ParentDecision
+{
+    private ParentDecision(
+        ParentDecisionKey key,
+        ParentEligibilityState phase,
+        IReadOnlyList<OrgUnitPickerItem> realCandidates,
+        IReadOnlyList<OrgUnitPickerItem> displayItems,
+        long? parentId,
+        OrgUnitPickerItem? selectedParentItem,
+        string displayText,
+        ParentPresentationDisposition presentation,
+        ParentCommitDisposition commitDisposition,
+        bool isContextLocked)
+    {
+        if (key.Mode is OrgUnitCardMode.Adding or OrgUnitCardMode.Replacing
+            && parentId is { } heldId
+            && (selectedParentItem is null
+                || selectedParentItem.Id != heldId
+                || string.IsNullOrWhiteSpace(selectedParentItem.Display)
+                || string.IsNullOrWhiteSpace(displayText)
+                || displayText != selectedParentItem.Display
+                || displayItems.All(item => item.Id != heldId)))
+        {
+            throw new InvalidOperationException(
+                "An active parent decision cannot hold a parent without its non-empty ordinary display item.");
+        }
+
+        if (commitDisposition == ParentCommitDisposition.Allowed
+            && key.Mode is OrgUnitCardMode.Adding or OrgUnitCardMode.Replacing
+            && phase != ParentEligibilityState.Resolved)
+        {
+            throw new InvalidOperationException(
+                "An active parent decision cannot allow commit before eligibility is resolved.");
+        }
+
+        Key = key;
+        Phase = phase;
+        RealCandidates = realCandidates;
+        DisplayItems = displayItems;
+        ParentId = parentId;
+        SelectedParentItem = selectedParentItem;
+        DisplayText = displayText;
+        Presentation = presentation;
+        CommitDisposition = commitDisposition;
+        IsContextLocked = isContextLocked;
+    }
+
+    public ParentDecisionKey Key { get; }
+    public ParentEligibilityState Phase { get; }
+    public IReadOnlyList<OrgUnitPickerItem> RealCandidates { get; }
+    public IReadOnlyList<OrgUnitPickerItem> DisplayItems { get; }
+    public long? ParentId { get; }
+    public OrgUnitPickerItem? SelectedParentItem { get; }
+    public string DisplayText { get; }
+    public ParentPresentationDisposition Presentation { get; }
+    public ParentCommitDisposition CommitDisposition { get; }
+    public bool IsContextLocked { get; }
+    public bool BlocksCommit => CommitDisposition is not (ParentCommitDisposition.NotApplicable or ParentCommitDisposition.Allowed);
+    public bool AllowsCommit => CommitDisposition == ParentCommitDisposition.Allowed;
+
+    internal static ParentDecision Create(
+        ParentDecisionKey key,
+        ParentEligibilityState phase,
+        IEnumerable<OrgUnitPickerItem> realCandidates,
+        IEnumerable<OrgUnitPickerItem> displayItems,
+        long? parentId,
+        OrgUnitPickerItem? selectedParentItem,
+        string displayText,
+        ParentPresentationDisposition presentation,
+        ParentCommitDisposition commitDisposition,
+        bool isContextLocked = false) =>
+        new(
+            key,
+            phase,
+            Array.AsReadOnly(realCandidates.ToArray()),
+            Array.AsReadOnly(displayItems.ToArray()),
+            parentId,
+            selectedParentItem,
+            displayText,
+            presentation,
+            commitDisposition,
+            isContextLocked);
+}
 
 public enum CardLoadOutcome { Loaded, Failed, Superseded }
 
@@ -158,10 +274,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         }
     }
 
-    private long? _parentId;
+    private long? _stagedParentId;
     public long? ParentId
     {
-        get => _parentId;
+        get => ParentDecision.ParentId;
         set
         {
             // Card 261 Part 2: refuse a null write while Replacing outside a load/clear cycle.
@@ -173,19 +289,24 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
                 return;
             }
 
-            if (!SetProperty(ref _parentId, value))
+            if (_isLoading)
+            {
+                _stagedParentId = value;
                 return;
+            }
+
+            if (ParentDecision.ParentId == value)
+                return;
+
+            var selectedItem = value is { } id ? ResolveParentItem(id) : null;
+            PublishParentDecision(BuildParentDecision(
+                ParentDecision.Key,
+                ParentDecision.Phase,
+                ParentDecision.RealCandidates,
+                value,
+                selectedItem,
+                ParentDecision.IsContextLocked));
             MarkDirty();
-            // Card 263: rebuild before the gate so ParentPickerItems matches the new ParentId
-            // (and caches its ordinary label while it is still in the real set) before
-            // StatusMessage / PeriodCommitBlocked flip. The gate reads ParentCandidates only,
-            // so either order preserves gate correctness; rebuild-first keeps display and
-            // selection consistent for observers of the same setter.
-            RebuildParentPickerItems();
-            // Branch B opens the picker; selecting a candidate must re-run the gate. Early return when
-            // Mode != Replacing leaves Adding/Editing untouched; the gate never assigns ParentId.
-            // Safe during a load: every _isLoading ParentId writer either has Mode != Replacing, or
-            // (Clear) has already cleared the period so ParentEligibility is Unresolved before this runs.
             SyncReplaceParentPeriodGate();
         }
     }
@@ -206,54 +327,37 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     public void MarkSupplementalDirty() => MarkDirty();
 
-    private IReadOnlyList<OrgUnitPickerItem> _parentCandidates = [];
     // Real eligible-parent set from GetEligibleParentsAsync. The replace-parent gate reads this.
-    public IReadOnlyList<OrgUnitPickerItem> ParentCandidates
-    {
-        get => _parentCandidates;
-        private set
-        {
-            if (!SetProperty(ref _parentCandidates, value))
-                return;
-            RebuildParentPickerItems();
-        }
-    }
+    public IReadOnlyList<OrgUnitPickerItem> ParentCandidates => ParentDecision.RealCandidates;
 
     // Display list bound by AstOrgUnitPicker.Items (cards 261/263). May carry the card's parent
     // and/or the live ParentId as extra rows when those ids are absent from ParentCandidates
     // (Branch B). The gate must NOT read this — only ParentCandidates.
-    private IReadOnlyList<OrgUnitPickerItem> _parentPickerItems = [];
-    public IReadOnlyList<OrgUnitPickerItem> ParentPickerItems
-    {
-        get => _parentPickerItems;
-        private set => SetProperty(ref _parentPickerItems, value);
-    }
+    public IReadOnlyList<OrgUnitPickerItem> ParentPickerItems => ParentDecision.DisplayItems;
 
-    // Last known picker row for the card's parent (_snapshot.ParentId), captured whenever that id
-    // appears in the real eligible set so Branch B can re-offer it with an ordinary label after it
-    // drops out. Cleared when leaving / re-entering Replacing.
-    private OrgUnitPickerItem? _replaceCardParentPickerItem;
+    // Captured once at BeginReplace. It is lifecycle input to decision construction, never a second
+    // published surface fact.
+    private OrgUnitPickerItem? _replaceCardParentItem;
 
-    // Same cache for the live ParentId when it is not the card parent (card 263 / backlog 3.52).
-    private OrgUnitPickerItem? _replaceLiveParentPickerItem;
-
-    private bool _isParentLocked;
-    public bool IsParentLocked
-    {
-        get => _isParentLocked;
-        private set => SetProperty(ref _isParentLocked, value);
-    }
+    public bool IsParentLocked => ParentDecision.IsContextLocked;
 
     // Raised only after a successful save has cleared the card — not from Clear() itself
     // (LoadAsync calls Clear() as its first action).
     public event EventHandler? CardClearedAfterSave;
 
-    private ParentEligibilityState _parentEligibility = ParentEligibilityState.Unresolved;
-    public ParentEligibilityState ParentEligibility
-    {
-        get => _parentEligibility;
-        private set => SetProperty(ref _parentEligibility, value);
-    }
+    private ParentDecision _parentDecision = ParentDecision.Create(
+        new ParentDecisionKey(null, OrgUnitCardMode.ReadOnly, null, 0),
+        ParentEligibilityState.Incomplete,
+        [],
+        [],
+        null,
+        null,
+        string.Empty,
+        ParentPresentationDisposition.Display,
+        ParentCommitDisposition.NotApplicable);
+
+    public ParentDecision ParentDecision => _parentDecision;
+    public ParentEligibilityState ParentEligibility => ParentDecision.Phase;
 
     // Phase 4d: real tree/history data (sample placeholders removed in Task 3b; View binds these directly).
     private ObservableCollection<OrgUnitTreeNode> _treeRoots = [];
@@ -353,7 +457,9 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private void RestoreSnapshot(FieldSnapshot s)
     {
+        var selectedParentItem = ResolveParentItem(s.ParentId, _replaceCardParentItem);
         _isLoading = true;
+        _stagedParentId = ParentId;
         try
         {
             OrgCode = s.OrgCode;
@@ -375,6 +481,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         finally
         {
             _isLoading = false;
+            PublishInactiveParentDecision(selectedParentItem, useStagedParentId: true);
             RaisePropertyChanged(nameof(CanOpenSupplemental));
         }
     }
@@ -385,32 +492,37 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         get => _mode;
         private set
         {
-            if (SetProperty(ref _mode, value))
-            {
-                RaisePropertyChanged(nameof(CanOpenSupplemental));
-                RaisePropertyChanged(nameof(IsEffectivePeriodEnabled));
-                RaisePropertyChanged(nameof(OffersRootParentOption));
-                if (value == OrgUnitCardMode.Closing)
-                {
-                    // Mode entry blanks To under _isLoading (skips OnCloseDateFieldEdited); still evaluate
-                    // Lưu enablement for CloseDateRequired without raising that sentence (earlier ruling).
-                    ApplyCloseDateCommitGate();
-                }
-                else
-                {
-                    SyncCloseDateStatusHint();
-                    if (value is not OrgUnitCardMode.Replacing)
-                        PeriodCommitBlocked = false;
-                }
+            if (_mode == value)
+                return;
 
-                // Card 261: drop the Branch B extra row when leaving Replacing (Cancel, Clear, …).
-                if (value is not OrgUnitCardMode.Replacing)
-                {
-                    _replaceCardParentPickerItem = null;
-                    _replaceLiveParentPickerItem = null;
-                    RebuildParentPickerItems();
-                }
+            _mode = value;
+            AbandonParentCandidateQuery();
+
+            // Publish the new mode's complete parent decision before any projection announces the
+            // mode change. Every observer therefore reads one coherent snapshot.
+            if (value is OrgUnitCardMode.Adding or OrgUnitCardMode.Replacing)
+                RecomputeParentEligibility();
+            else
+                PublishInactiveParentDecision();
+
+            RaisePropertyChanged(nameof(Mode));
+            RaisePropertyChanged(nameof(CanOpenSupplemental));
+            RaisePropertyChanged(nameof(IsEffectivePeriodEnabled));
+            RaisePropertyChanged(nameof(OffersRootParentOption));
+            if (value == OrgUnitCardMode.Closing)
+            {
+                // Mode entry blanks To under _isLoading (skips OnCloseDateFieldEdited); still evaluate
+                // Lưu enablement for CloseDateRequired without raising that sentence (earlier ruling).
+                ApplyCloseDateCommitGate();
             }
+            else
+            {
+                SyncCloseDateStatusHint();
+                SetCloseDateCommitBlocked(false);
+            }
+
+            if (value is not OrgUnitCardMode.Replacing)
+                _replaceCardParentItem = null;
         }
     }
 
@@ -534,7 +646,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
         if (!TryBuildSnapshotTargetPeriod(out var targetPeriod))
         {
-            PeriodCommitBlocked = true;
+            SetCloseDateCommitBlocked(true);
             return;
         }
 
@@ -542,7 +654,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // not a Validate input — agree with Save exactly.
         if (EffectiveTo == EffectivePeriod.OpenEnd)
         {
-            PeriodCommitBlocked = true;
+            SetCloseDateCommitBlocked(true);
             PublishCloseGateStatus(CloseDateRequiredMessage, StatusSeverity.Error);
             return;
         }
@@ -551,7 +663,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         var validated = VersionCloseRules.Validate(_dates.Today, targetPeriod, requestedCloseDate);
         if (validated.IsError)
         {
-            PeriodCommitBlocked = true;
+            SetCloseDateCommitBlocked(true);
             var error = validated.FirstError;
             if (error.Code == VersionCloseRules.Codes.CloseDateRequired)
             {
@@ -563,7 +675,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             return;
         }
 
-        PeriodCommitBlocked = false;
+        SetCloseDateCommitBlocked(false);
 
         var hint = BuildCloseDateEffectText();
         if (hint is not null)
@@ -651,19 +763,33 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     public bool CanCancel => Mode != OrgUnitCardMode.ReadOnly;
 
-    // PeriodCommitBlocked is observed by SaveCommand — adding a validity term without that observation
-    // leaves the button stale in the app (an earlier ruling / 3.38).
+    // Save observes this projection. Parent readiness and close-date readiness remain different
+    // domains, but each has one owner and the command consumes their combined fail-closed result.
     public bool CanSave => Mode != OrgUnitCardMode.ReadOnly && !PeriodCommitBlocked;
 
-    private bool _periodCommitBlocked;
-    public bool PeriodCommitBlocked
+    private bool _closeDateCommitBlocked;
+    public bool PeriodCommitBlocked => _closeDateCommitBlocked || ParentDecisionBlocksCurrentCommit();
+
+    private bool ParentDecisionBlocksCurrentCommit()
     {
-        get => _periodCommitBlocked;
-        private set
-        {
-            if (SetProperty(ref _periodCommitBlocked, value))
-                RaisePropertyChanged(nameof(CanSave));
-        }
+        if (Mode is not (OrgUnitCardMode.Adding or OrgUnitCardMode.Replacing))
+            return false;
+
+        var decision = ParentDecision;
+        return !decision.AllowsCommit
+            || decision.Key.OrgUnitId != _orgUnitId
+            || decision.Key.Mode != Mode
+            || decision.Key.Period != TryBuildFormPeriod();
+    }
+
+    private void SetCloseDateCommitBlocked(bool value)
+    {
+        if (_closeDateCommitBlocked == value)
+            return;
+
+        _closeDateCommitBlocked = value;
+        RaisePropertyChanged(nameof(PeriodCommitBlocked));
+        RaisePropertyChanged(nameof(CanSave));
     }
 
     // Supplemental affordance: always visible; enabled per settled matrix (Closing = view-only open).
@@ -693,9 +819,8 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // A non-empty list that omits ParentId is still the discriminating 3.41 / Branch B state.
     public bool IsReplaceParentAbsentFromCandidates =>
         Mode == OrgUnitCardMode.Replacing
-        && ParentEligibility == ParentEligibilityState.Resolved
-        && !OffersRootParentOption
-        && ParentCandidates.All(c => c.Id != ParentId);
+        && ParentDecision.CommitDisposition is ParentCommitDisposition.BlockedNoEligibleParent
+            or ParentCommitDisposition.BlockedParentMismatch;
 
     public DelegateCommand BeginAddCommand { get; }
     public DelegateCommand BeginEditCommand { get; }
@@ -708,17 +833,18 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // Screen A remembers "the tree node that was selected" (N3/N7) across the Add flow; the real
     // tree-node-click (OrgUnitDeclarationView.CommitTreeSelectionAsync, reached through
     // TreeSelectionGate) calls LoadAsync exactly like today's tests do.
-    private (long ParentId, EffectivePeriod Coverage)? _addParentContext;
+    private (long ParentId, EffectivePeriod Coverage, OrgUnitPickerItem Item)? _addParentContext;
 
     private void ExecuteBeginAdd()
     {
         _snapshot = CaptureSnapshot();
         _addParentContext = _orgUnitId is { } loadedId
-            ? (loadedId, new EffectivePeriod(EffectiveFrom ?? _dates.Today, IsUndetermined ? EffectivePeriod.OpenEnd : EffectiveTo ?? EffectivePeriod.OpenEnd))
+            ? (loadedId,
+                new EffectivePeriod(EffectiveFrom ?? _dates.Today, IsUndetermined ? EffectivePeriod.OpenEnd : EffectiveTo ?? EffectivePeriod.OpenEnd),
+                new OrgUnitPickerItem(loadedId, $"{OrgCode} — {OrgNameShortVn}"))
             : null;
         Clear();
         Mode = OrgUnitCardMode.Adding;
-        RecomputeParentEligibility();
     }
 
     private EffectivePeriod? TryBuildFormPeriod()
@@ -741,6 +867,9 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // EffectiveFrom/EffectiveTo/IsUndetermined setters above, so this re-evaluates on every edit, not just once.
     private void RecomputeParentEligibility()
     {
+        if (_isLoading)
+            return;
+
         // F-237-04: Replacing unlocks the parent the same way unlocked Add does. Editing keeps parent
         // Display-locked; that is the one surface Replacing opens that Editing does not (card 238).
         if (Mode is not (OrgUnitCardMode.Adding or OrgUnitCardMode.Replacing))
@@ -754,44 +883,42 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             && _addParentContext is { } ctx
             && (formPeriod is null || !CoverageGap.TryFind([ctx.Coverage], formPeriod.Value, out _)))
         {
-            IsParentLocked = true;
-            ParentId = ctx.ParentId;
-            ParentCandidates = [];
-            AbandonParentCandidateQuery();
-            ParentEligibility = ParentEligibilityState.Unresolved;
+            var key = NewParentDecisionKey(formPeriod);
+            PublishParentDecision(BuildParentDecision(
+                key,
+                formPeriod is null ? ParentEligibilityState.Incomplete : ParentEligibilityState.Resolved,
+                [],
+                ctx.ParentId,
+                ctx.Item,
+                isContextLocked: true));
+            SyncReplaceParentPeriodGate();
             return;
         }
 
-        IsParentLocked = false;
-        if (Mode == OrgUnitCardMode.Adding && ParentId == _addParentContext?.ParentId)
+        var parentId = ParentId;
+        var selectedItem = ParentDecision.SelectedParentItem;
+        if (Mode == OrgUnitCardMode.Adding && parentId == _addParentContext?.ParentId)
         {
             // Was locked to the tree-context candidate; the EP just typed no longer qualifies it -- clear the
             // stale pre-fill rather than leaving a picker-less selection standing.
-            ParentId = null;
+            parentId = null;
+            selectedItem = null;
         }
 
         if (formPeriod is null)
         {
-            ParentCandidates = [];
-            AbandonParentCandidateQuery();
-            ParentEligibility = ParentEligibilityState.Unresolved;
+            var key = NewParentDecisionKey(null);
+            PublishParentDecision(BuildParentDecision(
+                key,
+                ParentEligibilityState.Incomplete,
+                [],
+                parentId,
+                selectedItem));
             SyncReplaceParentPeriodGate();
         }
         else
         {
-            // The fakes' Task.FromResult results complete synchronously, so ParentCandidates is already
-            // updated by the time this (synchronous) method returns -- no await needed by callers/tests.
-            // Loading is still a real state: a genuine GetEligibleParentsAsync awaits I/O, and treating
-            // Count==0 during that await as root-creation is the same misleading-text bug one step later.
-            ParentEligibility = ParentEligibilityState.Loading;
-            if (Severity == StatusSeverity.Error
-                && IsReplaceParentPeriodGateMessage(StatusMessage))
-            {
-                StatusMessage = null;
-                Severity = StatusSeverity.None;
-            }
-            PeriodCommitBlocked = false;
-            _ = RefreshParentCandidatesAsync(formPeriod.Value, ++_parentRefreshGeneration);
+            StartParentCandidateQuery(formPeriod.Value, parentId, selectedItem);
         }
     }
 
@@ -803,38 +930,117 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private void AbandonParentCandidateQuery() => _parentRefreshGeneration++;
 
-    private async Task RefreshParentCandidatesAsync(EffectivePeriod formPeriod, int generation)
+    private ParentDecisionKey NewParentDecisionKey(EffectivePeriod? period) =>
+        new(_orgUnitId, Mode, period, ++_parentRefreshGeneration);
+
+    private void StartParentCandidateQuery(
+        EffectivePeriod formPeriod,
+        long? parentId,
+        OrgUnitPickerItem? selectedItem)
     {
+        var key = NewParentDecisionKey(formPeriod);
+        Task<IReadOnlyList<OrgUnitPickerItem>> query;
         try
         {
             // Reads stay Global by policy (decision-log 2026-08-05, "Scope-checked writes" part 2): the
             // parent picker must offer every eligible parent regardless of the operator's own scope --
             // only the eventual write (Add/Edit/Close/Replace) is gated by the caller's resolved scope.
             var scope = new DataScope(ScopeLevel.Global, null, _currentUser.Username ?? "unknown");
-            var candidates = await _orgUnits.GetEligibleParentsAsync(
-                scope, formPeriod, Mode == OrgUnitCardMode.Replacing ? _orgUnitId : null);
-            if (generation == _parentRefreshGeneration)
-            {
-                ParentCandidates = candidates;
-                ParentEligibility = ParentEligibilityState.Resolved;
-                SyncReplaceParentPeriodGate();
-            }
+            query = _orgUnits.GetEligibleParentsAsync(
+                scope, formPeriod, key.Mode == OrgUnitCardMode.Replacing ? key.OrgUnitId : null);
         }
         catch (Exception)
         {
-            // A discarded task's exception would otherwise be lost entirely, leaving the picker silently
-            // never populated with no diagnostic (prefer a clear failure over silent ambiguity).
-            if (generation == _parentRefreshGeneration)
-            {
-                StatusMessage = "Ứng dụng không tải được danh sách đơn vị cha.";
-                Severity = StatusSeverity.Error;
-                ParentEligibility = ParentEligibilityState.Failed;
-                PeriodCommitBlocked = false;
-            }
+            PublishParentCandidateFailure(key, parentId, selectedItem);
+            return;
+        }
+
+        // Task.FromResult has no observable pending interval. Publish Resolved directly so old unit tests do
+        // not depend on a synthetic transient; a real/delayed task publishes Loading before this method returns.
+        if (query.IsCompletedSuccessfully)
+        {
+            PublishResolvedParentCandidates(key, query.Result, parentId, selectedItem);
+            return;
+        }
+
+        selectedItem = ResolveParentItem(parentId, selectedItem);
+        PublishParentDecision(BuildParentDecision(
+            key,
+            ParentEligibilityState.Loading,
+            [],
+            parentId,
+            selectedItem));
+        SyncReplaceParentPeriodGate();
+        _ = CompleteParentCandidateQueryAsync(query, key, parentId, selectedItem);
+    }
+
+    private async Task CompleteParentCandidateQueryAsync(
+        Task<IReadOnlyList<OrgUnitPickerItem>> query,
+        ParentDecisionKey key,
+        long? parentId,
+        OrgUnitPickerItem? selectedItem)
+    {
+        try
+        {
+            var candidates = await query;
+            PublishResolvedParentCandidates(key, candidates, parentId, selectedItem);
+        }
+        catch (Exception)
+        {
+            PublishParentCandidateFailure(key, parentId, selectedItem);
         }
     }
 
-    // an earlier ruling: empty eligible-parent list in Replacing (ordinary actor) is a screen-visible state —
+    private void PublishResolvedParentCandidates(
+        ParentDecisionKey key,
+        IReadOnlyList<OrgUnitPickerItem> candidates,
+        long? parentId,
+        OrgUnitPickerItem? selectedItem)
+    {
+        if (!IsCurrentParentRequest(key))
+            return;
+
+        selectedItem = ResolveParentItem(parentId, candidates.FirstOrDefault(item => item.Id == parentId) ?? selectedItem);
+        if (_snapshot.ParentId is { } cardParentId)
+            _replaceCardParentItem = ResolveParentItem(
+                cardParentId,
+                candidates.FirstOrDefault(item => item.Id == cardParentId) ?? _replaceCardParentItem);
+
+        PublishParentDecision(BuildParentDecision(
+            key,
+            ParentEligibilityState.Resolved,
+            candidates,
+            parentId,
+            selectedItem));
+        SyncReplaceParentPeriodGate();
+    }
+
+    private void PublishParentCandidateFailure(
+        ParentDecisionKey key,
+        long? parentId,
+        OrgUnitPickerItem? selectedItem)
+    {
+        if (!IsCurrentParentRequest(key))
+            return;
+
+        selectedItem = ResolveParentItem(parentId, selectedItem);
+        PublishParentDecision(BuildParentDecision(
+            key,
+            ParentEligibilityState.Failed,
+            [],
+            parentId,
+            selectedItem));
+        StatusMessage = "Ứng dụng không tải được danh sách đơn vị cha.";
+        Severity = StatusSeverity.Error;
+    }
+
+    private bool IsCurrentParentRequest(ParentDecisionKey key) =>
+        key.Generation == _parentRefreshGeneration
+        && key.OrgUnitId == _orgUnitId
+        && key.Mode == Mode
+        && key.Period == TryBuildFormPeriod();
+
+    // Backlog 3.38: empty eligible-parent list in Replacing (ordinary actor) is a screen-visible state —
     // not a service error code. Sentence is requester verbatim (§1.8a); no code behind it.
     private void SyncReplaceParentPeriodGate()
     {
@@ -843,12 +1049,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
         if (IsReplaceParentAbsentFromCandidates)
         {
-            // Presentation discriminator only — blocked predicate stays IsReplaceParentAbsentFromCandidates.
-            StatusMessage = ParentCandidates.Count == 0
+            StatusMessage = ParentDecision.CommitDisposition == ParentCommitDisposition.BlockedNoEligibleParent
                 ? ReplacePeriodNoEligibleParentMessage
                 : ReplacePeriodParentCoverageMismatchMessage;
             Severity = StatusSeverity.Error;
-            PeriodCommitBlocked = true;
             return;
         }
 
@@ -859,7 +1063,6 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             Severity = StatusSeverity.None;
         }
 
-        PeriodCommitBlocked = false;
     }
 
     private void ExecuteBeginEdit()
@@ -874,10 +1077,8 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // parent picker; period/code/names are already editable in Editing today, so Replacing's
         // distinctive unlock against Editing is the parent only (card 238 / F-237-01).
         _snapshot = CaptureSnapshot();
-        _replaceCardParentPickerItem = null;
-        _replaceLiveParentPickerItem = null;
+        _replaceCardParentItem = ResolveParentItem(_snapshot.ParentId, ParentDecision.SelectedParentItem);
         Mode = OrgUnitCardMode.Replacing;
-        RecomputeParentEligibility();
     }
 
     private void ExecuteBeginClose()
@@ -918,7 +1119,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         await Task.CompletedTask;
     }
 
-    public async Task<CardLoadOutcome> LoadAsync(long orgUnitId, DateOnly asOf)
+    public async Task<CardLoadOutcome> LoadAsync(
+        long orgUnitId,
+        DateOnly asOf,
+        OrgUnitPickerItem? knownParentItem = null)
     {
         // Bump before Clear/await so two clean-form clicks cannot let a slower GetByIdentityAsync
         // overwrite the card (or its error banner) after a newer load already owns it — same idiom
@@ -938,7 +1142,14 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         }
 
         var dto = result.Value;
+        var loadedParentItem = dto.ParentId is { } parentId
+            && knownParentItem is not null
+            && knownParentItem.Id == parentId
+            && !string.IsNullOrWhiteSpace(knownParentItem.Display)
+                ? knownParentItem
+                : ResolveLoadedParentItem(dto);
         _isLoading = true;
+        _stagedParentId = ParentId;
         try
         {
             _orgUnitId = dto.OrgUnitId;
@@ -960,6 +1171,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         finally
         {
             _isLoading = false;
+            PublishInactiveParentDecision(loadedParentItem, useStagedParentId: true);
             IsDirty = false;
             RaisePropertyChanged(nameof(CanOpenSupplemental));
         }
@@ -1006,7 +1218,11 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         ++_cardLoadGeneration;
         Clear();
 
+        var loadedParentItem = row.ParentId is { } parentId && !string.IsNullOrWhiteSpace(row.ParentLabel)
+            ? new OrgUnitPickerItem(parentId, row.ParentLabel)
+            : ResolveParentItem(row.ParentId);
         _isLoading = true;
+        _stagedParentId = ParentId;
         try
         {
             _orgUnitId = row.OrgUnitId;
@@ -1028,6 +1244,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         finally
         {
             _isLoading = false;
+            PublishInactiveParentDecision(loadedParentItem, useStagedParentId: true);
             IsDirty = false;
             RaisePropertyChanged(nameof(CanOpenSupplemental));
         }
@@ -1246,7 +1463,9 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     public void Clear()
     {
+        AbandonParentCandidateQuery();
         _isLoading = true;
+        _stagedParentId = ParentId;
         try
         {
             _orgUnitId = null;
@@ -1269,78 +1488,160 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         finally
         {
             _isLoading = false;
+            PublishInactiveParentDecision(useStagedParentId: true);
             IsDirty = false;
             RaisePropertyChanged(nameof(CanOpenSupplemental));
         }
     }
 
-    // Card 261 Part 1: compose the picker display list from the real eligible set, optionally
-    // carrying the card's parent as an extra row. Gate keeps reading ParentCandidates only.
-    private void RebuildParentPickerItems()
+    private ParentDecision BuildParentDecision(
+        ParentDecisionKey key,
+        ParentEligibilityState phase,
+        IReadOnlyList<OrgUnitPickerItem> realCandidates,
+        long? parentId,
+        OrgUnitPickerItem? selectedItem,
+        bool isContextLocked = false)
     {
-        // Display list = real eligible set
-        //   + card parent (_snapshot.ParentId) when absent from it
-        //   + live ParentId when absent from it and not the card parent.
-        // Gate keeps reading ParentCandidates only — never ParentPickerItems.
-        if (Mode != OrgUnitCardMode.Replacing)
+        selectedItem = ResolveParentItem(parentId, selectedItem);
+
+        var displayItems = realCandidates.ToList();
+        static void AddIfAbsent(List<OrgUnitPickerItem> items, OrgUnitPickerItem? item)
         {
-            ParentPickerItems = ParentCandidates;
-            return;
+            if (item is not null && items.All(candidate => candidate.Id != item.Id))
+                items.Add(item);
         }
 
-        // Cache ordinary labels while an id is still in the real set, so a later drop-out
-        // re-offers the same label the operator already saw.
-        if (_snapshot.ParentId is long cardId)
+        // Cards 261/263: the real set remains gate input; the display set additionally retains the
+        // card parent and the different live selection. Keeping the live row even in Branch A/pending
+        // also prevents SelectedValue's TwoWay binding from manufacturing a null selection.
+        if (key.Mode == OrgUnitCardMode.Replacing)
+            AddIfAbsent(displayItems, _replaceCardParentItem);
+        AddIfAbsent(displayItems, selectedItem);
+
+        var presentation = ParentPresentationDisposition.Display;
+        var commit = ParentCommitDisposition.NotApplicable;
+
+        if (key.Mode is OrgUnitCardMode.Adding or OrgUnitCardMode.Replacing)
         {
-            var cardInReal = ParentCandidates.FirstOrDefault(c => c.Id == cardId);
-            if (cardInReal is not null)
-                _replaceCardParentPickerItem = cardInReal;
+            commit = phase switch
+            {
+                ParentEligibilityState.Incomplete => ParentCommitDisposition.BlockedIncomplete,
+                ParentEligibilityState.Loading => ParentCommitDisposition.BlockedLoading,
+                ParentEligibilityState.Failed => ParentCommitDisposition.BlockedFailed,
+                _ => ParentCommitDisposition.Allowed,
+            };
+
+            if (phase == ParentEligibilityState.Resolved)
+            {
+                if (key.Mode == OrgUnitCardMode.Adding)
+                {
+                    presentation = isContextLocked || (realCandidates.Count == 0 && parentId is null)
+                        ? ParentPresentationDisposition.Display
+                        : ParentPresentationDisposition.Editable;
+                    if (!isContextLocked && realCandidates.Count > 0 && parentId is null)
+                        commit = ParentCommitDisposition.BlockedSelectionRequired;
+                    else if (parentId is { } addParentId
+                        && !isContextLocked
+                        && realCandidates.All(candidate => candidate.Id != addParentId))
+                        commit = ParentCommitDisposition.BlockedSelectionRequired;
+                }
+                else if (realCandidates.Count == 0)
+                {
+                    commit = ParentCommitDisposition.BlockedNoEligibleParent;
+                }
+                else
+                {
+                    presentation = ParentPresentationDisposition.Editable;
+                    if (parentId is null || realCandidates.All(candidate => candidate.Id != parentId))
+                        commit = ParentCommitDisposition.BlockedParentMismatch;
+                }
+            }
         }
 
-        if (ParentId is long liveId)
-        {
-            var liveInReal = ParentCandidates.FirstOrDefault(c => c.Id == liveId);
-            if (liveInReal is not null)
-                _replaceLiveParentPickerItem = liveInReal;
-        }
+        var displayText = selectedItem?.Display
+            ?? ((key.Mode == OrgUnitCardMode.Adding
+                    && phase == ParentEligibilityState.Resolved
+                    && realCandidates.Count == 0)
+                || (key.Mode == OrgUnitCardMode.ReadOnly && IsRoot)
+                ? RootParentDisplayLabel
+                : string.Empty);
 
-        // Branch A: empty real set → Display surface; keep display list empty.
-        if (ParentCandidates.Count == 0)
-        {
-            ParentPickerItems = ParentCandidates;
-            return;
-        }
-
-        List<OrgUnitPickerItem>? extras = null;
-
-        if (_snapshot.ParentId is long cardParentId
-            && ParentCandidates.All(c => c.Id != cardParentId))
-        {
-            extras = [ResolveInjectedPickerItem(cardParentId, _replaceCardParentPickerItem)];
-        }
-
-        if (ParentId is long selectedId
-            && selectedId != _snapshot.ParentId
-            && ParentCandidates.All(c => c.Id != selectedId))
-        {
-            extras ??= [];
-            extras.Add(ResolveInjectedPickerItem(selectedId, _replaceLiveParentPickerItem));
-        }
-
-        ParentPickerItems = extras is null
-            ? ParentCandidates
-            : ParentCandidates.Concat(extras).ToList();
+        return ParentDecision.Create(
+            key,
+            phase,
+            realCandidates,
+            displayItems,
+            parentId,
+            selectedItem,
+            displayText,
+            presentation,
+            commit,
+            isContextLocked);
     }
 
-    // Label for an injected Branch B row. Prefer the cache (last real sighting), then the tree.
-    // Empty-string fallback: unreachable when GetEligibleParentsAsync respects D8 STRICT at
-    // BeginReplace — the form period equals the unit's current period, so the card parent is in
-    // the first real set and _replaceCardParentPickerItem is populated before any drop-out. The
-    // live-selection cache is populated the same way when the operator picks a still-eligible
-    // candidate (ParentId setter → rebuild while the id is in ParentCandidates). Kept only as a
-    // last resort for fabricated eligible sets that omit a parent D8 would have returned.
-    private OrgUnitPickerItem ResolveInjectedPickerItem(long id, OrgUnitPickerItem? cached) =>
-        cached ?? FindTreePickerItem(id) ?? new OrgUnitPickerItem(id, string.Empty);
+    private void PublishInactiveParentDecision(
+        OrgUnitPickerItem? selectedItem = null,
+        bool useStagedParentId = false)
+    {
+        var parentId = _isLoading || useStagedParentId ? _stagedParentId : ParentDecision.ParentId;
+        selectedItem = ResolveParentItem(parentId, selectedItem);
+        PublishParentDecision(BuildParentDecision(
+            new ParentDecisionKey(_orgUnitId, Mode, TryBuildFormPeriod(), _parentRefreshGeneration),
+            ParentEligibilityState.Incomplete,
+            [],
+            parentId,
+            selectedItem));
+    }
+
+    private void PublishParentDecision(ParentDecision decision)
+    {
+        _parentDecision = decision;
+        _stagedParentId = decision.ParentId;
+
+        // All projections below read the already-published immutable value. Their notification order
+        // cannot expose a mixed phase/list/label/readiness combination.
+        RaisePropertyChanged(nameof(ParentDecision));
+        RaisePropertyChanged(nameof(ParentCandidates));
+        RaisePropertyChanged(nameof(ParentPickerItems));
+        RaisePropertyChanged(nameof(ParentEligibility));
+        RaisePropertyChanged(nameof(ParentId));
+        RaisePropertyChanged(nameof(IsParentLocked));
+        RaisePropertyChanged(nameof(IsReplaceParentAbsentFromCandidates));
+        RaisePropertyChanged(nameof(PeriodCommitBlocked));
+        RaisePropertyChanged(nameof(CanSave));
+    }
+
+    private OrgUnitPickerItem? ResolveParentItem(long? id, OrgUnitPickerItem? preferred = null)
+    {
+        if (id is null)
+            return null;
+
+        if (preferred is not null && preferred.Id == id && !string.IsNullOrWhiteSpace(preferred.Display))
+            return preferred;
+
+        var existing = ParentDecision.SelectedParentItem;
+        if (existing is not null && existing.Id == id && !string.IsNullOrWhiteSpace(existing.Display))
+            return existing;
+
+        var listed = ParentDecision.DisplayItems.FirstOrDefault(
+            item => item.Id == id && !string.IsNullOrWhiteSpace(item.Display));
+        return listed ?? FindTreePickerItem(id.Value);
+    }
+
+    private OrgUnitPickerItem? ResolveLoadedParentItem(OrgUnitVersionDto dto)
+    {
+        if (dto.ParentId is not { } parentId)
+            return null;
+
+        if (dto.ParentOrgCodeAsOf is not null || dto.ParentOrgNameFullVnAsOf is not null)
+        {
+            var label = $"{dto.ParentOrgCodeAsOf} — {dto.ParentOrgNameFullVnAsOf}";
+            if (!string.IsNullOrWhiteSpace(label.Replace("—", string.Empty, StringComparison.Ordinal)))
+                return new OrgUnitPickerItem(parentId, label);
+        }
+
+        return FindTreePickerItem(parentId);
+    }
 
     private OrgUnitPickerItem? FindTreePickerItem(long id)
     {
@@ -1480,6 +1781,11 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private async Task ExecuteSaveAsync()
     {
+        // Re-read the canonical decision at execution time. A click queued while Lưu was enabled
+        // cannot cross a later period/mode/query transition into confirmation or the write service.
+        if (ParentDecisionBlocksCurrentCommit())
+            return;
+
         var validationError = ValidateFields();
         if (validationError is not null)
         {

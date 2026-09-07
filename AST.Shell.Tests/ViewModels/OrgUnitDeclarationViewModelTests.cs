@@ -232,7 +232,9 @@ public class OrgUnitDeclarationViewModelTests
             OrgCode: orgCode, OrgNameFullVn: orgNameFullVn, OrgNameShortVn: orgNameShortVn,
             ParentId: parentId, RecordedAt: DateTime.UtcNow, RecordedBy: "tester", Reason: "seed",
             Supplemental: supplemental ?? new OrgUnitSupplementalDto(), Status: status,
-            OperationKind: operationKind, ParentOrgCodeAsOf: parentOrgCodeAsOf, ParentOrgNameFullVnAsOf: parentOrgNameFullVnAsOf);
+            OperationKind: operationKind,
+            ParentOrgCodeAsOf: parentOrgCodeAsOf ?? (parentId is null ? null : "PAR"),
+            ParentOrgNameFullVnAsOf: parentOrgNameFullVnAsOf ?? (parentId is null ? null : "Cha"));
 
     private sealed class FakeAuthorizationService : IAuthorizationService
     {
@@ -359,10 +361,12 @@ public class OrgUnitDeclarationViewModelTests
         public ErrorOr<ReplaceOrgUnitDeclarationResult> ReplaceResult { get; set; } =
             new ReplaceOrgUnitDeclarationResult(0, new UpsertResult(0, [], []));
         public ReplaceOrgUnitDeclarationRequest? LastReplaceRequest { get; private set; }
+        public int ReplaceCallCount { get; private set; }
 
         public Task<ErrorOr<ReplaceOrgUnitDeclarationResult>> ReplaceOrgUnitDeclarationAsync(
             ReplaceOrgUnitDeclarationRequest request)
         {
+            ReplaceCallCount++;
             LastReplaceRequest = request;
             return Task.FromResult(ReplaceResult);
         }
@@ -450,6 +454,44 @@ public class OrgUnitDeclarationViewModelTests
         vm.EffectiveFrom = Today;
         vm.IsUndetermined = true;
         vm.Reason = "khai báo mới";
+    }
+
+    private static async Task WaitForParentPhaseAsync(
+        OrgUnitDeclarationViewModel vm,
+        ParentEligibilityState phase)
+    {
+        if (vm.ParentDecision.Phase == phase)
+            return;
+
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(vm.ParentDecision) && vm.ParentDecision.Phase == phase)
+                reached.TrySetResult();
+        }
+
+        vm.PropertyChanged += OnChanged;
+        try
+        {
+            await reached.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            vm.PropertyChanged -= OnChanged;
+        }
+    }
+
+    private static void AssertActiveParentDecisionInvariant(ParentDecision decision)
+    {
+        decision.Key.Mode.Should().BeOneOf(OrgUnitCardMode.Adding, OrgUnitCardMode.Replacing);
+        if (decision.ParentId is not { } parentId)
+            return;
+
+        decision.SelectedParentItem.Should().NotBeNull();
+        decision.SelectedParentItem!.Id.Should().Be(parentId);
+        decision.SelectedParentItem.Display.Should().NotBeNullOrWhiteSpace();
+        decision.DisplayText.Should().Be(decision.SelectedParentItem.Display);
+        decision.DisplayItems.Should().Contain(item => item.Id == parentId);
     }
 
     [Fact]
@@ -1167,6 +1209,7 @@ public class OrgUnitDeclarationViewModelTests
         repo.CreateIdentityResult = 42;
         repo.UpsertResult = new UpsertResult(1, [], []);
         repo.ByIdentityResult = Dto(42, parentId: 9, Today, EffectivePeriod.OpenEnd);
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(9, "PAR — Cha")];
         vm.BeginAddCommand.Execute();
         FillValidAddForm(vm);
         vm.ParentId = 9;
@@ -1347,6 +1390,7 @@ public class OrgUnitDeclarationViewModelTests
         repo.CreateIdentityResult = 42;
         repo.UpsertResult = new UpsertResult(1, [], []);
         repo.ByIdentityResult = Dto(42, parentId: 9, Today, EffectivePeriod.OpenEnd);
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(9, "PAR — Cha")];
         vm.BeginAddCommand.Execute();
         FillValidAddForm(vm);
         vm.ParentId = 9;
@@ -1368,6 +1412,7 @@ public class OrgUnitDeclarationViewModelTests
         repo.CreateIdentityResult = 42;
         repo.UpsertResult = new UpsertResult(1, [], []);
         repo.ByIdentityResult = Dto(42, parentId: 9, Today, EffectivePeriod.OpenEnd);
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(9, "PAR — Cha")];
         vm.BeginAddCommand.Execute();
         FillValidAddForm(vm);
         vm.ParentId = 9;
@@ -1388,6 +1433,7 @@ public class OrgUnitDeclarationViewModelTests
         var (vm, repo, _) = BuildForSave();
         repo.CreateIdentityResult = 42;
         repo.UpsertResult = Error.Failure("TemporalFk.ParentGap", "parent gap");
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(9, "PAR — Cha")];
         vm.BeginAddCommand.Execute();
         FillValidAddForm(vm);
         vm.ParentId = 9;
@@ -1412,6 +1458,7 @@ public class OrgUnitDeclarationViewModelTests
         repo.CreateIdentityResult = 42;
         repo.UpsertResult = new UpsertResult(1, [], []);
         repo.ByIdentityResult = Dto(42, parentId: 9, Today, EffectivePeriod.OpenEnd);
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(9, "PAR — Cha")];
         vm.BeginAddCommand.Execute();
         FillValidAddForm(vm);
         vm.ParentId = 9;
@@ -1460,13 +1507,17 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
-    public void CanSave_TrueOnlyWhileMutating()
+    public void CanSave_RequiresMutatingModeAndResolvedParentDecision()
     {
         var (vm, _, _) = BuildForSave();
 
         Assert.False(vm.CanSave);
 
         vm.BeginAddCommand.Execute();
+
+        Assert.False(vm.CanSave);
+
+        FillValidAddForm(vm);
 
         Assert.True(vm.CanSave);
     }
@@ -2582,6 +2633,9 @@ public class OrgUnitDeclarationViewModelTests
                 "OrgUnit.AddRequiresGlobalScope", "Creating an org unit requires Global scope; actor 'tester' holds OwnOrgUnit."),
         };
         var (vm, repo, _) = BuildForSave(declaration);
+        repo.EligibleParentsResult = parentId is null
+            ? []
+            : [new OrgUnitPickerItem(parentId.Value, "PAR — Cha")];
         vm.BeginAddCommand.Execute();
         FillValidAddForm(vm);
         vm.ParentId = parentId;
@@ -2602,6 +2656,7 @@ public class OrgUnitDeclarationViewModelTests
         repoAdd.CreateIdentityResult = 42;
         repoAdd.UpsertResult = new UpsertResult(1, [], []);
         repoAdd.ByIdentityResult = Dto(42, parentId: 9, Today, EffectivePeriod.OpenEnd);
+        repoAdd.EligibleParentsResult = [new OrgUnitPickerItem(9, "PAR — Cha")];
         vmAdd.BeginAddCommand.Execute();
         FillValidAddForm(vmAdd);
         vmAdd.ParentId = 9;
@@ -2924,6 +2979,7 @@ public class OrgUnitDeclarationViewModelTests
         repoAdd.CreateIdentityResult = 42;
         repoAdd.UpsertResult = new UpsertResult(1, [], []);
         repoAdd.ByIdentityResult = Dto(42, parentId: 9, Today, EffectivePeriod.OpenEnd);
+        repoAdd.EligibleParentsResult = [new OrgUnitPickerItem(9, "PAR — Cha")];
         vmAdd.BeginAddCommand.Execute();
         FillValidAddForm(vmAdd);
         vmAdd.ParentId = 9; // non-root Add — the fake declaration service does not model root uniqueness
@@ -3871,7 +3927,7 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
-    public async Task DuringAdd_ObsoleteQueryAfterRelock_DoesNotMoveEligibilityOrCandidates()
+    public async Task DuringAdd_ObsoleteQueryAfterRelock_DoesNotMoveResolvedContextDecisionOrCandidates()
     {
         var (vm, repo) = Build();
         repo.ByIdentityResult = Dto(1, parentId: null, new DateOnly(2020, 1, 1), new DateOnly(2020, 12, 31));
@@ -3888,12 +3944,12 @@ public class OrgUnitDeclarationViewModelTests
         vm.EffectiveTo = new DateOnly(2020, 12, 31);
         vm.IsUndetermined = false;
         vm.IsParentLocked.Should().BeTrue();
-        vm.ParentEligibility.Should().Be(ParentEligibilityState.Unresolved);
+        vm.ParentEligibility.Should().Be(ParentEligibilityState.Resolved);
 
         tcs.SetResult([new OrgUnitPickerItem(9, "PAR — Cha")]);
         vm.IsParentLocked.Should().BeTrue();
         vm.ParentId.Should().Be(1);
-        vm.ParentEligibility.Should().Be(ParentEligibilityState.Unresolved);
+        vm.ParentEligibility.Should().Be(ParentEligibilityState.Resolved);
         vm.ParentCandidates.Should().BeEmpty();
     }
 
@@ -4312,6 +4368,11 @@ public class OrgUnitDeclarationViewModelTests
         };
         var (vm, repo, confirm) = BuildForEdit(declaration: declaration);
         repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult =
+        [
+            new OrgUnitPickerItem(1, "PAR — Cha"),
+            new OrgUnitPickerItem(7, "NEW — Cha mới"),
+        ];
         await vm.LoadAsync(3, Today);
         vm.BeginReplaceCommand.Execute();
         vm.OrgCode = "CN009";
@@ -4343,6 +4404,7 @@ public class OrgUnitDeclarationViewModelTests
         var declaration = new FakeOrgUnitDeclarationService();
         var (vm, repo, confirm) = BuildForEdit(confirmH2: false, declaration: declaration);
         repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(1, "PAR — Cha")];
         await vm.LoadAsync(3, Today);
         vm.BeginReplaceCommand.Execute();
         vm.OrgNameShortVn = "CN1b";
@@ -4373,6 +4435,7 @@ public class OrgUnitDeclarationViewModelTests
         };
         var (vm, repo, _) = BuildForEdit(declaration: declaration);
         repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(1, "PAR — Cha")];
         await vm.LoadAsync(3, Today);
         vm.BeginReplaceCommand.Execute();
         vm.Reason = "thu";
@@ -4528,7 +4591,7 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
-    public async Task ReplaceParentPeriodGate_UnresolvedPeriod_DoesNotRaiseGate()
+    public async Task ReplaceParentPeriodGate_IncompletePeriod_FailsClosedWithoutRaisingBranchSentence()
     {
         var (vm, repo) = Build();
         repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
@@ -4540,7 +4603,8 @@ public class OrgUnitDeclarationViewModelTests
         vm.EffectiveFrom = null;
 
         vm.ParentEligibility.Should().Be(ParentEligibilityState.Unresolved);
-        vm.PeriodCommitBlocked.Should().BeFalse();
+        vm.PeriodCommitBlocked.Should().BeTrue();
+        vm.CanSave.Should().BeFalse();
         vm.StatusMessage.Should().NotBe("Kỳ hiệu lực thay thế không có đơn vị cấp trên phù hợp.");
         vm.StatusMessage.Should().NotBe("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
         vm.ParentId.Should().Be(1);
@@ -5022,9 +5086,10 @@ public class OrgUnitDeclarationViewModelTests
         vm.PeriodCommitBlocked.Should().BeTrue();
     }
 
-    // Card 261 Part 3: ParentId-null disjunct removed; All alone still blocks when ParentId is null.
+    // The canonical decision stages load-time writes privately; a fabricated load transient cannot
+    // publish ParentId without its ordinary display row.
     [Fact]
-    public async Task IsReplaceParentAbsentFromCandidates_WithNullParentId_StillBlocksViaAll()
+    public async Task ParentDecision_LoadStagingCannotPublishNullParentWithoutAReplacementDecision()
     {
         var (vm, repo) = Build();
         repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
@@ -5036,15 +5101,17 @@ public class OrgUnitDeclarationViewModelTests
         await vm.LoadAsync(3, Today);
         vm.BeginReplaceCommand.Execute();
 
-        // Force a null ParentId under _isLoading so the Part 2 guard does not apply — then prove the
-        // remaining All(c => c.Id != ParentId) disjunct alone keeps the gate raised.
+        var before = vm.ParentDecision;
         var loading = typeof(OrgUnitDeclarationViewModel)
             .GetField("_isLoading", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
         loading.SetValue(vm, true);
         vm.ParentId = null;
         loading.SetValue(vm, false);
 
-        vm.ParentId.Should().BeNull();
+        vm.ParentDecision.Should().BeSameAs(before);
+        vm.ParentId.Should().Be(1);
+        vm.ParentDecision.SelectedParentItem.Should().NotBeNull();
+        vm.ParentDecision.DisplayText.Should().NotBeNullOrWhiteSpace();
         vm.IsReplaceParentAbsentFromCandidates.Should().BeTrue();
         vm.PeriodCommitBlocked.Should().BeTrue();
         vm.StatusMessage.Should().Be("Kỳ hiệu lực của đơn vị cấp trên không phù hợp với kỳ hiệu lực thay thế.");
@@ -5183,7 +5250,7 @@ public class OrgUnitDeclarationViewModelTests
     // Card 263 Part 2: on the reachable path the card-parent label is never empty — D8 at
     // BeginReplace puts the parent in the first real set, so the cache is populated before any drop-out.
     [Fact]
-    public async Task RebuildParentPickerItems_ReachableBranchB_CardParentLabelNeverEmpty()
+    public async Task ParentDecision_ReachableBranchB_CardParentLabelNeverEmpty()
     {
         var (vm, repo) = Build();
         repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
@@ -5207,5 +5274,164 @@ public class OrgUnitDeclarationViewModelTests
         cardRow.Display.Should().NotBeNullOrEmpty(
             "reachable Branch B must reuse the ordinary label cached while the card parent was in the real set");
         cardRow.Display.Should().Be("PAR - Cha");
+    }
+
+    [Fact]
+    public async Task ParentDecision_DelayedReplaceQuery_PublishesCoherentResolvedIncompleteLoadingResolvedSequence()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(1, "PAR — Cha")];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.ParentDecision.Phase.Should().Be(ParentEligibilityState.Resolved);
+
+        var publications = new List<ParentDecision>();
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(vm.ParentDecision))
+                publications.Add(vm.ParentDecision);
+        };
+
+        vm.IsUndetermined = false;
+        vm.ParentDecision.Phase.Should().Be(ParentEligibilityState.Incomplete);
+        vm.CanSave.Should().BeFalse();
+
+        var delayed = new TaskCompletionSource<IReadOnlyList<OrgUnitPickerItem>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        repo.EligibleParentsTcs = delayed;
+        vm.EffectiveTo = Today.AddDays(10);
+
+        vm.ParentDecision.Phase.Should().Be(ParentEligibilityState.Loading);
+        vm.ParentDecision.CommitDisposition.Should().Be(ParentCommitDisposition.BlockedLoading);
+        vm.CanSave.Should().BeFalse();
+
+        delayed.SetResult([new OrgUnitPickerItem(1, "PAR — Cha")]);
+        await WaitForParentPhaseAsync(vm, ParentEligibilityState.Resolved);
+
+        vm.ParentDecision.Presentation.Should().Be(ParentPresentationDisposition.Editable);
+        vm.ParentDecision.CommitDisposition.Should().Be(ParentCommitDisposition.Allowed);
+        vm.CanSave.Should().BeTrue();
+        publications.Select(decision => decision.Phase).Should().ContainInOrder(
+            ParentEligibilityState.Incomplete,
+            ParentEligibilityState.Loading,
+            ParentEligibilityState.Resolved);
+        foreach (var decision in publications)
+            AssertActiveParentDecisionInvariant(decision);
+    }
+
+    [Fact]
+    public async Task ParentDecision_DelayedReplaceFailure_StaysNonBlankAndFailsClosed()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(1, "PAR — Cha")];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+
+        var delayed = new TaskCompletionSource<IReadOnlyList<OrgUnitPickerItem>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        repo.EligibleParentsTcs = delayed;
+        vm.EffectiveFrom = Today.AddDays(-5);
+        vm.ParentDecision.Phase.Should().Be(ParentEligibilityState.Loading);
+
+        delayed.SetException(new InvalidOperationException("seed"));
+        await WaitForParentPhaseAsync(vm, ParentEligibilityState.Failed);
+
+        AssertActiveParentDecisionInvariant(vm.ParentDecision);
+        vm.ParentDecision.Presentation.Should().Be(ParentPresentationDisposition.Display);
+        vm.ParentDecision.CommitDisposition.Should().Be(ParentCommitDisposition.BlockedFailed);
+        vm.CanSave.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Save_ReplaceIncomplete_RechecksDecisionAndCallsNeitherConfirmationNorService()
+    {
+        var declaration = new FakeOrgUnitDeclarationService();
+        var (vm, repo, confirmation) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(1, "PAR — Cha")];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.IsUndetermined = false;
+
+        vm.ParentDecision.CommitDisposition.Should().Be(ParentCommitDisposition.BlockedIncomplete);
+        vm.CanSave.Should().BeFalse("the 'pending means allowed' mutation must turn this assertion red");
+        await vm.SaveCommand.Execute();
+
+        confirmation.CallCount.Should().Be(0);
+        declaration.ReplaceCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Save_ReplaceLoading_RechecksDecisionAndCallsNeitherConfirmationNorService()
+    {
+        var declaration = new FakeOrgUnitDeclarationService();
+        var (vm, repo, confirmation) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(1, "PAR — Cha")];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        repo.EligibleParentsTcs = new TaskCompletionSource<IReadOnlyList<OrgUnitPickerItem>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        vm.EffectiveFrom = Today.AddDays(-5);
+
+        vm.ParentDecision.CommitDisposition.Should().Be(ParentCommitDisposition.BlockedLoading);
+        vm.CanSave.Should().BeFalse("the 'pending means allowed' mutation must turn this assertion red");
+        await vm.SaveCommand.Execute();
+
+        confirmation.CallCount.Should().Be(0);
+        declaration.ReplaceCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Save_ReplaceFailed_RechecksDecisionAndCallsNeitherConfirmationNorService()
+    {
+        var declaration = new FakeOrgUnitDeclarationService();
+        var (vm, repo, confirmation) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(1, "PAR — Cha")];
+        await vm.LoadAsync(3, Today);
+        vm.BeginReplaceCommand.Execute();
+        repo.EligibleParentsException = new InvalidOperationException("seed");
+        vm.EffectiveFrom = Today.AddDays(-5);
+        await WaitForParentPhaseAsync(vm, ParentEligibilityState.Failed);
+
+        vm.ParentDecision.CommitDisposition.Should().Be(ParentCommitDisposition.BlockedFailed);
+        vm.CanSave.Should().BeFalse("the 'pending means allowed' mutation must turn this assertion red");
+        await vm.SaveCommand.Execute();
+
+        confirmation.CallCount.Should().Be(0);
+        declaration.ReplaceCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ParentDecision_OldQueryReleasedAfterAnotherCardLoads_PublishesNothing()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        await vm.LoadAsync(3, Today);
+        var delayed = new TaskCompletionSource<IReadOnlyList<OrgUnitPickerItem>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        repo.EligibleParentsTcs = delayed;
+        vm.BeginReplaceCommand.Execute();
+        vm.ParentDecision.Phase.Should().Be(ParentEligibilityState.Loading);
+
+        repo.ByIdentityByOrgUnitId[4] = Dto(4, parentId: 2, Today.AddDays(-3), EffectivePeriod.OpenEnd, id: 40, orgCode: "CN004");
+        await vm.LoadAsync(4, Today);
+        var winner = vm.ParentDecision;
+        var laterPublications = 0;
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(vm.ParentDecision))
+                laterPublications++;
+        };
+
+        delayed.SetResult([new OrgUnitPickerItem(1, "PAR — Cha")]);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+
+        vm.ParentDecision.Should().BeSameAs(winner);
+        vm.ParentId.Should().Be(2);
+        laterPublications.Should().Be(0);
     }
 }
