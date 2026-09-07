@@ -1271,6 +1271,65 @@ public class AstDateBoxTests
         box.ActivePart.Should().Be(DatePart.Year);
     });
 
+    // Card 289: mouse-down places the caret then raises SelectionChanged; the pristine normalizer must
+    // not rewrite that caret to Day before mouse-up reads it. Goes through PreviewMouseLeftButtonDown +
+    // CaretIndex + handled MouseLeftButtonUp — not SelectSegmentAt (that skipped the defect).
+    [Fact]
+    public void Pristine_mouse_up_path_selects_Day_Month_and_Year_from_the_surviving_caret() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+        RaiseGotFocus(textBox);
+        box.IsPristine.Should().BeTrue();
+        box.ActivePart.Should().Be(DatePart.Day);
+
+        SimulateMouseClickLeavingCaretAt(textBox, caretIndex: 1);
+        box.ActivePart.Should().Be(DatePart.Day);
+        textBox.SelectionStart.Should().Be(0);
+        textBox.SelectionLength.Should().Be(2);
+
+        SimulateMouseClickLeavingCaretAt(textBox, caretIndex: 4);
+        box.ActivePart.Should().Be(DatePart.Month);
+        textBox.SelectionStart.Should().Be(3);
+        textBox.SelectionLength.Should().Be(2);
+
+        SimulateMouseClickLeavingCaretAt(textBox, caretIndex: 8);
+        box.ActivePart.Should().Be(DatePart.Year);
+        textBox.SelectionStart.Should().Be(6);
+        textBox.SelectionLength.Should().Be(4);
+    });
+
+    [Fact]
+    public void Pristine_mouse_up_path_resolves_both_sides_of_each_slash_left_and_right() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+        RaiseGotFocus(textBox);
+
+        // Position before '/' belongs to the segment on its left; after '/' to the segment on its right.
+        SimulateMouseClickLeavingCaretAt(textBox, caretIndex: 2);
+        box.ActivePart.Should().Be(DatePart.Day);
+        textBox.SelectionStart.Should().Be(0);
+        textBox.SelectionLength.Should().Be(2);
+
+        SimulateMouseClickLeavingCaretAt(textBox, caretIndex: 3);
+        box.ActivePart.Should().Be(DatePart.Month);
+        textBox.SelectionStart.Should().Be(3);
+        textBox.SelectionLength.Should().Be(2);
+
+        SimulateMouseClickLeavingCaretAt(textBox, caretIndex: 5);
+        box.ActivePart.Should().Be(DatePart.Month);
+        textBox.SelectionStart.Should().Be(3);
+        textBox.SelectionLength.Should().Be(2);
+
+        SimulateMouseClickLeavingCaretAt(textBox, caretIndex: 6);
+        box.ActivePart.Should().Be(DatePart.Year);
+        textBox.SelectionStart.Should().Be(6);
+        textBox.SelectionLength.Should().Be(4);
+    });
+
     [Fact]
     public void Typing_one_Day_digit_then_navigating_to_Month_finalizes_Day_and_highlights_Month() => Sta.Run(() =>
     {
@@ -1346,7 +1405,8 @@ public class AstDateBoxTests
         RaiseTextInput(textBox, "1");
         textBox.Text.Should().Be("10/00/0000");
 
-        box.SelectSegmentAt(1); // same Day segment — must not zero-fill the partial Day to 10 as a leave
+        // Same Day segment via the real mouse-up path — must not zero-fill the partial Day to 10 as a leave.
+        SimulateMouseClickLeavingCaretAt(textBox, caretIndex: 1);
 
         textBox.Text.Should().Be("10/00/0000");
         box.ActivePart.Should().Be(DatePart.Day);
@@ -1455,6 +1515,26 @@ public class AstDateBoxTests
             Handled = true
         };
         textBox.RaiseEvent(args);
+    }
+
+    // PreviewMouseLeftButtonDown fires before TextEditor places the caret; the production stand-down
+    // flag is set there so the subsequent CaretIndex write (SelectionChanged) keeps the click index.
+    private static void RaisePreviewMouseLeftButtonDown(UiTextBox textBox)
+    {
+        var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, timestamp: 0, MouseButton.Left)
+        {
+            RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent
+        };
+        textBox.RaiseEvent(args);
+    }
+
+    // Real mouse path for segment hits: down → caret as TextEditor would leave it → handled up.
+    // Does not call SelectSegmentAt (that skipped card 289's defect).
+    private static void SimulateMouseClickLeavingCaretAt(UiTextBox textBox, int caretIndex)
+    {
+        RaisePreviewMouseLeftButtonDown(textBox);
+        textBox.CaretIndex = caretIndex;
+        RaiseHandledMouseLeftButtonUp(textBox);
     }
 
     private static void RaisePaste(UiTextBox textBox, string text)

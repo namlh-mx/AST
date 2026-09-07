@@ -59,6 +59,12 @@ public class AstDateBox : Control
     // SelectionChanged again; without this flag the handler would re-enter forever.
     private bool _normalizingPristineSelection;
 
+    // Set on PreviewMouseLeftButtonDown, cleared on MouseLeftButtonUp. While true the pristine
+    // selection normalizer stands down so the TextEditor caret from mouse-down survives to mouse-up
+    // (card 289). Mouse.LeftButton alone is insufficient in headless tests that raise routed events
+    // without updating the device button state.
+    private bool _leftButtonGestureActive;
+
     // Captured at TextBox GotFocus — Esc restores this (typing often never writes Date until commit;
     // a valid paste does commit mid-focus, so reading Date at Esc-time would wrongly no-op).
     private DateOnly? _dateOnFocus;
@@ -121,6 +127,7 @@ public class AstDateBox : Control
             _textBox.LostFocus -= OnTextBoxLostFocus;
             _textBox.GotFocus -= OnTextBoxGotFocus;
             _textBox.SelectionChanged -= OnTextBoxSelectionChanged;
+            _textBox.PreviewMouseLeftButtonDown -= OnTextBoxPreviewMouseLeftButtonDown;
             _textBox.RemoveHandler(UIElement.MouseLeftButtonUpEvent, (MouseButtonEventHandler)OnTextBoxMouseLeftButtonUp);
             _textBox.PreviewTextInput -= OnTextBoxPreviewTextInput;
             _textBox.PreviewKeyDown -= OnTextBoxPreviewKeyDown;
@@ -147,6 +154,9 @@ public class AstDateBox : Control
             _textBox.LostFocus += OnTextBoxLostFocus;
             _textBox.GotFocus += OnTextBoxGotFocus;
             _textBox.SelectionChanged += OnTextBoxSelectionChanged;
+            // Before TextEditor places the caret on mouse-down; pairs with the stand-down in
+            // OnTextBoxSelectionChanged so a pristine click's caret survives to mouse-up.
+            _textBox.PreviewMouseLeftButtonDown += OnTextBoxPreviewMouseLeftButtonDown;
             // handledEventsToo: true is load-bearing, not defensive. TextBoxBase's own TextEditor class
             // handler marks the mouse-up HANDLED before the event reaches instance handlers, so a plain
             // `_textBox.MouseLeftButtonUp += ...` subscription never fires in a live window -- clicking a
@@ -301,17 +311,21 @@ public class AstDateBox : Control
             SelectSegmentAt(_textBox.CaretIndex);
     }
 
-    // Pristine selection boundary: Ctrl+A, Home/End, drag, double-click and modified arrows can highlight
-    // mask characters nobody typed. Normalize to (0,0) while pristine. _normalizingPristineSelection
-    // makes the SelectionChanged our own Select/CaretIndex writes raise settle in one step.
+    // Pristine selection boundary: Ctrl+A, Home/End, and other keyboard-made selections can highlight
+    // mask characters nobody typed. Normalize to the whole ActivePart segment while pristine.
+    // Stand down while a left-button gesture is in progress — mouse-up already snaps to one segment,
+    // and snapping here would destroy the TextEditor caret before mouse-up can read it (card 289).
+    // _normalizingPristineSelection makes the SelectionChanged our own Select writes raise settle in one step.
     private void OnTextBoxSelectionChanged(object sender, RoutedEventArgs e)
     {
         if (_textBox is null || _syncingText || _normalizingPristineSelection) return;
         // Non-pristine: a plain caret mid-segment is the normal mid-typing state (ApplyEditorDigit).
         if (_editor.HasAnyEnteredDigit) return;
+        // Mouse gesture: leave the raw caret/selection alone until MouseLeftButtonUp.
+        if (_leftButtonGestureActive || Mouse.LeftButton == MouseButtonState.Pressed) return;
 
-        // Ctrl+A / Home / End / drag / double-click can land on selections this control never
-        // observes. While pristine, snap them to the whole ActivePart segment (not to (0,0)).
+        // Ctrl+A / Home / End can land on selections this control never observes. While pristine,
+        // snap them to the whole ActivePart segment (not to (0,0)).
         var (start, length) = SegmentRange(_editor.ActivePart);
         if (_textBox.SelectionStart == start && _textBox.SelectionLength == length) return;
 
@@ -319,6 +333,9 @@ public class AstDateBox : Control
         try { _textBox.Select(start, length); }
         finally { _normalizingPristineSelection = false; }
     }
+
+    private void OnTextBoxPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        => _leftButtonGestureActive = true;
 
     private void OnTextBoxMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
@@ -331,7 +348,8 @@ public class AstDateBox : Control
         // a mouse gesture in this field always snaps to exactly one whole segment and can never leave a
         // partial or cross-segment selection. That is the intended masked-field rule, not a side effect.
         if (_textBox is null) return;
-        SelectSegmentAt(_textBox.CaretIndex);
+        try { SelectSegmentAt(_textBox.CaretIndex); }
+        finally { _leftButtonGestureActive = false; }
     }
 
     private void OnTextBoxPreviewTextInput(object sender, TextCompositionEventArgs e)
