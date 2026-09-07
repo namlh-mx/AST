@@ -51,6 +51,24 @@ public class DdMmYyyySegmentEditorTests
         Assert.Equal("00/00/0000", e.FormatDisplay());
         Assert.False(e.TryGetDate(out _));
         Assert.Equal(DatePart.Day, e.ActivePart);
+        Assert.False(e.HasAnyEnteredDigit);
+    }
+
+    // Card 278 / backlog 3.64: FormatDisplay paints unfilled slots as '0', so a leading entered
+    // zero still yields "00/00/0000". Emptiness is the fill mask, not the display string.
+    [Fact]
+    public void HasAnyEnteredDigit_is_false_when_pristine_and_true_after_a_leading_zero()
+    {
+        var e = New();
+        e.HasAnyEnteredDigit.Should().BeFalse();
+
+        e.ApplyDigit('0').Should().BeTrue();
+        e.FormatDisplay().Should().Be("00/00/0000");
+        e.HasAnyEnteredDigit.Should().BeTrue();
+
+        e.ApplyBackspace().Should().BeTrue();
+        e.FormatDisplay().Should().Be("00/00/0000");
+        e.HasAnyEnteredDigit.Should().BeFalse();
     }
 
     [Fact]

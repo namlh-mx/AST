@@ -29,6 +29,11 @@ public sealed class DdMmYyyySegmentEditor
     // digit '0'", which silently misplaced the caret (2026-08-07 F5 finding).
     public int IndexInPart => _indexInPart;
 
+    // True when at least one slot holds an entered digit (including a leading zero).
+    // Distinct from FormatDisplay(), which still paints unfilled slots as '0', so the
+    // string "00/00/0000" alone cannot mean "nothing entered".
+    public bool HasAnyEnteredDigit => _filled.AsSpan().Contains(true);
+
     public string FormatDisplay()
     {
         char D(int i) => _filled[i] ? _digits[i] : '0';

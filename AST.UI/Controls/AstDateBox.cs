@@ -46,10 +46,10 @@ public class AstDateBox : Control
     // change is a visible two-constant edit, not a silently-stale bare "8" in the paste gate below.
     private const int PasteDigitCount = 8;
 
-    // The engine's FormatDisplay() for a fully-unfilled state -- day/month/year 0 are all engine-rejected
-    // (see DdMmYyyySegmentEditor), so this exact string can only mean "nothing is filled," never a real
-    // calendar date. Used to render it as "" instead (Finding 1, 2026-08-07) and to accept it interchangeably
-    // with an already-empty string on commit (CommitTextBoxValue).
+    // FormatDisplay() paints unfilled slots as '0', so "00/00/0000" is both the pristine (nothing
+    // entered) string and a legal mid-entry mask when a Day or Month leading zero is filled. Semantic
+    // emptiness is _editor.HasAnyEnteredDigit, not this literal. The constant remains so
+    // CommitTextBoxValue can still accept the literal interchangeably with empty on commit.
     private const string AllUnfilledDisplay = "00/00/0000";
 
     private TextBox? _textBox;
@@ -659,9 +659,9 @@ public class AstDateBox : Control
         _ => null
     };
 
-    // Collapses the engine's all-unfilled FormatDisplay() ("00/00/0000") down to "" for display -- see
-    // AllUnfilledDisplay. Every direct Text-write in this region routes through this instead of
-    // FormatDisplay() straight, so a keyboard clear (Backspace/Delete down to nothing) shows an empty field,
-    // matching the pre-existing empty-Date UX (SyncTextFromDate) instead of reverting to all-zero.
-    private static string RenderDisplay(string display) => display == AllUnfilledDisplay ? string.Empty : display;
+    // Collapses FormatDisplay to "" only when the editor reports no entered digit. Backspace and Delete
+    // share this boundary; ApplyEditorDigit writes FormatDisplay directly (card 275); SyncTextFromDate
+    // assigns empty when Date is null without calling here.
+    private string RenderDisplay(string display) =>
+        _editor.HasAnyEnteredDigit ? display : string.Empty;
 }

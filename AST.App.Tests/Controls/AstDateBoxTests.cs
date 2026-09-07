@@ -657,6 +657,67 @@ public class AstDateBoxTests
         textBox.CaretIndex.Should().Be(caretAfterFirst);
     });
 
+    // Card 278 / backlog 3.64: Backspace after Day 0 + Month 0 must keep the Day zero visible and
+    // stay on Month — FormatDisplay is still "00/00/0000", but the editor has an entered digit.
+    [Fact]
+    public void Backspace_after_day_and_month_leading_zeros_keeps_mask_and_month_context() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        RaiseTextInput(textBox, "0");
+        RaiseTextInput(textBox, "/");
+        RaiseTextInput(textBox, "0");
+        textBox.Text.Should().Be("00/00/0000");
+        box.ActivePart.Should().Be(DatePart.Month);
+
+        RaiseKeyDown(textBox, Key.Back).Should().BeTrue();
+
+        textBox.Text.Should().Be("00/00/0000");
+        box.ActivePart.Should().Be(DatePart.Month);
+        textBox.CaretIndex.Should().Be(3, "Month tens cleared; caret on Month tens");
+
+        RaiseTextInput(textBox, "3");
+
+        // Day tens is still the entered zero; Month auto-completes 3 → 03. Card 278's acceptance
+        // string "03/00/0000" would mean Day=03; the real mask with the preserved Day zero is below.
+        textBox.Text.Should().Be("00/03/0000");
+        box.ActivePart.Should().Be(DatePart.Year);
+        textBox.SelectionStart.Should().Be(6);
+        textBox.SelectionLength.Should().Be(4);
+    });
+
+    // Delete sibling of the Backspace sequence: after leading Month zero the caret sits on units,
+    // and Delete clears forward — so the operator path that clears only Month tens is a whole-Month
+    // selection then Delete (same remaining filled-zero state as Backspace).
+    [Fact]
+    public void Delete_after_day_and_month_leading_zeros_keeps_mask_and_month_context() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        RaiseTextInput(textBox, "0");
+        RaiseTextInput(textBox, "/");
+        RaiseTextInput(textBox, "0");
+        textBox.Text.Should().Be("00/00/0000");
+        box.ActivePart.Should().Be(DatePart.Month);
+
+        textBox.Select(3, 2);
+        RaiseKeyDown(textBox, Key.Delete).Should().BeTrue();
+
+        textBox.Text.Should().Be("00/00/0000");
+        box.ActivePart.Should().Be(DatePart.Month);
+
+        RaiseTextInput(textBox, "3");
+
+        textBox.Text.Should().Be("00/03/0000");
+        box.ActivePart.Should().Be(DatePart.Year);
+        textBox.SelectionStart.Should().Be(6);
+        textBox.SelectionLength.Should().Be(4);
+    });
+
     [Fact]
     public void Typing_a_placeholder_matching_digit_mid_segment_does_not_move_the_caret_backward() => Sta.Run(() =>
     {
