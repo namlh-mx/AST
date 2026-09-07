@@ -415,11 +415,9 @@ add, role close, cascaded child) and `OrgUnitDeclarationService` ×3 (add, close
 **`orgunit-replace`**, added 2026-09-04 by the replacement gesture). What remains is login, break-glass
 and signature-fail.
 
-⚠️ **Amendment — requester ruling 2026-09-06:** `orgunit-root-replace-breakglass` is removed because
-its producer became unreachable when root Replace became an unconditional refusal; this supersedes this
-section's earlier **STAYS** claim. It is not removed by OP7. OP7 still retires the *business* writers, not
-the security ones, so `orgunit-root-add-breakglass` / `-edit-` / `-close-` stay as the records that those
-normally-forbidden operations were permitted.
+⚠️ **`orgunit-root-replace-breakglass` STAYS.** OP7 retires the *business* writers, not the security
+ones; the break-glass row is the record that a normally-forbidden operation was permitted, and it sits
+alongside `orgunit-root-add-breakglass` / `-edit-` / `-close-` which stay for the same reason.
 
 The atomicity property those sites carried does not disappear — it moves. Today a failing audit write
 rolls back the whole composite (`FailingAuditLogWriter` tests). After this change the same tests must

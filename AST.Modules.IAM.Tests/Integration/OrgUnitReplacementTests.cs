@@ -747,7 +747,6 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
         // everyone. Close remains the remedy (see CloseOrgUnitDeclarationAsync_RootOrgUnit_BreakGlassActor_*).
         var predecessor = await AddRootAsync("R16ROOT", OpenFrom2020);
         var before = await ReadAllVersionRowsAsync(predecessor);
-        var headersBefore = await CountAllHeaderRowsAsync();
         var auditsBefore = await SnapshotAuditAsync();
 
         var result = await BuildBreakGlassService().ReplaceOrgUnitDeclarationAsync(
@@ -757,7 +756,6 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
         result.FirstError.Code.Should().Be("OrgUnit.RootNotReplaceable");
         (await ReadAllVersionRowsAsync(predecessor)).Should().BeEquivalentTo(
             before, opts => opts.WithStrictOrdering());
-        (await CountAllHeaderRowsAsync()).Should().Be(headersBefore);
         (await AuditDeltaAsync(auditsBefore)).Should().BeEmpty();
     }
 
@@ -878,6 +876,31 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
         (await ReadAllVersionRowsAsync(predecessor)).Should().BeEquivalentTo(
             before, opts => opts.WithStrictOrdering());
         (await CountAllHeaderRowsAsync()).Should().Be(headersBefore, "an unaudited successor must not survive");
+        (await AuditDeltaAsync(auditsBefore)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ReplaceOrgUnitDeclarationAsync_RootSecondAuditWrite_Unreachable_BreakGlassRefusedBeforeAnyAudit()
+    {
+        SkipUnlessDbAvailable();
+
+        // Card 259: orgunit-root-replace-breakglass is unreachable, so the former FailOnSecondAudit
+        // pin for that path cannot fire. Restate as: break-glass root replace is refused before any
+        // audit write (and the injected second-write failure therefore never runs).
+        var predecessor = await AddRootAsync("RA2ROOT", OpenFrom2020);
+        var before = await ReadAllVersionRowsAsync(predecessor);
+        var headersBefore = await CountAllHeaderRowsAsync();
+        var auditsBefore = await SnapshotAuditAsync();
+
+        var result = await BuildBreakGlassService(auditLog: new FailOnSecondAuditLogWriter())
+            .ReplaceOrgUnitDeclarationAsync(
+                ReplaceRequest(predecessor, "RA2NEW", parentId: null, fullVn: "Gốc RA2", shortVn: "RA2N"));
+
+        result.IsError.Should().BeTrue();
+        result.FirstError.Code.Should().Be("OrgUnit.RootNotReplaceable");
+        (await ReadAllVersionRowsAsync(predecessor)).Should().BeEquivalentTo(
+            before, opts => opts.WithStrictOrdering());
+        (await CountAllHeaderRowsAsync()).Should().Be(headersBefore);
         (await AuditDeltaAsync(auditsBefore)).Should().BeEmpty();
     }
 
@@ -1222,6 +1245,26 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
         public Task<ErrorOr<Success>> WriteAsync(
             AuditLogEntry entry, System.Data.IDbTransaction transaction, CancellationToken cancellationToken = default) =>
             Task.FromResult<ErrorOr<Success>>(Error.Failure("AuditLog.Injected", "Simulated audit write failure."));
+    }
+
+    // Succeeds on the first audit row (real write inside the ambient transaction) and fails on the second,
+    // so a leak of the first committed row reddens the root-path rollback claim.
+    private sealed class FailOnSecondAuditLogWriter : IAuditLogWriter
+    {
+        private readonly IAuditLogWriter _inner = new AST.Infrastructure.AuditLogWriter();
+        private int _calls;
+
+        public async Task<ErrorOr<Success>> WriteAsync(
+            AuditLogEntry entry, System.Data.IDbTransaction transaction, CancellationToken cancellationToken = default)
+        {
+            _calls++;
+            if (_calls == 1)
+            {
+                return await _inner.WriteAsync(entry, transaction, cancellationToken);
+            }
+
+            return Error.Failure("AuditLog.Injected", "Simulated audit write failure on second row.");
+        }
     }
 
     private sealed class FakeCurrentWindowsUser(string? username) : ICurrentWindowsUser

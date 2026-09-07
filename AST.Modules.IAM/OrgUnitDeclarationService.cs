@@ -435,6 +435,11 @@ internal sealed class OrgUnitDeclarationService(
                 $"Replacing an org unit requires {ScopeLevel.Global} scope; actor '{username}' holds {authz.Value.Level}.");
         }
 
+        // [2b] Read break-glass ONCE; reuse for the root gate inside the composite AND the audit row.
+        // Unlike Add's root gate this one runs INSIDE the composite: the predecessor's parent is a
+        // STORED value that a concurrent writer can change, so it must be decided under the lock.
+        var isBreakGlassActor = breakGlass.IsBreakGlassAdmin(username);
+
         // [3] Enlist in fixed order: predecessor identity, then request.ParentId when non-null.
         var composite = new CompositeWrite(connections)
             .Enlist(orgUnitRepository, request.PredecessorOrgUnitId);
@@ -475,7 +480,9 @@ internal sealed class OrgUnitDeclarationService(
 
             // [4d] ROOT GATE — singleton parent is null OR successor is declared as root.
             // Requester ruling 2026-09-06 (card 259): no break-glass carve-out. Re-declaring the root
-            // goes through Close → Add, never Replace.
+            // goes through Close → Add, never Replace. isBreakGlassActor is still read once above for
+            // the audit row that used to record a permitted root replace (F-57); that row is now
+            // unreachable and must not be "fixed" by re-opening this gate.
             if (storedParent is null || request.ParentId is null)
             {
                 return Error.Forbidden(
@@ -566,6 +573,23 @@ internal sealed class OrgUnitDeclarationService(
             if (auditResult.IsError)
             {
                 return auditResult.Errors;
+            }
+
+            // Second, security-specific row when [4d] permitted a root write.
+            if ((storedParent is null || request.ParentId is null) && isBreakGlassActor)
+            {
+                var breakGlassAudit = await auditLog.WriteAsync(
+                    new AuditLogEntry(
+                        "orgunit-root-replace-breakglass",
+                        username,
+                        $"org_unit_version:{write.Value.NewVersionId}",
+                        BuildReplaceDetailJson(
+                            request.PredecessorOrgUnitId, successorOrgUnitId, markedVersionIds, request.Reason)),
+                    context.Transaction);
+                if (breakGlassAudit.IsError)
+                {
+                    return breakGlassAudit.Errors;
+                }
             }
 
             return Result.Success;
