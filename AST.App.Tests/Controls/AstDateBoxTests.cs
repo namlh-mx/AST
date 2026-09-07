@@ -984,6 +984,37 @@ public class AstDateBoxTests
         box.IsPristine.Should().BeTrue();
     });
 
+    // Card 283 / F-282-01: when the display is already "00/00/0000" (three segment zeros, Date still
+    // committed), an external null assigns the same string — TextBox raises no TextChanged/SelectionChanged,
+    // so the pristine caret invariant must be written explicitly inside SyncTextFromDate.
+    [Fact]
+    public void External_null_on_same_string_mask_resets_pristine_caret_to_Day() => Sta.Run(() =>
+    {
+        var kept = new DateOnly(2026, 7, 23);
+        var box = new AstDateBox { Template = BuildTemplate(), Date = kept };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        textBox.Select(0, 2);
+        RaiseTextInput(textBox, "0");
+        textBox.Select(3, 2);
+        RaiseTextInput(textBox, "0");
+        textBox.Select(6, 4);
+        RaiseTextInput(textBox, "0");
+
+        textBox.Text.Should().Be("00/00/0000");
+        box.IsPristine.Should().BeFalse();
+        box.Date.Should().Be(kept);
+        box.ActivePart.Should().Be(DatePart.Year);
+
+        box.Date = null;
+
+        box.IsPristine.Should().BeTrue();
+        box.ActivePart.Should().Be(DatePart.Day);
+        textBox.CaretIndex.Should().Be(0);
+        textBox.SelectionLength.Should().Be(0);
+    });
+
 
     // Regression lock for Finding 1: clearing every digit
     // via the keyboard leaves the grey mask visible; on blur CommitTextBoxValue uses editor semantics

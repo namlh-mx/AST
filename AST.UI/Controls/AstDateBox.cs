@@ -187,6 +187,16 @@ public class AstDateBox : Control
             _editor.SetDate(Date);
             PublishPristineState();
             _textBox.Text = _editor.FormatDisplay();
+
+            // Equal Text raises no TextChanged/SelectionChanged, so a same-string sync (e.g. three
+            // segment zeros then external null) would leave the caret wherever it was. Write the
+            // pristine caret invariant here — do not wait for the selection guard.
+            if (!_editor.HasAnyEnteredDigit)
+            {
+                _editor.SelectPart(DatePart.Day);
+                _textBox.CaretIndex = 0;
+                _textBox.SelectionLength = 0;
+            }
         }
         finally { _syncingText = false; }
     }
