@@ -191,12 +191,167 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     private int _historyLoadGeneration;
     private int _cardLoadGeneration;
 
+    // Mode-entry field baseline for IsDirty (card 273). Distinct from _snapshot, which is the Hủy
+    // recovery bundle captured BEFORE Add/Close transform the form.
+    private EntryDirtyBaseline? _entryDirtyBaseline;
+    private OrgUnitSupplementalDto? _liveSupplementalDraft;
+    private string? _statusAtModeEntry;
+    private StatusSeverity _severityAtModeEntry;
+    private bool _publishingRevertCleanStatus;
+    private bool _revertCleanOwnsStatus;
+
+    private const string RevertToEntryStateMessage =
+        "Thông tin đang khai báo không thay đổi so với thông tin hiện có của đơn vị.";
+
+    private readonly record struct EntryDirtyBaseline(
+        string OrgCode, string OrgNameFullVn, string OrgNameShortVn,
+        DateOnly? EffectiveFrom, DateOnly? EffectiveTo, bool IsUndetermined, long? ParentId,
+        string Reason, OrgUnitSupplementalDto Supplemental);
+
     private void MarkDirty()
     {
-        if (!_isLoading)
+        if (_isLoading)
+            return;
+
+        RecomputeIsDirtyFromEntryBaseline();
+        RefreshRevertCleanStatus();
+    }
+
+    // EffectiveFrom/To, IsUndetermined and ParentId run status writers after MarkDirty; publish the
+    // revert sentence only once those writers have finished (card 273 / close-date gate ordering).
+    private void MarkDirtyDeferringRevertStatus()
+    {
+        if (_isLoading)
+            return;
+
+        RecomputeIsDirtyFromEntryBaseline();
+    }
+
+    private void AfterFieldStatusSideEffects()
+    {
+        if (_isLoading)
+            return;
+
+        RefreshRevertCleanStatus();
+    }
+
+    private void RecomputeIsDirtyFromEntryBaseline()
+    {
+        if (_entryDirtyBaseline is not { } baseline)
         {
             IsDirty = true;
             RaisePropertyChanged(nameof(CanOpenSupplemental));
+            return;
+        }
+
+        var supplemental = _liveSupplementalDraft ?? Supplemental;
+        var dirty = OrgCode != baseline.OrgCode
+            || OrgNameFullVn != baseline.OrgNameFullVn
+            || OrgNameShortVn != baseline.OrgNameShortVn
+            || EffectiveFrom != baseline.EffectiveFrom
+            || EffectiveTo != baseline.EffectiveTo
+            || IsUndetermined != baseline.IsUndetermined
+            || ParentId != baseline.ParentId
+            || Reason != baseline.Reason
+            || supplemental != baseline.Supplemental;
+
+        IsDirty = dirty;
+        RaisePropertyChanged(nameof(CanOpenSupplemental));
+    }
+
+    private void CaptureEntryDirtyBaseline()
+    {
+        _entryDirtyBaseline = new EntryDirtyBaseline(
+            OrgCode, OrgNameFullVn, OrgNameShortVn,
+            EffectiveFrom, EffectiveTo, IsUndetermined, ParentId,
+            Reason, Supplemental);
+        _liveSupplementalDraft = null;
+        _statusAtModeEntry = StatusMessage;
+        _severityAtModeEntry = Severity;
+        IsDirty = false;
+        RaisePropertyChanged(nameof(CanOpenSupplemental));
+    }
+
+    private void ReleaseEntryDirtyBaseline()
+    {
+        _entryDirtyBaseline = null;
+        _liveSupplementalDraft = null;
+        ClearRevertCleanOwnedStatus();
+    }
+
+    private void RefreshRevertCleanStatus()
+    {
+        if (_entryDirtyBaseline is null)
+            return;
+
+        if (IsDirty)
+        {
+            ClearRevertCleanOwnedStatus();
+            return;
+        }
+
+        // Never overwrite Error / Warning / Success authored by anything else.
+        if (!_revertCleanOwnsStatus
+            && Severity is StatusSeverity.Error or StatusSeverity.Warning or StatusSeverity.Success)
+        {
+            return;
+        }
+
+        // Restore what mode entry left on the band; fill the settled sentence only when that was empty.
+        if (_severityAtModeEntry == StatusSeverity.None
+            && string.IsNullOrEmpty(_statusAtModeEntry))
+        {
+            PublishRevertCleanStatus();
+            return;
+        }
+
+        _publishingRevertCleanStatus = true;
+        try
+        {
+            StatusMessage = _statusAtModeEntry;
+            Severity = _severityAtModeEntry;
+            _revertCleanOwnsStatus = false;
+        }
+        finally
+        {
+            _publishingRevertCleanStatus = false;
+        }
+    }
+
+    private void PublishRevertCleanStatus()
+    {
+        _publishingRevertCleanStatus = true;
+        try
+        {
+            StatusMessage = RevertToEntryStateMessage;
+            Severity = StatusSeverity.Info;
+            _revertCleanOwnsStatus = true;
+            _closeGateOwnsStatus = false;
+        }
+        finally
+        {
+            _publishingRevertCleanStatus = false;
+        }
+    }
+
+    private void ClearRevertCleanOwnedStatus()
+    {
+        if (!_revertCleanOwnsStatus
+            && StatusMessage != RevertToEntryStateMessage)
+        {
+            return;
+        }
+
+        _publishingRevertCleanStatus = true;
+        try
+        {
+            StatusMessage = null;
+            Severity = StatusSeverity.None;
+            _revertCleanOwnsStatus = false;
+        }
+        finally
+        {
+            _publishingRevertCleanStatus = false;
         }
     }
 
@@ -232,7 +387,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         {
             if (SetProperty(ref _effectiveFrom, value))
             {
-                MarkDirty();
+                MarkDirtyDeferringRevertStatus();
                 RecomputeParentEligibility();
                 // Defensive: IsEffectivePeriodEnabled depends on Mode, _snapshot and _dates.Today (via
                 // IsCloseCancelPlanBranch → TryBuildSnapshotTargetPeriod), not on this live value.
@@ -241,6 +396,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
                 // leave the strip's IsEnabled binding stale while unit tests stay green.
                 RaisePropertyChanged(nameof(IsEffectivePeriodEnabled));
                 SyncCloseDateStatusHint();
+                AfterFieldStatusSideEffects();
             }
         }
     }
@@ -253,9 +409,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         {
             if (SetProperty(ref _effectiveTo, value))
             {
-                MarkDirty();
+                MarkDirtyDeferringRevertStatus();
                 RecomputeParentEligibility();
                 OnCloseDateFieldEdited();
+                AfterFieldStatusSideEffects();
             }
         }
     }
@@ -268,9 +425,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         {
             if (SetProperty(ref _isUndetermined, value))
             {
-                MarkDirty();
+                MarkDirtyDeferringRevertStatus();
                 RecomputeParentEligibility();
                 OnCloseDateFieldEdited();
+                AfterFieldStatusSideEffects();
             }
         }
     }
@@ -307,8 +465,9 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
                 value,
                 selectedItem,
                 ParentDecision.IsContextLocked));
-            MarkDirty();
+            MarkDirtyDeferringRevertStatus();
             SyncReplaceParentPeriodGate();
+            AfterFieldStatusSideEffects();
         }
     }
 
@@ -323,10 +482,24 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     public OrgUnitSupplementalDto Supplemental
     {
         get => _supplemental;
-        set { if (SetProperty(ref _supplemental, value)) MarkDirty(); }
+        set
+        {
+            if (SetProperty(ref _supplemental, value))
+            {
+                // DraftSaved commits here; live overlay draft no longer differs from Supplemental.
+                _liveSupplementalDraft = null;
+                MarkDirty();
+            }
+        }
     }
 
-    public void MarkSupplementalDirty() => MarkDirty();
+    // View passes the live overlay draft on every DraftChanged so dirty can see unsaved overlay edits
+    // without committing Supplemental (still written only on DraftSaved).
+    public void MarkSupplementalDirty(OrgUnitSupplementalDto liveDraft)
+    {
+        _liveSupplementalDraft = liveDraft;
+        MarkDirty();
+    }
 
     // Real eligible-parent set from GetEligibleParentsAsync. The replace-parent gate reads this.
     public IReadOnlyList<OrgUnitPickerItem> ParentCandidates => ParentDecision.RealCandidates;
@@ -424,8 +597,13 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         get => _statusMessage;
         private set
         {
-            if (SetProperty(ref _statusMessage, value) && !_publishingCloseGateStatus)
+            if (SetProperty(ref _statusMessage, value)
+                && !_publishingCloseGateStatus
+                && !_publishingRevertCleanStatus)
+            {
                 _closeGateOwnsStatus = false;
+                _revertCleanOwnsStatus = false;
+            }
         }
     }
 
@@ -435,8 +613,13 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         get => _severity;
         private set
         {
-            if (SetProperty(ref _severity, value) && !_publishingCloseGateStatus)
+            if (SetProperty(ref _severity, value)
+                && !_publishingCloseGateStatus
+                && !_publishingRevertCleanStatus)
+            {
                 _closeGateOwnsStatus = false;
+                _revertCleanOwnsStatus = false;
+            }
         }
     }
 
@@ -703,6 +886,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             StatusMessage = message;
             Severity = severity;
             _closeGateOwnsStatus = true;
+            _revertCleanOwnsStatus = false;
         }
         finally
         {
@@ -849,6 +1033,8 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             : null;
         Clear();
         Mode = OrgUnitCardMode.Adding;
+        // After Clear + mode init (parent context may pre-fill); not _snapshot (prior card).
+        CaptureEntryDirtyBaseline();
     }
 
     private EffectivePeriod? TryBuildFormPeriod()
@@ -1073,6 +1259,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     {
         _snapshot = CaptureSnapshot();
         Mode = OrgUnitCardMode.Editing;
+        CaptureEntryDirtyBaseline();
     }
 
     private void ExecuteBeginReplace()
@@ -1083,6 +1270,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         _snapshot = CaptureSnapshot();
         _replaceCardParentItem = ResolveParentItem(_snapshot.ParentId, ParentDecision.SelectedParentItem);
         Mode = OrgUnitCardMode.Replacing;
+        CaptureEntryDirtyBaseline();
     }
 
     private void ExecuteBeginClose()
@@ -1101,6 +1289,8 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             _isLoading = false;
         }
         Mode = OrgUnitCardMode.Closing;
+        // After open-end → blank To; baseline is that blank, not _snapshot's open end.
+        CaptureEntryDirtyBaseline();
     }
 
     private async Task ExecuteCancelAsync()
@@ -1112,6 +1302,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         var leftClosing = Mode == OrgUnitCardMode.Closing;
         Mode = OrgUnitCardMode.ReadOnly;
         RestoreSnapshot(_snapshot);
+        ReleaseEntryDirtyBaseline();
         IsDirty = false;
         // FR13: a failed-close Error would otherwise stay on the read-only card (hint sync only clears Info).
         if (leftClosing && Severity == StatusSeverity.Error)
@@ -1493,6 +1684,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         {
             _isLoading = false;
             PublishInactiveParentDecision(useStagedParentId: true);
+            ReleaseEntryDirtyBaseline();
             IsDirty = false;
             RaisePropertyChanged(nameof(CanOpenSupplemental));
         }

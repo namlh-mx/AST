@@ -818,15 +818,21 @@ public class OrgUnitDeclarationViewModelTests
         Assert.Equal(new OrgUnitSupplementalDto(), vm.Supplemental);
     }
 
+    // Card 273: former latch contract (parameterless MarkSupplementalDirty on a clean VM) is retired.
+    // Dirty is now a comparison against the mode-entry baseline; the View passes the live overlay draft.
     [Fact]
-    public void MarkSupplementalDirty_OnACleanVm_SetsIsDirtyTrue()
+    public async Task MarkSupplementalDirty_WithLiveDraftDifferingFromBaseline_SetsIsDirtyTrue()
     {
-        var (vm, _) = Build();
-        Assert.False(vm.IsDirty);
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        vm.BeginEditCommand.Execute();
+        vm.IsDirty.Should().BeFalse();
 
-        vm.MarkSupplementalDirty();
+        vm.MarkSupplementalDirty(new OrgUnitSupplementalDto(Phone: "0909123456"));
 
-        Assert.True(vm.IsDirty);
+        vm.IsDirty.Should().BeTrue();
+        vm.HasUnsavedInput.Should().BeTrue();
     }
 
     [Fact]
@@ -5557,5 +5563,209 @@ public class OrgUnitDeclarationViewModelTests
         vm.IsDirty.Should().BeFalse();
         vm.CanSave.Should().BeFalse();
         vm.SaveCommand.CanExecute().Should().BeFalse();
+    }
+
+    // --- Backlog 3.55 / card 273: revert to mode-entry state clears dirty + status sentence ---
+
+    private const string RevertToEntryStateMessage =
+        "Thông tin đang khai báo không thay đổi so với thông tin hiện có của đơn vị.";
+
+    [Fact]
+    public async Task RevertToEntry_Edit_ChangeAndRestoreField_ClearsDirtyAndShowsSentence()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(5, "PAR — Cha")];
+        await vm.LoadAsync(1, Today);
+        var original = vm.OrgNameFullVn;
+        vm.BeginEditCommand.Execute();
+        vm.IsDirty.Should().BeFalse();
+        vm.StatusMessage.Should().BeNull();
+
+        vm.OrgNameFullVn = "Tên đã sửa";
+        vm.IsDirty.Should().BeTrue();
+        vm.CanSave.Should().BeTrue();
+        vm.StatusMessage.Should().NotBe(RevertToEntryStateMessage);
+
+        vm.OrgNameFullVn = original;
+        vm.IsDirty.Should().BeFalse();
+        vm.HasUnsavedInput.Should().BeFalse();
+        vm.CanSave.Should().BeFalse();
+        vm.Severity.Should().Be(StatusSeverity.Info);
+        vm.StatusMessage.Should().Be(RevertToEntryStateMessage);
+
+        vm.OrgNameFullVn = "Sửa lần nữa";
+        vm.IsDirty.Should().BeTrue();
+        vm.CanSave.Should().BeTrue();
+        vm.StatusMessage.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task RevertToEntry_Add_TypeAndClearBlankField_ClearsDirtyAgainstModeEntryNotSnapshot()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77,
+            orgCode: "OLD1", orgNameFullVn: "Đơn vị cũ", orgNameShortVn: "Cũ");
+        await vm.LoadAsync(1, Today);
+        vm.BeginAddCommand.Execute();
+        vm.Mode.Should().Be(OrgUnitCardMode.Adding);
+        vm.OrgCode.Should().BeEmpty("Add blanks the form after snapshot — baseline must be this blank, not _snapshot");
+        vm.IsDirty.Should().BeFalse();
+
+        vm.OrgCode = "NEW1";
+        vm.IsDirty.Should().BeTrue();
+
+        vm.OrgCode = string.Empty;
+        vm.IsDirty.Should().BeFalse(
+            "comparing against _snapshot (the prior loaded card) would keep dirty forever in Add");
+        vm.StatusMessage.Should().Be(RevertToEntryStateMessage);
+        vm.Severity.Should().Be(StatusSeverity.Info);
+    }
+
+    [Fact]
+    public async Task RevertToEntry_Close_TypeAndClearEndDate_ClearsDirtyAgainstModeEntryNotSnapshot()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        vm.BeginCloseCommand.Execute();
+        vm.EffectiveTo.Should().BeNull("mode-entry blank — not the open-end still held in _snapshot");
+        vm.IsDirty.Should().BeFalse();
+
+        vm.EffectiveTo = Today;
+        vm.IsDirty.Should().BeTrue();
+
+        vm.EffectiveTo = null;
+        vm.IsDirty.Should().BeFalse(
+            "comparing against _snapshot (open-ended period) would keep dirty forever in Close");
+        vm.StatusMessage.Should().Be(RevertToEntryStateMessage);
+        vm.Severity.Should().Be(StatusSeverity.Info);
+    }
+
+    [Fact]
+    public async Task RevertToEntry_Replace_ChangeAndRestoreField_ClearsDirtyAndShowsSentence()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(1, "PAR — Cha")];
+        await vm.LoadAsync(3, Today);
+        var original = vm.OrgNameShortVn;
+        vm.BeginReplaceCommand.Execute();
+
+        vm.OrgNameShortVn = "CN1b";
+        vm.IsDirty.Should().BeTrue();
+
+        vm.OrgNameShortVn = original;
+        vm.IsDirty.Should().BeFalse();
+        vm.StatusMessage.Should().Be(RevertToEntryStateMessage);
+    }
+
+    [Fact]
+    public async Task RevertToEntry_SupplementalLiveDraft_DiffersThenMatches_DrivesDirtyWithoutCommittingSupplemental()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        vm.BeginEditCommand.Execute();
+        var committed = vm.Supplemental;
+
+        vm.MarkSupplementalDirty(new OrgUnitSupplementalDto(Phone: "0909123456"));
+        vm.IsDirty.Should().BeTrue();
+        vm.HasUnsavedInput.Should().BeTrue("leave gate must still see the unsaved overlay draft");
+        vm.Supplemental.Should().Be(committed, "DraftChanged must not commit Supplemental — only DraftSaved does");
+
+        vm.MarkSupplementalDirty(committed);
+        vm.IsDirty.Should().BeFalse();
+        vm.StatusMessage.Should().Be(RevertToEntryStateMessage);
+        vm.Supplemental.Should().Be(committed);
+    }
+
+    [Fact]
+    public async Task RevertToEntry_BlockingErrorShowing_DoesNotOverwriteErrorWithSentence()
+    {
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            EditError = Error.Validation("OrgUnit.CodeInUse", "SEED-MUST-NOT-LEAK"),
+        };
+        var (vm, repo, _) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77,
+            orgCode: "ABCD");
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(5, "PAR — Cha")];
+        await vm.LoadAsync(1, Today);
+        var original = vm.OrgNameFullVn;
+        vm.BeginEditCommand.Execute();
+        vm.OrgNameFullVn = "Tên đã sửa";
+
+        await vm.SaveCommand.Execute();
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        var errorText = vm.StatusMessage;
+        errorText.Should().NotBeNullOrEmpty();
+        errorText.Should().NotBe(RevertToEntryStateMessage);
+
+        vm.OrgNameFullVn = original;
+        vm.IsDirty.Should().BeFalse();
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be(errorText);
+    }
+
+    [Fact]
+    public async Task RevertToEntry_CloseDateGateErrorThenClearDate_ShowsSentenceAfterGateClears()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        vm.BeginCloseCommand.Execute();
+
+        vm.EffectiveTo = Today.AddDays(-2);
+        vm.Severity.Should().Be(StatusSeverity.Error);
+        vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực không được khai báo trước ngày hôm qua.");
+        vm.IsDirty.Should().BeTrue();
+
+        vm.EffectiveTo = null;
+        vm.IsDirty.Should().BeFalse();
+        vm.Severity.Should().Be(StatusSeverity.Info);
+        vm.StatusMessage.Should().Be(RevertToEntryStateMessage,
+            "dirty decision must run after the close-date gate clears its Error, or the sentence never lands");
+    }
+
+    [Fact]
+    public async Task RevertToEntry_CancelWhileSentenceShowing_ClearsSentenceOnReadOnlyCard()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(5, "PAR — Cha")];
+        await vm.LoadAsync(1, Today);
+        var original = vm.OrgNameFullVn;
+        vm.BeginEditCommand.Execute();
+        vm.OrgNameFullVn = "Tên đã sửa";
+        vm.OrgNameFullVn = original;
+        vm.StatusMessage.Should().Be(RevertToEntryStateMessage);
+
+        await vm.CancelCommand.Execute();
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.IsDirty.Should().BeFalse();
+        vm.StatusMessage.Should().BeNull();
+        vm.Severity.Should().Be(StatusSeverity.None);
+    }
+
+    [Fact]
+    public async Task RevertToEntry_ModeEntry_DoesNotShowSentence()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+
+        vm.BeginEditCommand.Execute();
+        vm.StatusMessage.Should().BeNull();
+        vm.IsDirty.Should().BeFalse();
+
+        await vm.CancelCommand.Execute();
+        vm.BeginAddCommand.Execute();
+        vm.StatusMessage.Should().BeNull();
+
+        await vm.CancelCommand.Execute();
+        vm.BeginCloseCommand.Execute();
+        vm.StatusMessage.Should().BeNull();
     }
 }

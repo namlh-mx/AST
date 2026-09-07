@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using AST.Controls;
+using AST.Core.Iam.Repositories;
 using AST.Core.Presentation;
 using AST.Core.Time;
 using AST.Shell.Presentation.Iam;
@@ -575,8 +576,15 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
     private void OnSupplementalDraftChanged(object? sender, EventArgs e)
     {
         if (DataContext is OrgUnitDeclarationViewModel vm)
-            vm.MarkSupplementalDirty();
+            ForwardSupplementalDraftChanged(vm, SupplementalHost.Draft.ToDto());
     }
+
+    // Card 273: production event handler forwards ToDto(); App.Tests call this so the same
+    // MarkSupplementalDirty(liveDraft) contract is exercised without loading the View XAML
+    // (OffscreenHost cannot InitializeComponent this screen — AstLabelMediumText parse isolation).
+    internal static void ForwardSupplementalDraftChanged(
+        OrgUnitDeclarationViewModel vm, OrgUnitSupplementalDto liveDraft)
+        => vm.MarkSupplementalDirty(liveDraft);
 
     private async void OnSupplementalCloseRequested(object? sender, EventArgs e)
     {
