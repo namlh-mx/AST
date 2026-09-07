@@ -1,4 +1,3 @@
-using System.IO;
 using AST.Core.Data;
 using AST.Core.EffectivePeriod;
 using AST.Core.Iam;
@@ -13,11 +12,11 @@ using Moq;
 
 namespace AST.App.Tests.Views;
 
-// Card 273 step 5: supplemental draft must reach dirty through the View's DraftChanged forwarder
-// (ToDto → MarkSupplementalDirty) without committing Supplemental. Full View/Dialog XAML cannot
-// InitializeComponent under OffscreenHost (parse-time StaticResource AstLabelMediumText isolation;
-// ParentRowHost hosts fragments for the same reason), so this test drives the internal forwarder
-// the event handler calls and pins the handler source still passes SupplementalHost.Draft.ToDto().
+// Card 273 step 5 + card 276: supplemental draft reaches dirty through the View's DraftChanged
+// forwarder (ToDto → MarkSupplementalDirty) without committing Supplemental. Full View/Dialog
+// XAML cannot InitializeComponent under OffscreenHost, so this drives the internal forwarder.
+// The discard-confirmed close transition is covered in Shell ViewModel tests (card 276); the
+// source-text pin of the handler body was deleted there as misleading (backlog 3.63 remains open).
 public class OrgUnitSupplementalDraftDirtyTests
 {
     private const string RevertToEntryStateMessage =
@@ -48,20 +47,6 @@ public class OrgUnitSupplementalDraftDirtyTests
         vm.HasUnsavedInput.Should().BeFalse();
         vm.Severity.Should().Be(StatusSeverity.Info);
         vm.StatusMessage.Should().Be(RevertToEntryStateMessage);
-    }
-
-    [Fact]
-    public void OnSupplementalDraftChanged_SourceForwardsSupplementalHostDraftToDto()
-    {
-        var path = Path.GetFullPath(Path.Combine(
-            AppContext.BaseDirectory,
-            "..", "..", "..", "..",
-            "AST", "Views", "Iam", "OrgUnit", "OrgUnitDeclarationView.xaml.cs"));
-        File.Exists(path).Should().BeTrue($"expected View code-behind at {path}");
-        var source = File.ReadAllText(path);
-        source.Should().Contain(
-            "ForwardSupplementalDraftChanged(vm, SupplementalHost.Draft.ToDto())",
-            "the DraftChanged handler must pass the live overlay draft, not a parameterless latch");
     }
 
     private static OrgUnitDeclarationViewModel BuildViewModel(DateOnly today)
