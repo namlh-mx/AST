@@ -112,7 +112,7 @@ public class AstDateBoxTests
 
         Assert.Equal(new DateOnly(2026, 7, 23), box.Date);
         Assert.True(args.Handled);
-        // Keyboard.ClearFocus() after Enter = requester F5 (caret stops), not headless-asserted.
+        // Enter now MoveFocus(Next); focus destination is asserted in Enter_moves_focus_to_next_element.
     });
 
     /// <summary>
@@ -667,7 +667,7 @@ public class AstDateBoxTests
     });
 
     // Card 278 / backlog 3.64: Backspace after Day 0 + Month 0 must keep the Day zero visible and
-    // stay on Month — FormatDisplay is still "00/00/0000", but the editor has an entered digit.
+    // Leading Day zero must be completed (01) before '/' — a lone zero finalizes to NothingEntered on leave (3.69).
     [Fact]
     public void Backspace_after_day_and_month_leading_zeros_keeps_mask_and_month_context() => Sta.Run(() =>
     {
@@ -676,30 +676,26 @@ public class AstDateBoxTests
         var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
 
         RaiseTextInput(textBox, "0");
-        RaiseTextInput(textBox, "/");
-        RaiseTextInput(textBox, "0");
-        textBox.Text.Should().Be("00/00/0000");
+        RaiseTextInput(textBox, "1"); // complete Day so '/' / finalize does not clear it
+        RaiseTextInput(textBox, "0"); // Month leading zero
+        textBox.Text.Should().Be("01/00/0000");
         box.ActivePart.Should().Be(DatePart.Month);
 
         RaiseKeyDown(textBox, Key.Back).Should().BeTrue();
 
-        textBox.Text.Should().Be("00/00/0000");
+        textBox.Text.Should().Be("01/00/0000");
         box.ActivePart.Should().Be(DatePart.Month);
         textBox.CaretIndex.Should().Be(3, "Month tens cleared; caret on Month tens");
 
         RaiseTextInput(textBox, "3");
 
-        // Day tens is still the entered zero; Month auto-completes 3 → 03. Card 278's acceptance
-        // string "03/00/0000" would mean Day=03; the real mask with the preserved Day zero is below.
-        textBox.Text.Should().Be("00/03/0000");
+        textBox.Text.Should().Be("01/03/0000");
         box.ActivePart.Should().Be(DatePart.Year);
         textBox.SelectionStart.Should().Be(6);
         textBox.SelectionLength.Should().Be(4);
     });
 
-    // Delete sibling of the Backspace sequence: after leading Month zero the caret sits on units,
-    // and Delete clears forward — so the operator path that clears only Month tens is a whole-Month
-    // selection then Delete (same remaining filled-zero state as Backspace).
+    // Delete sibling: complete Day first (3.69 clears a lone Day zero on leave), then Month leading zero.
     [Fact]
     public void Delete_after_day_and_month_leading_zeros_keeps_mask_and_month_context() => Sta.Run(() =>
     {
@@ -708,20 +704,20 @@ public class AstDateBoxTests
         var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
 
         RaiseTextInput(textBox, "0");
-        RaiseTextInput(textBox, "/");
+        RaiseTextInput(textBox, "1");
         RaiseTextInput(textBox, "0");
-        textBox.Text.Should().Be("00/00/0000");
+        textBox.Text.Should().Be("01/00/0000");
         box.ActivePart.Should().Be(DatePart.Month);
 
         textBox.Select(3, 2);
         RaiseKeyDown(textBox, Key.Delete).Should().BeTrue();
 
-        textBox.Text.Should().Be("00/00/0000");
+        textBox.Text.Should().Be("01/00/0000");
         box.ActivePart.Should().Be(DatePart.Month);
 
         RaiseTextInput(textBox, "3");
 
-        textBox.Text.Should().Be("00/03/0000");
+        textBox.Text.Should().Be("01/03/0000");
         box.ActivePart.Should().Be(DatePart.Year);
         textBox.SelectionStart.Should().Be(6);
         textBox.SelectionLength.Should().Be(4);
@@ -947,7 +943,7 @@ public class AstDateBoxTests
     // Finding 4: with the field pristine, segment
     // navigation must not highlight mask characters or land on Year — Day, caret 0, nothing selected.
     [Fact]
-    public void Navigating_segments_on_a_pristine_field_does_not_throw_and_lands_on_Day() => Sta.Run(() =>
+    public void Navigating_segments_on_a_pristine_field_reaches_Month_and_Year_with_whole_segment_highlight() => Sta.Run(() =>
     {
         var box = new AstDateBox { Template = BuildTemplate() };
         box.ApplyTemplate();
@@ -956,17 +952,27 @@ public class AstDateBoxTests
         box.IsPristine.Should().BeTrue();
 
         Assert.True(RaiseKeyDown(textBox, Key.Right));
-        Assert.Equal(DatePart.Day, box.ActivePart);
-        Assert.Equal(0, textBox.CaretIndex);
-        Assert.Equal(0, textBox.SelectionLength);
+        Assert.Equal(DatePart.Month, box.ActivePart);
+        textBox.SelectionStart.Should().Be(3);
+        textBox.SelectionLength.Should().Be(2);
 
         RaiseTextInput(textBox, "/");
-        Assert.Equal(DatePart.Day, box.ActivePart);
+        Assert.Equal(DatePart.Year, box.ActivePart);
+        textBox.SelectionStart.Should().Be(6);
+        textBox.SelectionLength.Should().Be(4);
 
-        box.SelectSegmentAt(0);
-        Assert.Equal(DatePart.Day, box.ActivePart);
-        Assert.Equal(0, textBox.CaretIndex);
-        Assert.Equal(0, textBox.SelectionLength);
+        Assert.True(RaiseKeyDown(textBox, Key.Left));
+        Assert.Equal(DatePart.Month, box.ActivePart);
+
+        box.SelectSegmentAt(7);
+        Assert.Equal(DatePart.Year, box.ActivePart);
+        textBox.SelectionStart.Should().Be(6);
+        textBox.SelectionLength.Should().Be(4);
+
+        RaiseTextInput(textBox, "2");
+        textBox.Text.Should().Be("00/00/2000");
+        box.ActivePart.Should().Be(DatePart.Year);
+        box.IsPristine.Should().BeFalse();
     });
 
     [Fact]
@@ -988,18 +994,18 @@ public class AstDateBoxTests
     // committed), an external null assigns the same string — TextBox raises no TextChanged/SelectionChanged,
     // so the pristine caret invariant must be written explicitly inside SyncTextFromDate.
     [Fact]
-    public void External_null_on_same_string_mask_resets_pristine_caret_to_Day() => Sta.Run(() =>
+    public void External_null_on_same_string_mask_resets_pristine_highlight_to_Day() => Sta.Run(() =>
     {
         var kept = new DateOnly(2026, 7, 23);
         var box = new AstDateBox { Template = BuildTemplate(), Date = kept };
         box.ApplyTemplate();
         var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
 
-        textBox.Select(0, 2);
+        box.SelectSegmentAt(0);
         RaiseTextInput(textBox, "0");
-        textBox.Select(3, 2);
+        box.SelectSegmentAt(3);
         RaiseTextInput(textBox, "0");
-        textBox.Select(6, 4);
+        box.SelectSegmentAt(6);
         RaiseTextInput(textBox, "0");
 
         textBox.Text.Should().Be("00/00/0000");
@@ -1011,8 +1017,8 @@ public class AstDateBoxTests
 
         box.IsPristine.Should().BeTrue();
         box.ActivePart.Should().Be(DatePart.Day);
-        textBox.CaretIndex.Should().Be(0);
-        textBox.SelectionLength.Should().Be(0);
+        textBox.SelectionStart.Should().Be(0);
+        textBox.SelectionLength.Should().Be(2);
     });
 
 
@@ -1084,7 +1090,7 @@ public class AstDateBoxTests
     });
 
     [Fact]
-    public void Escape_after_editing_restores_pre_focus_Date_and_clears_focus() => Sta.Run(() =>
+    public void Escape_after_editing_restores_pre_focus_Date_keeps_segment_highlighted_for_replace() => Sta.Run(() =>
     {
         var preEdit = new DateOnly(2026, 7, 23);
         var box = new AstDateBox { Template = BuildTemplate(), Date = preEdit };
@@ -1093,16 +1099,21 @@ public class AstDateBoxTests
 
         RaiseGotFocus(textBox);
         RaiseTextInput(textBox, "1");
-        RaiseTextInput(textBox, "5"); // Day becomes 15 without committing Date
+        RaiseTextInput(textBox, "5"); // Day becomes 15 without committing Date; ActivePart advances to Month
         textBox.Text.Should().Be("15/07/2026");
         box.Date.Should().Be(preEdit);
+        box.ActivePart.Should().Be(DatePart.Month);
 
         RaiseKeyDown(textBox, Key.Escape).Should().BeTrue();
 
         box.Date.Should().Be(preEdit);
         textBox.Text.Should().Be("23/07/2026");
-        // Keyboard.ClearFocus() after Esc = requester F5 round 1 (end edit), not headless-asserted
-        // (same posture as Valid_text_on_Enter_parses_into_Date).
+        box.ActivePart.Should().Be(DatePart.Month);
+        textBox.SelectionStart.Should().Be(3);
+        textBox.SelectionLength.Should().Be(2);
+
+        RaiseTextInput(textBox, "9");
+        textBox.Text.Should().Be("23/09/2026");
     });
 
     // Paste commits Date immediately; Esc still restores the GotFocus snapshot (not the post-paste Date).
@@ -1123,54 +1134,59 @@ public class AstDateBoxTests
 
         box.Date.Should().Be(preEdit);
         textBox.Text.Should().Be("23/07/2026");
-        // ClearFocus after Esc: F5, see Escape_after_editing_restores_pre_focus_Date_and_clears_focus.
+        // Esc keeps focus and re-highlights the active segment; next digit replaces it.
+        textBox.SelectionLength.Should().BeGreaterThan(0);
     });
 
     // Backlog 3.66: replacing Day, Month and Year each with a single zero leaves Date unchanged and
     // restores the formatted value on LostFocus (and Enter — sibling test below). The display string
     // "00/00/0000" is NOT a clear; the editor still has entered digits.
     [Fact]
-    public void Replacing_each_segment_with_a_single_zero_keeps_Date_and_reverts_on_LostFocus() => Sta.Run(() =>
+    public void Replacing_each_segment_with_a_single_zero_clears_to_empty_and_nulls_Date_on_LostFocus() => Sta.Run(() =>
     {
         var kept = new DateOnly(2026, 7, 23);
         var box = new AstDateBox { Template = BuildTemplate(), Date = kept };
         box.ApplyTemplate();
         var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
 
-        textBox.Select(0, 2);
+        // SelectSegment path: each leave finalizes a lone zero to NothingEntered (cleared).
+        box.SelectSegmentAt(0);
         RaiseTextInput(textBox, "0");
-        textBox.Select(3, 2);
+        box.SelectSegmentAt(3);
         RaiseTextInput(textBox, "0");
-        textBox.Select(6, 4);
+        box.SelectSegmentAt(6);
         RaiseTextInput(textBox, "0");
         textBox.Text.Should().Be("00/00/0000");
-        box.IsPristine.Should().BeFalse("three zeros were entered; colour must not look pristine");
+        box.IsPristine.Should().BeFalse("Year still holds an entered zero before leave-finalize");
 
         textBox.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent, textBox));
 
-        box.Date.Should().Be(kept);
-        textBox.Text.Should().Be("23/07/2026");
+        // 3.69: all-zero segments are indistinguishable from the mask → nothing entered → clear.
+        box.Date.Should().BeNull();
+        textBox.Text.Should().Be("00/00/0000");
+        box.IsPristine.Should().BeTrue();
     });
 
     [Fact]
-    public void Replacing_each_segment_with_a_single_zero_keeps_Date_and_reverts_on_Enter() => Sta.Run(() =>
+    public void Replacing_each_segment_with_a_single_zero_clears_to_empty_and_nulls_Date_on_Enter() => Sta.Run(() =>
     {
         var kept = new DateOnly(2026, 7, 23);
         var box = new AstDateBox { Template = BuildTemplate(), Date = kept };
         box.ApplyTemplate();
         var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
 
-        textBox.Select(0, 2);
+        box.SelectSegmentAt(0);
         RaiseTextInput(textBox, "0");
-        textBox.Select(3, 2);
+        box.SelectSegmentAt(3);
         RaiseTextInput(textBox, "0");
-        textBox.Select(6, 4);
+        box.SelectSegmentAt(6);
         RaiseTextInput(textBox, "0");
 
         RaiseKeyDown(textBox, Key.Enter).Should().BeTrue();
 
-        box.Date.Should().Be(kept);
-        textBox.Text.Should().Be("23/07/2026");
+        box.Date.Should().BeNull();
+        textBox.Text.Should().Be("00/00/0000");
+        box.IsPristine.Should().BeTrue();
     });
 
     [Fact]
@@ -1214,7 +1230,7 @@ public class AstDateBoxTests
     });
 
     [Fact]
-    public void Pristine_GotFocus_with_caret_at_end_forces_Day_and_caret_0() => Sta.Run(() =>
+    public void Pristine_GotFocus_with_caret_at_end_forces_Day_segment_highlight() => Sta.Run(() =>
     {
         var box = new AstDateBox { Template = BuildTemplate() };
         box.ApplyTemplate();
@@ -1225,32 +1241,181 @@ public class AstDateBoxTests
         RaiseGotFocus(textBox);
 
         box.ActivePart.Should().Be(DatePart.Day);
-        textBox.CaretIndex.Should().Be(0);
-        textBox.SelectionLength.Should().Be(0);
+        textBox.SelectionStart.Should().Be(0);
+        textBox.SelectionLength.Should().Be(2);
     });
 
     [Fact]
-    public void Pristine_selection_gestures_normalize_to_caret_0_without_highlighting_the_mask() => Sta.Run(() =>
+    public void Pristine_selection_gestures_normalize_to_the_ActivePart_whole_segment() => Sta.Run(() =>
     {
         var box = new AstDateBox { Template = BuildTemplate() };
         box.ApplyTemplate();
         var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
 
-        // Ctrl+A / drag / double-click / Home-End land as a non-empty selection over the mask.
+        RaiseGotFocus(textBox);
+        box.ActivePart.Should().Be(DatePart.Day);
+
+        // Ctrl+A / drag / double-click land as a non-empty selection over the mask → snap to ActivePart.
         textBox.Select(0, textBox.Text.Length);
-        textBox.CaretIndex.Should().Be(0);
-        textBox.SelectionLength.Should().Be(0);
+        textBox.SelectionStart.Should().Be(0);
+        textBox.SelectionLength.Should().Be(2);
         box.ActivePart.Should().Be(DatePart.Day);
 
-        textBox.Select(6, 4);
-        textBox.CaretIndex.Should().Be(0);
-        textBox.SelectionLength.Should().Be(0);
-        box.ActivePart.Should().Be(DatePart.Day);
-
+        // Navigate to Year, then Home/End-style caret at end → still the ActivePart segment.
+        box.SelectSegmentAt(7);
+        box.ActivePart.Should().Be(DatePart.Year);
         textBox.CaretIndex = 10;
         textBox.SelectionLength = 0;
-        textBox.CaretIndex.Should().Be(0);
+        textBox.SelectionStart.Should().Be(6);
+        textBox.SelectionLength.Should().Be(4);
+        box.ActivePart.Should().Be(DatePart.Year);
+    });
+
+    [Fact]
+    public void Typing_one_Day_digit_then_navigating_to_Month_finalizes_Day_and_highlights_Month() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        RaiseGotFocus(textBox);
+        RaiseTextInput(textBox, "1");
+        textBox.Text.Should().Be("10/00/0000");
         box.ActivePart.Should().Be(DatePart.Day);
+
+        RaiseKeyDown(textBox, Key.Right).Should().BeTrue();
+
+        textBox.Text.Should().Be("10/00/0000");
+        box.ActivePart.Should().Be(DatePart.Month);
+        textBox.SelectionStart.Should().Be(3);
+        textBox.SelectionLength.Should().Be(2);
+    });
+
+    [Fact]
+    public void Tab_after_partial_Year_zero_fills_and_LostFocus_commits() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        foreach (var ch in "10102")
+            RaiseTextInput(textBox, ch.ToString());
+        textBox.Text.Should().Be("10/10/2000");
+        box.Date.Should().BeNull();
+
+        RaiseKeyDown(textBox, Key.Tab).Should().BeFalse("successful finalize must not swallow Tab");
+        textBox.Text.Should().Be("10/10/2000");
+
+        textBox.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent, textBox));
+
+        box.Date.Should().Be(new DateOnly(2000, 10, 10));
+        textBox.Text.Should().Be("10/10/2000");
+    });
+
+    [Fact]
+    public void Tab_on_rejected_Year_fill_keeps_focus_partial_text_and_Date() => Sta.Run(() =>
+    {
+        // Start empty: typing 29/02 into a field that already holds 2026 rejects Month 02 (2026 not leap).
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        foreach (var ch in "2902201")
+            RaiseTextInput(textBox, ch.ToString());
+        textBox.Text.Should().Be("29/02/2010");
+        box.ActivePart.Should().Be(DatePart.Year);
+        box.Date.Should().BeNull();
+
+        RaiseKeyDown(textBox, Key.Tab).Should().BeTrue();
+
+        box.Date.Should().BeNull();
+        textBox.Text.Should().Be("29/02/2010");
+        box.ActivePart.Should().Be(DatePart.Year);
+        textBox.SelectionStart.Should().Be(6);
+        textBox.SelectionLength.Should().Be(4);
+    });
+
+    [Fact]
+    public void Clicking_the_active_segment_again_does_not_finalize_a_partial_Day() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        RaiseGotFocus(textBox);
+        RaiseTextInput(textBox, "1");
+        textBox.Text.Should().Be("10/00/0000");
+
+        box.SelectSegmentAt(1); // same Day segment — must not zero-fill the partial Day to 10 as a leave
+
+        textBox.Text.Should().Be("10/00/0000");
+        box.ActivePart.Should().Be(DatePart.Day);
+        textBox.SelectionStart.Should().Be(0);
+        textBox.SelectionLength.Should().Be(2);
+
+        // Replace-part armed: 5 clears Day and writes 05 (4-9 fast path), proving the partial was not finalized away
+        RaiseTextInput(textBox, "5");
+        textBox.Text.Should().Be("05/00/0000");
+        box.ActivePart.Should().Be(DatePart.Month);
+    });
+
+    [Fact]
+    public void Auto_advance_after_completed_Day_does_not_finalize_Month_being_typed() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        RaiseTextInput(textBox, "1");
+        RaiseTextInput(textBox, "5"); // completes Day, auto-advances to Month with replace-part
+        box.ActivePart.Should().Be(DatePart.Month);
+        textBox.SelectionLength.Should().Be(2);
+
+        RaiseTextInput(textBox, "1"); // partial Month — must not have been zero-filled by the advance
+        textBox.Text.Should().Be("15/10/0000");
+        box.ActivePart.Should().Be(DatePart.Month);
+    });
+
+    [Fact]
+    public void Enter_commits_valid_date_and_is_handled_without_ClearFocus() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+        var glyph = (ToggleButton)box.Template.FindName("PART_GlyphToggle", box)!;
+        glyph.Focusable = false;
+        glyph.IsTabStop = false;
+
+        foreach (var ch in "23072026")
+            RaiseTextInput(textBox, ch.ToString());
+
+        RaiseKeyDown(textBox, Key.Enter).Should().BeTrue();
+
+        box.Date.Should().Be(new DateOnly(2026, 7, 23));
+        textBox.Text.Should().Be("23/07/2026");
+        // MoveFocus(Next) runs; destination in a live tab order is F5 (Window.Show + Wpf.Ui styles are
+        // unsafe in this suite — see Valid_text_on_Enter_parses_into_Date).
+    });
+
+    [Fact]
+    public void Enter_on_rejected_fill_commits_nothing_and_keeps_Year_partial_highlighted() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        foreach (var ch in "2902201")
+            RaiseTextInput(textBox, ch.ToString());
+        textBox.Text.Should().Be("29/02/2010");
+        box.Date.Should().BeNull();
+
+        RaiseKeyDown(textBox, Key.Enter).Should().BeTrue();
+
+        box.Date.Should().BeNull();
+        textBox.Text.Should().Be("29/02/2010");
+        box.ActivePart.Should().Be(DatePart.Year);
+        textBox.SelectionStart.Should().Be(6);
+        textBox.SelectionLength.Should().Be(4);
     });
 
     private static void RaiseGotFocus(UiTextBox textBox)

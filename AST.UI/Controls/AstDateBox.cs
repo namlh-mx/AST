@@ -55,8 +55,8 @@ public class AstDateBox : Control
     private Calendar? _calendar;
     private bool _syncingText;
     private bool _syncingCalendar;
-    // Guards the pristine selection boundary: normalizing to (0,0) raises SelectionChanged again;
-    // without this flag the handler would re-enter forever.
+    // Guards the pristine selection boundary: normalizing to the ActivePart segment raises
+    // SelectionChanged again; without this flag the handler would re-enter forever.
     private bool _normalizingPristineSelection;
 
     // Captured at TextBox GotFocus — Esc restores this (typing often never writes Date until commit;
@@ -190,13 +190,9 @@ public class AstDateBox : Control
 
             // Equal Text raises no TextChanged/SelectionChanged, so a same-string sync (e.g. three
             // segment zeros then external null) would leave the caret wherever it was. Write the
-            // pristine caret invariant here — do not wait for the selection guard.
+            // pristine segment-highlight invariant here — do not wait for the selection guard.
             if (!_editor.HasAnyEnteredDigit)
-            {
-                _editor.SelectPart(DatePart.Day);
-                _textBox.CaretIndex = 0;
-                _textBox.SelectionLength = 0;
-            }
+                HighlightSegment(DatePart.Day);
         }
         finally { _syncingText = false; }
     }
@@ -213,6 +209,10 @@ public class AstDateBox : Control
     private void CommitTextBoxValue()
     {
         if (_syncingText || _textBox is null) return;
+
+        // Fill the active segment before the three-way. On Rejected the engine is restored and the
+        // three-way falls through to "keep Date, redraw" — LostFocus cannot block focus move.
+        TryFinalizeActivePartAndRender();
 
         if (!_editor.HasAnyEnteredDigit)
         {
@@ -294,7 +294,7 @@ public class AstDateBox : Control
         // Pre-edit anchor for Esc (requester 2026-08-07) — must snapshot here, not at Esc time.
         _dateOnFocus = Date;
         // WPF-UI sets CaretIndex = Text.Length on focus. With a permanent ten-character mask that lands
-        // on Year; pristine must force Day and caret 0 instead of trusting the live caret.
+        // on Year; pristine must force Day (now highlighted) instead of trusting the live caret.
         if (!_editor.HasAnyEnteredDigit)
             SelectSegment(DatePart.Day);
         else
@@ -307,16 +307,16 @@ public class AstDateBox : Control
     private void OnTextBoxSelectionChanged(object sender, RoutedEventArgs e)
     {
         if (_textBox is null || _syncingText || _normalizingPristineSelection) return;
+        // Non-pristine: a plain caret mid-segment is the normal mid-typing state (ApplyEditorDigit).
         if (_editor.HasAnyEnteredDigit) return;
-        if (_textBox.CaretIndex == 0 && _textBox.SelectionLength == 0) return;
+
+        // Ctrl+A / Home / End / drag / double-click can land on selections this control never
+        // observes. While pristine, snap them to the whole ActivePart segment (not to (0,0)).
+        var (start, length) = SegmentRange(_editor.ActivePart);
+        if (_textBox.SelectionStart == start && _textBox.SelectionLength == length) return;
 
         _normalizingPristineSelection = true;
-        try
-        {
-            _editor.SelectPart(DatePart.Day);
-            _textBox.CaretIndex = 0;
-            _textBox.SelectionLength = 0;
-        }
+        try { _textBox.Select(start, length); }
         finally { _normalizingPristineSelection = false; }
     }
 
@@ -368,26 +368,48 @@ public class AstDateBox : Control
     {
         if (_textBox is null) return;
 
-        // Enter commits typed text the same way LostFocus does (without requiring Tab-away / click-away),
-        // then clears keyboard focus so the caret stops blinking — Enter must feel executed.
+        // Enter finalizes the active segment, commits like LostFocus, then moves focus the way Tab does.
+        // On Rejected: do not commit and do not move — keep focus and the highlight in that segment.
         if (e.Key == Key.Enter)
         {
+            if (!TryFinalizeActivePartAndRender())
+            {
+                HighlightSegment(_editor.ActivePart);
+                e.Handled = true;
+                return;
+            }
+
             CommitTextBoxValue();
-            Keyboard.ClearFocus();
+            _textBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
             e.Handled = true;
             return;
         }
 
+        // Tab leaves the box (never moves between segments). Finalize before focus moves — LostFocus
+        // is too late to stop Tab on a rejected fill.
+        if (e.Key == Key.Tab)
+        {
+            if (!TryFinalizeActivePartAndRender())
+            {
+                HighlightSegment(_editor.ActivePart);
+                e.Handled = true;
+            }
+
+            return;
+        }
+
         // Esc restores the Date captured at focus-enter (requester 2026-08-07) — undoes typing and any
-        // in-session paste commit — then clears focus/selection so editing ends (F5 round 1: same "done"
-        // feel as Enter; user re-focuses to edit again).
+        // in-session paste commit — and KEEPS keyboard focus in the editor with the previously active
+        // segment highlighted so the next digit starts a fresh replacement edit there. Esc does not
+        // FinalizePart: cancelling must not commit anything.
         if (e.Key == Key.Escape)
         {
+            var part = _editor.ActivePart;
             Date = _dateOnFocus;
             // Unconditional: typing never writes Date until commit, so Date is often already equal to
             // _dateOnFocus and the DP raises no change notification for OnDateChanged → SyncTextFromDate.
             SyncTextFromDate();
-            Keyboard.ClearFocus();
+            HighlightSegment(part);
             e.Handled = true;
             return;
         }
@@ -547,10 +569,8 @@ public class AstDateBox : Control
             // than diffing display strings.
             if (!_editor.HasAnyEnteredDigit)
             {
-                // Straight back to grey mask: Day active, caret 0, nothing selected.
-                _editor.SelectPart(DatePart.Day);
-                _textBox.CaretIndex = 0;
-                _textBox.SelectionLength = 0;
+                // Straight back to grey mask with Day highlighted (pristine segment invariant).
+                HighlightSegment(DatePart.Day);
             }
             else
             {
@@ -574,10 +594,8 @@ public class AstDateBox : Control
             _textBox.Text = rendered;
             if (!_editor.HasAnyEnteredDigit)
             {
-                // Straight back to grey mask: Day active, caret 0, nothing selected.
-                _editor.SelectPart(DatePart.Day);
-                _textBox.CaretIndex = 0;
-                _textBox.SelectionLength = 0;
+                // Straight back to grey mask with Day highlighted (pristine segment invariant).
+                HighlightSegment(DatePart.Day);
             }
             else
             {
@@ -598,15 +616,44 @@ public class AstDateBox : Control
     {
         if (_textBox is null) return;
 
-        if (!_editor.HasAnyEnteredDigit)
+        // Same-segment re-select arms replace-part (click inside active segment, auto-advance). Must
+        // not FinalizePart — that would fill a segment the operator is still typing into.
+        if (part != _editor.ActivePart && !TryFinalizeActivePartAndRender())
         {
-            // Pristine: Day active, caret 0, nothing selected — never highlight mask characters.
-            _editor.SelectPart(DatePart.Day);
-            _textBox.CaretIndex = 0;
-            _textBox.SelectionLength = 0;
+            HighlightSegment(_editor.ActivePart);
             return;
         }
 
+        HighlightSegment(part);
+    }
+
+    /// <summary>
+    /// Finalize the current ActivePart in place (no segment move). Returns false on Rejected.
+    /// On Finalized / NothingEntered, re-renders FormatDisplay and republishes IsPristine.
+    /// Does not change ActivePart or IndexInPart — caller selects / resyncs after.
+    /// </summary>
+    private bool TryFinalizeActivePartAndRender()
+    {
+        var result = _editor.FinalizePart(_editor.ActivePart);
+        if (result == DdMmYyyySegmentEditor.PartFinalizationResult.Rejected)
+            return false;
+
+        if (_textBox is null) return true;
+
+        _syncingText = true;
+        try
+        {
+            PublishPristineState();
+            _textBox.Text = _editor.FormatDisplay();
+        }
+        finally { _syncingText = false; }
+
+        return true;
+    }
+
+    private void HighlightSegment(DatePart part)
+    {
+        if (_textBox is null) return;
         _editor.SelectPart(part);
         var (start, length) = SegmentRange(part);
         _textBox.Select(start, length);
@@ -628,13 +675,19 @@ public class AstDateBox : Control
     // it does NOT become a replace-that-text edit.
     private void SyncEditorPartFromSelection()
     {
-        // Never infer an active segment from caret coordinates over characters nobody typed.
-        if (_textBox is null || !_editor.HasAnyEnteredDigit) return;
+        if (_textBox is null) return;
 
         if (IsWholeSegmentSelected(out var selected))
         {
             // Re-asserting SelectPart is deliberate even when it already matches ActivePart: it (re)marks
-            // replace-part, which is what makes the next digit overwrite the whole segment.
+            // replace-part, which is what makes the next digit overwrite the whole segment. Finalize only
+            // when the highlighted segment actually differs from ActivePart — this path bypasses SelectSegment.
+            if (selected != _editor.ActivePart && !TryFinalizeActivePartAndRender())
+            {
+                HighlightSegment(_editor.ActivePart);
+                return;
+            }
+
             _editor.SelectPart(selected);
             return;
         }
