@@ -261,7 +261,7 @@
                             VerticalContentAlignment="Center"
                             ClearButtonEnabled="False"
                             IsUndoEnabled="False"
-                            PlaceholderText="00/00/0000" />
+                            PlaceholderEnabled="False" />
                         <!--
                             Margin below is a single fixed part-to-part gap (text box to glyph), not a repeating
                             stack; Spacing.Between (see AstEffectivePeriod) is for the latter, so a literal
@@ -302,6 +302,14 @@
                             <Setter TargetName="PART_GlyphToggle" Property="Visibility" Value="Collapsed" />
                             <Setter TargetName="PART_GlyphToggle" Property="Margin" Value="0" />
                         </Trigger>
+                        <!-- Grey mask while pristine and enabled; WPF-UI owns normal/disabled foregrounds. -->
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsPristine" Value="True" />
+                                <Condition Property="IsEnabled" Value="True" />
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="PART_TextBox" Property="Foreground" Value="{DynamicResource AstTextSecondaryBrush}" />
+                        </MultiTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

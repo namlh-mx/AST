@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using AST.Controls;
+using FluentAssertions;
 using UiTextBox = Wpf.Ui.Controls.TextBox;
 
 namespace AST.App.Tests.Controls;
@@ -28,7 +30,7 @@ public class AstDateBoxRealStyleTests
                 Style = (Style)window.FindResource("AstDateBox"),
                 ShowCalendarGlyph = true,
             },
-            (_, box) =>
+            (window, box) =>
             {
                 Assert.NotNull(box.Template);
 
@@ -36,12 +38,46 @@ public class AstDateBoxRealStyleTests
                 Assert.NotNull(textBox);
                 // Values that exist only in the real Controls.xaml template (the hand-built stand-in sets neither).
                 Assert.Equal(94d, textBox!.Width);
-                Assert.Equal("00/00/0000", textBox.PlaceholderText);
+                Assert.False(textBox.PlaceholderEnabled);
+                Assert.Equal("00/00/0000", textBox.Text);
+                box.IsPristine.Should().BeTrue();
+
+                var secondary = (Brush)window.FindResource("AstTextSecondaryBrush");
+                Assert.Equal(secondary, textBox.Foreground);
 
                 // The Fluent chrome itself: an implicit {x:Type ui:TextBox} style from ui:ControlsDictionary.
                 Assert.NotNull(textBox.Template);
                 Assert.Equal(typeof(UiTextBox), textBox.Template.TargetType);
 
                 Assert.NotNull(box.Template.FindName("PART_GlyphToggle", box) as ToggleButton);
+            });
+
+    [Fact]
+    public void Real_style_leading_zero_leaves_mask_string_but_drops_pristine_grey_foreground()
+        => OffscreenHost.Run(
+            window => new AstDateBox
+            {
+                Style = (Style)window.FindResource("AstDateBox"),
+            },
+            (window, box) =>
+            {
+                var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+                var secondary = (Brush)window.FindResource("AstTextSecondaryBrush");
+                Assert.Equal(secondary, textBox.Foreground);
+
+                var composition = new System.Windows.Input.TextComposition(
+                    System.Windows.Input.InputManager.Current, textBox, "0");
+                var args = new System.Windows.Input.TextCompositionEventArgs(
+                    System.Windows.Input.Keyboard.PrimaryDevice, composition)
+                {
+                    RoutedEvent = System.Windows.Input.TextCompositionManager.PreviewTextInputEvent
+                };
+                textBox.RaiseEvent(args);
+
+                textBox.Text.Should().Be("00/00/0000");
+                box.IsPristine.Should().BeFalse();
+                textBox.Foreground.Should().NotBe(secondary,
+                    "after an entered digit the MultiTrigger must release; WPF-UI owns the normal foreground");
+                textBox.Width.Should().Be(94d);
             });
 }

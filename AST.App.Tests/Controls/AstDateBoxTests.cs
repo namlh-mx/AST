@@ -78,7 +78,8 @@ public class AstDateBoxTests
         box.ApplyTemplate();
         var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
 
-        textBox.Text = "23/07/2026";
+        foreach (var ch in "23072026")
+            RaiseTextInput(textBox, ch.ToString());
         textBox.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent, textBox));
 
         Assert.Equal(new DateOnly(2026, 7, 23), box.Date);
@@ -91,7 +92,8 @@ public class AstDateBoxTests
         box.ApplyTemplate();
         var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
 
-        textBox.Text = "23/07/2026";
+        foreach (var ch in "23072026")
+            RaiseTextInput(textBox, ch.ToString());
 
         // Fix round 1: do NOT attach an HwndSource RootVisual (that path freezes Wpf.Ui brushes
         // across STA threads when the full AST.App.Tests suite runs). KeyEventArgs's ctor also
@@ -142,13 +144,18 @@ public class AstDateBoxTests
     }
 
     [Fact]
-    public void Invalid_text_on_lost_focus_leaves_Date_unchanged_and_reverts_text() => Sta.Run(() =>
+    public void Invalid_partial_edit_on_lost_focus_leaves_Date_unchanged_and_reverts_text() => Sta.Run(() =>
     {
         var box = new AstDateBox { Template = BuildTemplate(), Date = new DateOnly(2026, 7, 23) };
         box.ApplyTemplate();
         var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
 
-        textBox.Text = "not a date";
+        // Replace Day with a single zero — display becomes "00/07/2026", editor has entered digits,
+        // but TryGetDate fails. Commit must keep Date and restore the formatted value.
+        textBox.Select(0, 2);
+        RaiseTextInput(textBox, "0");
+        textBox.Text.Should().Be("00/07/2026");
+
         textBox.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent, textBox));
 
         Assert.Equal(new DateOnly(2026, 7, 23), box.Date);
@@ -599,20 +606,22 @@ public class AstDateBoxTests
         Assert.Equal("03/07/2026", textBox.Text); // only the day's tens slot ('2') is cleared
     });
 
-    // Card 275 / backlog 3.59: a first day digit of 0 fills the tens slot and FormatDisplay yields
-    // "00/00/0000" — the same string as pristine. RenderDisplay must NOT collapse that after a successful
-    // ApplyDigit, or the accepted zero disappears and the caret is forced to 0.
+    // Card 275 / backlog 3.59: a first day digit of 0 fills the tens slot and
+    // FormatDisplay yields "00/00/0000" — the same string as pristine. IsPristine must flip so colour
+    // distinguishes an entered zero from the grey mask; the caret advances to the units slot.
     [Fact]
     public void Typing_leading_zero_into_empty_day_shows_placeholder_mask_and_advances_caret_to_units() => Sta.Run(() =>
     {
         var box = new AstDateBox { Template = BuildTemplate() };
         box.ApplyTemplate();
         var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
-        textBox.Text.Should().BeEmpty();
+        textBox.Text.Should().Be("00/00/0000");
+        box.IsPristine.Should().BeTrue();
 
         RaiseTextInput(textBox, "0");
 
         textBox.Text.Should().Be("00/00/0000");
+        box.IsPristine.Should().BeFalse();
         box.ActivePart.Should().Be(DatePart.Day);
         textBox.CaretIndex.Should().Be(1, "day tens is filled; caret sits on the day-units slot");
         textBox.SelectionLength.Should().Be(0);
@@ -750,12 +759,9 @@ public class AstDateBoxTests
     });
 
     // Regression test for AST.App.Tests debt item 2 (found during AstDateBox P2, 2026-08-07; fixed
-    // 2026-08-08). INVARIANT: whenever the field renders empty, ActivePart is Day -- a freshly-blank field
-    // must behave identically no matter HOW it was emptied. The rule lives in three places that can empty
-    // the field: SelectSegment's empty-text branch (click/GotFocus on an empty field) and the empty-render
-    // branches of ApplyEditorDelete and ApplyEditorBackspace. The bug was that only the first knew the rule,
-    // so clearing by keystroke left ActivePart on whatever segment was cleared LAST (typically Year) and the
-    // next digit typed landed there instead of in Day.
+    // 2026-08-08; mask always visible). INVARIANT: whenever the field is pristine,
+    // ActivePart is Day. The rule lives in SelectSegment's pristine branch and the pristine branches
+    // of ApplyEditorDelete and ApplyEditorBackspace.
     // Backspace twin of Clearing_the_field_down_to_empty_resets_ActivePart_to_Day (which only
     // exercises ApplyEditorDelete). A WHOLE-SEGMENT selection on Key.Back routes to ApplyEditorDelete
     // via IsWholeSegmentSelected — and SyncEditorPartFromSelection can itself re-anchor a caret that
@@ -784,9 +790,10 @@ public class AstDateBoxTests
         RaiseKeyDown(textBox, Key.Back).Should().BeTrue();
         RaiseKeyDown(textBox, Key.Back).Should().BeTrue();
 
-        textBox.Text.Should().BeEmpty("all three parts are now unfilled — FormatDisplay's all-unfilled string collapses to \"\" via RenderDisplay");
+        textBox.Text.Should().Be("00/00/0000", "all three parts are now unfilled — FormatDisplay's mask stays visible; colour (IsPristine) marks cleared");
+        box.IsPristine.Should().BeTrue();
         box.ActivePart.Should().Be(DatePart.Day,
-            "the field is fully empty — the very next digit typed must start at Day (matching SelectSegment's own empty-text branch), not wherever the caret happened to last be (Year)");
+            "the field is fully cleared — the very next digit typed must start at Day (matching SelectSegment's pristine branch), not wherever the caret happened to last be (Year)");
 
         RaiseTextInput(textBox, "1");
         RaiseTextInput(textBox, "5");
@@ -807,9 +814,10 @@ public class AstDateBoxTests
         textBox.Select(6, 4); // whole Year segment -- clearing this one empties the WHOLE field
         RaiseKeyDown(textBox, Key.Delete).Should().BeTrue();
 
-        textBox.Text.Should().BeEmpty("all three parts are now unfilled -- FormatDisplay's all-unfilled string collapses to \"\" via RenderDisplay");
+        textBox.Text.Should().Be("00/00/0000", "all three parts are now unfilled — FormatDisplay's mask stays visible; colour (IsPristine) marks cleared");
+        box.IsPristine.Should().BeTrue();
         box.ActivePart.Should().Be(DatePart.Day,
-            "the field is fully empty -- the very next digit typed must start at Day (matching SelectSegment's own empty-text branch), not wherever the caret happened to last be (Year)");
+            "the field is fully cleared -- the very next digit typed must start at Day (matching SelectSegment's pristine branch), not wherever the caret happened to last be (Year)");
 
         RaiseTextInput(textBox, "1");
         RaiseTextInput(textBox, "5");
@@ -889,7 +897,8 @@ public class AstDateBoxTests
         RaisePaste(textBox, "32072026"); // day 32 — calendar-illegal
 
         box.Date.Should().BeNull();
-        textBox.Text.Should().Be(string.Empty);
+        textBox.Text.Should().Be("00/00/0000");
+        box.IsPristine.Should().BeTrue();
     });
 
     [Fact]
@@ -935,19 +944,21 @@ public class AstDateBoxTests
         textBox.Text.Should().Be("23/07/2026");
     });
 
-    // Finding 4: with the field empty (post-Finding-1 clear), segment
-    // navigation must not compute Select(3,2)/Select(6,4) against an empty string (ArgumentOutOfRangeException)
-    // -- it lands on Day with a plain caret instead.
+    // Finding 4: with the field pristine, segment
+    // navigation must not highlight mask characters or land on Year — Day, caret 0, nothing selected.
     [Fact]
-    public void Navigating_segments_on_an_empty_field_does_not_throw_and_lands_on_Day() => Sta.Run(() =>
+    public void Navigating_segments_on_a_pristine_field_does_not_throw_and_lands_on_Day() => Sta.Run(() =>
     {
         var box = new AstDateBox { Template = BuildTemplate() };
         box.ApplyTemplate();
         var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
-        Assert.Equal(string.Empty, textBox.Text);
+        Assert.Equal("00/00/0000", textBox.Text);
+        box.IsPristine.Should().BeTrue();
 
         Assert.True(RaiseKeyDown(textBox, Key.Right));
         Assert.Equal(DatePart.Day, box.ActivePart);
+        Assert.Equal(0, textBox.CaretIndex);
+        Assert.Equal(0, textBox.SelectionLength);
 
         RaiseTextInput(textBox, "/");
         Assert.Equal(DatePart.Day, box.ActivePart);
@@ -955,29 +966,30 @@ public class AstDateBoxTests
         box.SelectSegmentAt(0);
         Assert.Equal(DatePart.Day, box.ActivePart);
         Assert.Equal(0, textBox.CaretIndex);
+        Assert.Equal(0, textBox.SelectionLength);
     });
 
     [Fact]
-    public void Setting_Date_to_null_externally_renders_empty_text_not_all_zero() => Sta.Run(() =>
+    public void Setting_Date_to_null_externally_renders_grey_mask_not_empty_text() => Sta.Run(() =>
     {
         var box = new AstDateBox { Template = BuildTemplate(), Date = new DateOnly(2026, 7, 23) };
         box.ApplyTemplate();
         var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
         Assert.Equal("23/07/2026", textBox.Text);
+        box.IsPristine.Should().BeFalse();
 
         box.Date = null;
 
-        Assert.Equal(string.Empty, textBox.Text);
+        Assert.Equal("00/00/0000", textBox.Text);
+        box.IsPristine.Should().BeTrue();
     });
 
 
-    // Regression lock for Finding 1: before this fix, clearing every digit
-    // via the keyboard left the box showing the engine's all-unfilled "00/00/0000" (never ""), and on blur
-    // CommitTextBoxValue's TryParse("00/00/0000") failed -- so Date stayed at its old value and the display
-    // silently reverted to the formatted old date, undoing the user's clear gesture with no keyboard way back
-    // to Date = null.
+    // Regression lock for Finding 1: clearing every digit
+    // via the keyboard leaves the grey mask visible; on blur CommitTextBoxValue uses editor semantics
+    // (no entered digit -> Date = null), not the display string.
     [Fact]
-    public void Clearing_every_digit_via_keyboard_empties_the_display_and_nulls_Date_on_blur() => Sta.Run(() =>
+    public void Clearing_every_digit_via_keyboard_shows_grey_mask_and_nulls_Date_on_blur() => Sta.Run(() =>
     {
         var box = new AstDateBox { Template = BuildTemplate(), Date = new DateOnly(2026, 7, 23) };
         box.ApplyTemplate();
@@ -1004,16 +1016,16 @@ public class AstDateBoxTests
             Assert.True(RaiseKeyDown(textBox, Key.Back));
         }
 
-        // Immediately: the display must show "" (the actual regression), not "00/00/0000".
-        Assert.Equal(string.Empty, textBox.Text);
+        Assert.Equal("00/00/0000", textBox.Text);
+        box.IsPristine.Should().BeTrue();
 
-        // Date itself only ever commits on blur/Enter (CommitTextBoxValue, decision 8 -- unchanged by this
-        // fix); simulate that blur and confirm the fix's mapping ("" -> Date = null) actually takes effect
-        // instead of reverting to the pre-clear Date.
+        // Date itself only ever commits on blur/Enter (CommitTextBoxValue); simulate that blur and confirm
+        // no-entered-digit -> Date = null instead of reverting to the pre-clear Date.
         textBox.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent, textBox));
 
         Assert.Null(box.Date);
-        Assert.Equal(string.Empty, textBox.Text);
+        Assert.Equal("00/00/0000", textBox.Text);
+        box.IsPristine.Should().BeTrue();
     });
 
     // Headless limitation (feedback-headless-harness-cannot-test-event-wiring): proves only that the
@@ -1081,6 +1093,133 @@ public class AstDateBoxTests
         box.Date.Should().Be(preEdit);
         textBox.Text.Should().Be("23/07/2026");
         // ClearFocus after Esc: F5, see Escape_after_editing_restores_pre_focus_Date_and_clears_focus.
+    });
+
+    // Backlog 3.66: replacing Day, Month and Year each with a single zero leaves Date unchanged and
+    // restores the formatted value on LostFocus (and Enter — sibling test below). The display string
+    // "00/00/0000" is NOT a clear; the editor still has entered digits.
+    [Fact]
+    public void Replacing_each_segment_with_a_single_zero_keeps_Date_and_reverts_on_LostFocus() => Sta.Run(() =>
+    {
+        var kept = new DateOnly(2026, 7, 23);
+        var box = new AstDateBox { Template = BuildTemplate(), Date = kept };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        textBox.Select(0, 2);
+        RaiseTextInput(textBox, "0");
+        textBox.Select(3, 2);
+        RaiseTextInput(textBox, "0");
+        textBox.Select(6, 4);
+        RaiseTextInput(textBox, "0");
+        textBox.Text.Should().Be("00/00/0000");
+        box.IsPristine.Should().BeFalse("three zeros were entered; colour must not look pristine");
+
+        textBox.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent, textBox));
+
+        box.Date.Should().Be(kept);
+        textBox.Text.Should().Be("23/07/2026");
+    });
+
+    [Fact]
+    public void Replacing_each_segment_with_a_single_zero_keeps_Date_and_reverts_on_Enter() => Sta.Run(() =>
+    {
+        var kept = new DateOnly(2026, 7, 23);
+        var box = new AstDateBox { Template = BuildTemplate(), Date = kept };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        textBox.Select(0, 2);
+        RaiseTextInput(textBox, "0");
+        textBox.Select(3, 2);
+        RaiseTextInput(textBox, "0");
+        textBox.Select(6, 4);
+        RaiseTextInput(textBox, "0");
+
+        RaiseKeyDown(textBox, Key.Enter).Should().BeTrue();
+
+        box.Date.Should().Be(kept);
+        textBox.Text.Should().Be("23/07/2026");
+    });
+
+    [Fact]
+    public void Clearing_every_digit_nulls_Date_on_Enter_as_well_as_LostFocus() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate(), Date = new DateOnly(2026, 7, 23) };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        textBox.Select(0, 2);
+        RaiseKeyDown(textBox, Key.Delete).Should().BeTrue();
+        textBox.Select(3, 2);
+        RaiseKeyDown(textBox, Key.Delete).Should().BeTrue();
+        textBox.Select(6, 4);
+        RaiseKeyDown(textBox, Key.Delete).Should().BeTrue();
+        textBox.Text.Should().Be("00/00/0000");
+        box.IsPristine.Should().BeTrue();
+
+        RaiseKeyDown(textBox, Key.Enter).Should().BeTrue();
+
+        box.Date.Should().BeNull();
+        textBox.Text.Should().Be("00/00/0000");
+        box.IsPristine.Should().BeTrue();
+    });
+
+    [Fact]
+    public void Leading_zero_is_not_pristine_even_though_display_string_matches_the_mask() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        box.IsPristine.Should().BeTrue();
+        textBox.Text.Should().Be("00/00/0000");
+
+        RaiseTextInput(textBox, "0");
+
+        textBox.Text.Should().Be("00/00/0000");
+        box.IsPristine.Should().BeFalse();
+        textBox.CaretIndex.Should().Be(1);
+    });
+
+    [Fact]
+    public void Pristine_GotFocus_with_caret_at_end_forces_Day_and_caret_0() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        // Mimic WPF-UI's focus behaviour: CaretIndex = Text.Length before GotFocus handlers run.
+        textBox.CaretIndex = textBox.Text.Length;
+        RaiseGotFocus(textBox);
+
+        box.ActivePart.Should().Be(DatePart.Day);
+        textBox.CaretIndex.Should().Be(0);
+        textBox.SelectionLength.Should().Be(0);
+    });
+
+    [Fact]
+    public void Pristine_selection_gestures_normalize_to_caret_0_without_highlighting_the_mask() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        // Ctrl+A / drag / double-click / Home-End land as a non-empty selection over the mask.
+        textBox.Select(0, textBox.Text.Length);
+        textBox.CaretIndex.Should().Be(0);
+        textBox.SelectionLength.Should().Be(0);
+        box.ActivePart.Should().Be(DatePart.Day);
+
+        textBox.Select(6, 4);
+        textBox.CaretIndex.Should().Be(0);
+        textBox.SelectionLength.Should().Be(0);
+        box.ActivePart.Should().Be(DatePart.Day);
+
+        textBox.CaretIndex = 10;
+        textBox.SelectionLength = 0;
+        textBox.CaretIndex.Should().Be(0);
+        box.ActivePart.Should().Be(DatePart.Day);
     });
 
     private static void RaiseGotFocus(UiTextBox textBox)

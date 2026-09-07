@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -48,15 +47,17 @@ public class AstDateBox : Control
 
     // FormatDisplay() paints unfilled slots as '0', so "00/00/0000" is both the pristine (nothing
     // entered) string and a legal mid-entry mask when a Day or Month leading zero is filled. Semantic
-    // emptiness is _editor.HasAnyEnteredDigit, not this literal. The constant remains so
-    // CommitTextBoxValue can still accept the literal interchangeably with empty on commit.
-    private const string AllUnfilledDisplay = "00/00/0000";
+    // pristine is !_editor.HasAnyEnteredDigit (and the read-only IsPristine DP), never the display
+    // string and never Text.Length == 0 — the mask is always rendered.
 
     private TextBox? _textBox;
     private ToggleButton? _glyphToggle;
     private Calendar? _calendar;
     private bool _syncingText;
     private bool _syncingCalendar;
+    // Guards the pristine selection boundary: normalizing to (0,0) raises SelectionChanged again;
+    // without this flag the handler would re-enter forever.
+    private bool _normalizingPristineSelection;
 
     // Captured at TextBox GotFocus — Esc restores this (typing often never writes Date until commit;
     // a valid paste does commit mid-focus, so reading Date at Esc-time would wrongly no-op).
@@ -70,12 +71,23 @@ public class AstDateBox : Control
         nameof(Date), typeof(DateOnly?), typeof(AstDateBox),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, OnDateChanged));
 
-    // The entered date; null = empty. The masked text box is the single source of truth.
+    // The entered date; null = cleared (no committed value). The text box still shows the grey mask.
+    // The masked text box is the single source of truth for what the operator typed.
     public DateOnly? Date
     {
         get => (DateOnly?)GetValue(DateProperty);
         set => SetValue(DateProperty, value);
     }
+
+    // Read-only: mirrors !_editor.HasAnyEnteredDigit so a consumer cannot disagree with the editor.
+    // Drives the grey-mask Foreground trigger on PART_TextBox while pristine and enabled.
+    private static readonly DependencyPropertyKey IsPristinePropertyKey =
+        DependencyProperty.RegisterReadOnly(
+            nameof(IsPristine), typeof(bool), typeof(AstDateBox), new PropertyMetadata(true));
+
+    public static readonly DependencyProperty IsPristineProperty = IsPristinePropertyKey.DependencyProperty;
+
+    public bool IsPristine => (bool)GetValue(IsPristineProperty);
 
     public static readonly DependencyProperty ShowCalendarGlyphProperty = DependencyProperty.Register(
         nameof(ShowCalendarGlyph), typeof(bool), typeof(AstDateBox), new PropertyMetadata(false));
@@ -108,6 +120,7 @@ public class AstDateBox : Control
         {
             _textBox.LostFocus -= OnTextBoxLostFocus;
             _textBox.GotFocus -= OnTextBoxGotFocus;
+            _textBox.SelectionChanged -= OnTextBoxSelectionChanged;
             _textBox.RemoveHandler(UIElement.MouseLeftButtonUpEvent, (MouseButtonEventHandler)OnTextBoxMouseLeftButtonUp);
             _textBox.PreviewTextInput -= OnTextBoxPreviewTextInput;
             _textBox.PreviewKeyDown -= OnTextBoxPreviewKeyDown;
@@ -133,6 +146,7 @@ public class AstDateBox : Control
             _textBox.IsUndoEnabled = false;
             _textBox.LostFocus += OnTextBoxLostFocus;
             _textBox.GotFocus += OnTextBoxGotFocus;
+            _textBox.SelectionChanged += OnTextBoxSelectionChanged;
             // handledEventsToo: true is load-bearing, not defensive. TextBoxBase's own TextEditor class
             // handler marks the mouse-up HANDLED before the event reaches instance handlers, so a plain
             // `_textBox.MouseLeftButtonUp += ...` subscription never fires in a live window -- clicking a
@@ -168,10 +182,11 @@ public class AstDateBox : Control
         try
         {
             // Keep the engine in sync with every Date change (external sets + the commit path below) so
-            // it is ready for the next keystroke. Date == null must render "" (empty), NOT the engine's
-            // all-zero FormatDisplay() -- preserves the existing empty-field UX.
+            // it is ready for the next keystroke. A null date is a grey mask (FormatDisplay), not empty
+            // text — colour (IsPristine) carries the difference from an entered leading zero.
             _editor.SetDate(Date);
-            _textBox.Text = Date is null ? string.Empty : _editor.FormatDisplay();
+            PublishPristineState();
+            _textBox.Text = _editor.FormatDisplay();
         }
         finally { _syncingText = false; }
     }
@@ -181,31 +196,24 @@ public class AstDateBox : Control
         CommitTextBoxValue();
     }
 
-    // Parse-or-clear the typed text into Date, then SyncTextFromDate (revert garbage / format valid).
-    // Shared by LostFocus and Enter so both commit paths stay identical.
+    // LostFocus and Enter share this path. Three-way on editor semantics, never on the display string:
+    //   no entered digit        -> clear Date
+    //   all digits form a date  -> commit Date
+    //   some entered digits     -> keep the old Date and revert the display
     private void CommitTextBoxValue()
     {
         if (_syncingText || _textBox is null) return;
 
-        // Empty text is a deliberate clear (-> Date = null); a genuine dd/MM/yyyy parse sets Date; anything
-        // else is unparseable garbage that must NOT overwrite an already-valid Date (TryParse returning null
-        // for garbage is not the same as the user clearing the field) -- leave Date untouched and just revert
-        // the text via SyncTextFromDate below.
-        // "00/00/0000" (the engine's all-unfilled FormatDisplay) is treated the same as empty -- it is never a
-        // valid calendar date (day/month/year 0 are all engine-rejected, see RenderDisplay), so this mapping
-        // is unambiguous. Without it, clearing every digit via Backspace/Delete had no keyboard path back to
-        // Date = null: TryParse("00/00/0000") fails, so Date stayed untouched and the display silently reverted.
-        var text = _textBox.Text;
-        if (string.IsNullOrEmpty(text) || text == AllUnfilledDisplay)
+        if (!_editor.HasAnyEnteredDigit)
         {
             Date = null;
         }
-        else if (TryParse(text) is { } parsed)
+        else if (_editor.TryGetDate(out var parsed))
         {
             Date = parsed;
         }
 
-        SyncTextFromDate(); // revert to the formatted value (or clear) on an invalid/partial entry
+        SyncTextFromDate(); // revert to the formatted value (or grey mask) on an invalid/partial entry
     }
 
     private void OnGlyphChecked(object sender, RoutedEventArgs e)
@@ -255,11 +263,6 @@ public class AstDateBox : Control
         if (_glyphToggle is not null) _glyphToggle.IsChecked = false;
     }
 
-    private static DateOnly? TryParse(string? text)
-        => DateOnly.TryParseExact(text, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)
-            ? d
-            : null;
-
     // ---- dd/MM/yyyy segment mask (P2) ----
     // Drives _editor (DdMmYyyySegmentEditor, AST.Core P1) instead of hand-rolling digit-buffer parsing --
     // the engine is the single source of truth for what is a legal partial/complete date; this region only
@@ -280,7 +283,31 @@ public class AstDateBox : Control
         if (_textBox is null) return;
         // Pre-edit anchor for Esc (requester 2026-08-07) — must snapshot here, not at Esc time.
         _dateOnFocus = Date;
-        SelectSegmentAt(_textBox.CaretIndex);
+        // WPF-UI sets CaretIndex = Text.Length on focus. With a permanent ten-character mask that lands
+        // on Year; pristine must force Day and caret 0 instead of trusting the live caret.
+        if (!_editor.HasAnyEnteredDigit)
+            SelectSegment(DatePart.Day);
+        else
+            SelectSegmentAt(_textBox.CaretIndex);
+    }
+
+    // Pristine selection boundary: Ctrl+A, Home/End, drag, double-click and modified arrows can highlight
+    // mask characters nobody typed. Normalize to (0,0) while pristine. _normalizingPristineSelection
+    // makes the SelectionChanged our own Select/CaretIndex writes raise settle in one step.
+    private void OnTextBoxSelectionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_textBox is null || _syncingText || _normalizingPristineSelection) return;
+        if (_editor.HasAnyEnteredDigit) return;
+        if (_textBox.CaretIndex == 0 && _textBox.SelectionLength == 0) return;
+
+        _normalizingPristineSelection = true;
+        try
+        {
+            _editor.SelectPart(DatePart.Day);
+            _textBox.CaretIndex = 0;
+            _textBox.SelectionLength = 0;
+        }
+        finally { _normalizingPristineSelection = false; }
     }
 
     private void OnTextBoxMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -461,9 +488,8 @@ public class AstDateBox : Control
         var partBeforeDigit = _editor.ActivePart;
         if (!_editor.ApplyDigit(digit)) return; // calendar-illegal or buffer full -- leave text/caret as-is
 
-        // A successful digit guarantees at least one filled slot, so FormatDisplay's "00/00/0000"
-        // is no longer pristine — do not pass it through RenderDisplay's pristine-only collapse
-        // (backlog 3.59 / card 275). Backspace, Delete and null-date sync keep that collapse.
+        // Publish IsPristine before assigning Text: after a first leading zero the string is
+        // byte-identical to the grey mask, so TextChanged may not fire; the property change must repaint.
         var after = _editor.FormatDisplay();
         var partAfterDigit = _editor.ActivePart;
         var advanced = partAfterDigit != partBeforeDigit;
@@ -471,6 +497,7 @@ public class AstDateBox : Control
         _syncingText = true;
         try
         {
+            PublishPristineState();
             _textBox.Text = after;
 
             if (advanced)
@@ -489,8 +516,6 @@ public class AstDateBox : Control
             // the engine's authoritative IndexInPart (see its doc comment) rather than diffing display
             // strings. After a successful digit the display is never empty — including a first day '0',
             // which FormatDisplay renders as "00/00/0000" while the tens slot is filled (IndexInPart == 1).
-            // Collapsing that string used to force caret 0 and hide the accepted digit; that deliberate
-            // choice is reversed here (card 275 / backlog 3.59).
             _textBox.CaretIndex = SegmentRange(_editor.ActivePart).Start + _editor.IndexInPart;
         }
         finally { _syncingText = false; }
@@ -502,19 +527,20 @@ public class AstDateBox : Control
 
         if (!_editor.ApplyBackspace()) return; // already at the very start -- nothing to remove
 
-        var rendered = RenderDisplay(_editor.FormatDisplay());
+        var rendered = _editor.FormatDisplay();
         _syncingText = true;
         try
         {
+            PublishPristineState();
             _textBox.Text = rendered;
             // Derived straight from the engine's authoritative IndexInPart (see its doc comment) rather
             // than diffing display strings.
-            if (rendered.Length == 0)
+            if (!_editor.HasAnyEnteredDigit)
             {
-                // Mirror SelectSegment's empty-field branch: reset ActivePart to Day so the next digit
-                // lands in Day, not whatever part was cleared last.
+                // Straight back to grey mask: Day active, caret 0, nothing selected.
                 _editor.SelectPart(DatePart.Day);
                 _textBox.CaretIndex = 0;
+                _textBox.SelectionLength = 0;
             }
             else
             {
@@ -530,17 +556,18 @@ public class AstDateBox : Control
 
         if (!_editor.ApplyDelete()) return; // nothing left to clear from the caret forward
 
-        var rendered = RenderDisplay(_editor.FormatDisplay());
+        var rendered = _editor.FormatDisplay();
         _syncingText = true;
         try
         {
+            PublishPristineState();
             _textBox.Text = rendered;
-            if (rendered.Length == 0)
+            if (!_editor.HasAnyEnteredDigit)
             {
-                // Mirror SelectSegment's empty-field branch: reset ActivePart to Day so the next digit
-                // lands in Day, not whatever part was cleared last.
+                // Straight back to grey mask: Day active, caret 0, nothing selected.
                 _editor.SelectPart(DatePart.Day);
                 _textBox.CaretIndex = 0;
+                _textBox.SelectionLength = 0;
             }
             else
             {
@@ -561,14 +588,12 @@ public class AstDateBox : Control
     {
         if (_textBox is null) return;
 
-        if (_textBox.Text.Length == 0)
+        if (!_editor.HasAnyEnteredDigit)
         {
-            // Nothing typed yet (an empty field, post-Finding-1 clear) -- segment text coordinates don't exist
-            // to Select() against. Land on Day with a plain caret instead. (TextBox.Select clamps positive
-            // out-of-range values rather than throwing -- the guard is needed for the ENGINE's sake: without
-            // it an empty field would be anchored on Month/Year instead of Day.)
+            // Pristine: Day active, caret 0, nothing selected — never highlight mask characters.
             _editor.SelectPart(DatePart.Day);
             _textBox.CaretIndex = 0;
+            _textBox.SelectionLength = 0;
             return;
         }
 
@@ -593,7 +618,8 @@ public class AstDateBox : Control
     // it does NOT become a replace-that-text edit.
     private void SyncEditorPartFromSelection()
     {
-        if (_textBox is null || _textBox.Text.Length == 0) return;
+        // Never infer an active segment from caret coordinates over characters nobody typed.
+        if (_textBox is null || !_editor.HasAnyEnteredDigit) return;
 
         if (IsWholeSegmentSelected(out var selected))
         {
@@ -659,9 +685,8 @@ public class AstDateBox : Control
         _ => null
     };
 
-    // Collapses FormatDisplay to "" only when the editor reports no entered digit. Backspace and Delete
-    // share this boundary; ApplyEditorDigit writes FormatDisplay directly (card 275); SyncTextFromDate
-    // assigns empty when Date is null without calling here.
-    private string RenderDisplay(string display) =>
-        _editor.HasAnyEnteredDigit ? display : string.Empty;
+    // Publish before assigning Text so a first leading zero (byte-identical string) still repaints via
+    // the IsPristine → Foreground trigger.
+    private void PublishPristineState()
+        => SetValue(IsPristinePropertyKey, !_editor.HasAnyEnteredDigit);
 }
