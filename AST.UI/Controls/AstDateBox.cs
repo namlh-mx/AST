@@ -461,17 +461,19 @@ public class AstDateBox : Control
         var partBeforeDigit = _editor.ActivePart;
         if (!_editor.ApplyDigit(digit)) return; // calendar-illegal or buffer full -- leave text/caret as-is
 
+        // A successful digit guarantees at least one filled slot, so FormatDisplay's "00/00/0000"
+        // is no longer pristine — do not pass it through RenderDisplay's pristine-only collapse
+        // (backlog 3.59 / card 275). Backspace, Delete and null-date sync keep that collapse.
         var after = _editor.FormatDisplay();
         var partAfterDigit = _editor.ActivePart;
-        var rendered = RenderDisplay(after);
         var advanced = partAfterDigit != partBeforeDigit;
 
         _syncingText = true;
         try
         {
-            _textBox.Text = rendered;
+            _textBox.Text = after;
 
-            if (advanced && rendered.Length > 0)
+            if (advanced)
             {
                 // Requester-corrected 2026-08-07 (post-P2 F5): completing a segment must SELECT the newly
                 // active one exactly like a click/arrow/`/` would (SelectSegment does both _editor.SelectPart
@@ -485,10 +487,11 @@ public class AstDateBox : Control
             // Same-part, not-yet-complete case (e.g. the first digit of a 2-digit day that isn't 4-9
             // auto-fill): plain caret right after the digit just typed, no selection. Derived straight from
             // the engine's authoritative IndexInPart (see its doc comment) rather than diffing display
-            // strings. rendered.Length == 0 IS reachable by typing (not defense-only): a whole-selected empty
-            // Day accepting '0' renders FormatDisplay()'s all-unfilled "00/00/0000", which RenderDisplay
-            // collapses to "" (AllUnfilledDisplay, pre-existing since fix round 1) -- caret 0 is correct there.
-            _textBox.CaretIndex = rendered.Length == 0 ? 0 : SegmentRange(_editor.ActivePart).Start + _editor.IndexInPart;
+            // strings. After a successful digit the display is never empty — including a first day '0',
+            // which FormatDisplay renders as "00/00/0000" while the tens slot is filled (IndexInPart == 1).
+            // Collapsing that string used to force caret 0 and hide the accepted digit; that deliberate
+            // choice is reversed here (card 275 / backlog 3.59).
+            _textBox.CaretIndex = SegmentRange(_editor.ActivePart).Start + _editor.IndexInPart;
         }
         finally { _syncingText = false; }
     }
