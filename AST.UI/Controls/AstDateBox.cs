@@ -129,9 +129,12 @@ public class AstDateBox : Control
             _textBox.SelectionChanged -= OnTextBoxSelectionChanged;
             _textBox.PreviewMouseLeftButtonDown -= OnTextBoxPreviewMouseLeftButtonDown;
             _textBox.RemoveHandler(UIElement.MouseLeftButtonUpEvent, (MouseButtonEventHandler)OnTextBoxMouseLeftButtonUp);
+            _textBox.LostMouseCapture -= OnTextBoxLostMouseCapture;
             _textBox.PreviewTextInput -= OnTextBoxPreviewTextInput;
             _textBox.PreviewKeyDown -= OnTextBoxPreviewKeyDown;
             DataObject.RemovePastingHandler(_textBox, OnTextBoxPaste);
+            // Template part replaced: do not let a mid-gesture flag ride onto the new TextBox.
+            _leftButtonGestureActive = false;
         }
         if (_glyphToggle is not null)
         {
@@ -168,6 +171,9 @@ public class AstDateBox : Control
                 UIElement.MouseLeftButtonUpEvent,
                 (MouseButtonEventHandler)OnTextBoxMouseLeftButtonUp,
                 handledEventsToo: true);
+            // Capture can end without MouseLeftButtonUp (deactivation / another capturer). Clear the
+            // gesture stand-down so pristine SelectionChanged normalization resumes.
+            _textBox.LostMouseCapture += OnTextBoxLostMouseCapture;
             _textBox.PreviewTextInput += OnTextBoxPreviewTextInput;
             _textBox.PreviewKeyDown += OnTextBoxPreviewKeyDown;
             DataObject.AddPastingHandler(_textBox, OnTextBoxPaste);
@@ -336,6 +342,9 @@ public class AstDateBox : Control
 
     private void OnTextBoxPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         => _leftButtonGestureActive = true;
+
+    private void OnTextBoxLostMouseCapture(object sender, MouseEventArgs e)
+        => _leftButtonGestureActive = false;
 
     private void OnTextBoxMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {

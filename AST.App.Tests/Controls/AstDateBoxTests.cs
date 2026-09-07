@@ -112,7 +112,7 @@ public class AstDateBoxTests
 
         Assert.Equal(new DateOnly(2026, 7, 23), box.Date);
         Assert.True(args.Handled);
-        // Enter now MoveFocus(Next); focus destination is asserted in Enter_moves_focus_to_next_element.
+        // Enter now MoveFocus(Next). Focus destination is F5-only (requester settled at F5 step 6); not asserted headless.
     });
 
     /// <summary>
@@ -400,8 +400,8 @@ public class AstDateBoxTests
     // "case B / fix round 3" framing as overstated): Month here is FULLY filled ("07"), so this already passed
     // under round 2's fix (Year/any-part fully-filled fast path); it pins that the auto-advance-REACHED
     // selection (not just a click-reached one) also gets the requester's "a selected segment always clears in
-    // full" treatment. The genuinely round-3-discriminating case (auto-advance landing on a PARTIALLY filled
-    // segment) is covered separately below.
+    // full" treatment. Auto-advance onto Year left earlier via arrows (now finalized by the fill gate on leave)
+    // is covered separately below.
     [Fact]
     public void Backspace_right_after_auto_advance_onto_a_filled_segment_wipes_the_whole_segment() => Sta.Run(() =>
     {
@@ -420,15 +420,12 @@ public class AstDateBoxTests
         Assert.Equal("30/00/2026", textBox.Text); // whole Month wiped, not just the last Day digit undone
     });
 
-    // Fix round 3: auto-advance can also land on a segment
-    // that is only PARTIALLY filled (here: Year "1900", 2 of 4 slots) -- e.g. the user started overwriting
-    // Year, moved away without finishing, then retyped Day/Month and auto-advanced straight back onto that
-    // same not-yet-complete Year. Under the OLD gate (CountFilled == PartLen required for the whole-clear fast
-    // path), this Backspace would fall through to a per-slot delete and leave a residual "0900" behind instead
-    // of clearing the whole segment -- the requester's "a selected segment always clears in full" rule applies
-    // regardless of fill level, not just to fully-typed segments.
+    // Auto-advance can land on Year after the operator previously left it mid-edit via arrows. With the
+    // fill gate, arrowing away from "19__" finalizes Year to 1900 — so there is no partial non-active
+    // segment any more. The auto-advance-REACHED whole Year selection must still wipe in one Backspace
+    // (requester: a selected segment always clears in full), not fall through to a per-slot delete.
     [Fact]
-    public void Backspace_right_after_auto_advance_onto_a_partially_filled_segment_wipes_the_whole_segment() => Sta.Run(() =>
+    public void Backspace_right_after_auto_advance_onto_Year_left_earlier_via_arrows_wipes_the_whole_segment() => Sta.Run(() =>
     {
         var box = new AstDateBox { Template = BuildTemplate(), Date = new DateOnly(2026, 7, 23) };
         box.ApplyTemplate();
@@ -437,23 +434,23 @@ public class AstDateBoxTests
 
         box.SelectSegmentAt(9); // whole-select Year
         RaiseTextInput(textBox, "1");
-        RaiseTextInput(textBox, "9"); // Year now "1900" -- only 2 of 4 slots filled, not yet complete
+        RaiseTextInput(textBox, "9"); // Year display "1900" — two slots typed; leave via arrows finalizes to 1900
 
-        Assert.True(RaiseKeyDown(textBox, Key.Left)); // Year -> Month
+        Assert.True(RaiseKeyDown(textBox, Key.Left)); // Year -> Month (finalizes Year)
         Assert.True(RaiseKeyDown(textBox, Key.Left)); // Month -> Day
         Assert.Equal(DatePart.Day, box.ActivePart);
 
         RaiseTextInput(textBox, "3");
         RaiseTextInput(textBox, "0"); // completes Day, auto-advances to (and selects) Month
         RaiseTextInput(textBox, "1");
-        RaiseTextInput(textBox, "1"); // completes Month, auto-advances back onto the still-partial Year
+        RaiseTextInput(textBox, "1"); // completes Month, auto-advances onto the finalized Year
         Assert.Equal(DatePart.Year, box.ActivePart);
         Assert.Equal(6, textBox.SelectionStart);
         Assert.Equal(4, textBox.SelectionLength);
 
         RaiseKeyDown(textBox, Key.Back);
 
-        Assert.Equal("30/11/0000", textBox.Text); // whole Year wiped -- not "30/11/0900" (old per-slot residue)
+        Assert.Equal("30/11/0000", textBox.Text); // whole Year wiped — not a per-slot residue
     });
 
     [Fact]
@@ -1330,6 +1327,63 @@ public class AstDateBoxTests
         textBox.SelectionLength.Should().Be(4);
     });
 
+    // Capture can end without MouseLeftButtonUp (WPF TextEditorMouse early-returns
+    // OnMouseUp when the UI scope no longer holds capture). The gesture flag must clear on LostMouseCapture
+    // so pristine SelectionChanged normalization resumes — otherwise Ctrl+A / Home / End leave a raw selection.
+    [Fact]
+    public void LostMouseCapture_clears_the_gesture_flag_so_pristine_normalization_resumes() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+        RaiseGotFocus(textBox);
+        box.IsPristine.Should().BeTrue();
+        box.ActivePart.Should().Be(DatePart.Day);
+
+        RaisePreviewMouseLeftButtonDown(textBox);
+        RaiseLostMouseCapture(textBox);
+
+        // End-style caret at the mask end — with a stale gesture flag the normalizer stands down and this sticks.
+        textBox.CaretIndex = 10;
+        textBox.SelectionLength = 0;
+
+        textBox.SelectionStart.Should().Be(0);
+        textBox.SelectionLength.Should().Be(2);
+        box.ActivePart.Should().Be(DatePart.Day);
+    });
+
+    // SyncEditorPartFromSelection's fill gate (one of five sites) had structural
+    // evidence only. Drive a foreign WHOLE segment via TextBox.Select — not SelectSegmentAt (that is
+    // SelectSegment's gate; the Right-arrow test also steps through SelectSegment after Sync and
+    // can pass while this branch is broken). A lone Day zero must NothingEntered-clear on leave; without
+    // the Sync gate the entered zero survives and IsPristine stays false after Month is wiped.
+    [Fact]
+    public void SyncEditorPartFromSelection_finalizes_partial_ActivePart_before_adopting_a_foreign_whole_selection() => Sta.Run(() =>
+    {
+        var box = new AstDateBox { Template = BuildTemplate() };
+        box.ApplyTemplate();
+        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
+
+        RaiseGotFocus(textBox);
+        RaiseTextInput(textBox, "0");
+        textBox.Text.Should().Be("00/00/0000");
+        box.IsPristine.Should().BeFalse();
+        box.ActivePart.Should().Be(DatePart.Day);
+
+        textBox.Select(3, 2); // whole Month; engine still on partial Day
+        RaiseTextInput(textBox, "5"); // Sync finalizes Day→clear, then Month 5→05 and auto-advances
+
+        textBox.Text.Should().Be("00/05/0000");
+        box.ActivePart.Should().Be(DatePart.Year);
+
+        textBox.Select(3, 2);
+        RaiseKeyDown(textBox, Key.Delete).Should().BeTrue();
+
+        textBox.Text.Should().Be("00/00/0000");
+        box.IsPristine.Should().BeTrue(
+            "Day's entered zero must have been NothingEntered-cleared inside SyncEditorPartFromSelection; otherwise it would keep the field non-pristine after Month is wiped");
+    });
+
     [Fact]
     public void Typing_one_Day_digit_then_navigating_to_Month_finalizes_Day_and_highlights_Month() => Sta.Run(() =>
     {
@@ -1524,6 +1578,15 @@ public class AstDateBoxTests
         var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, timestamp: 0, MouseButton.Left)
         {
             RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent
+        };
+        textBox.RaiseEvent(args);
+    }
+
+    private static void RaiseLostMouseCapture(UiTextBox textBox)
+    {
+        var args = new MouseEventArgs(Mouse.PrimaryDevice, timestamp: 0)
+        {
+            RoutedEvent = UIElement.LostMouseCaptureEvent
         };
         textBox.RaiseEvent(args);
     }
