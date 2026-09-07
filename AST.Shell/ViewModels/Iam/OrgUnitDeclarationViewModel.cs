@@ -501,19 +501,6 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         MarkDirty();
     }
 
-    // Card 276 / backlog 3.58: discard-confirmed overlay close. Release the live cache (do not call
-    // MarkSupplementalDirty — that would record a discard as an edit and leave the cache non-null),
-    // recompute dirty against the mode-entry baseline, then refresh the revert-clean sentence.
-    public void DiscardLiveSupplementalDraft()
-    {
-        if (_isLoading)
-            return;
-
-        _liveSupplementalDraft = null;
-        RecomputeIsDirtyFromEntryBaseline();
-        RefreshRevertCleanStatus();
-    }
-
     // Real eligible-parent set from GetEligibleParentsAsync. The replace-parent gate reads this.
     public IReadOnlyList<OrgUnitPickerItem> ParentCandidates => ParentDecision.RealCandidates;
 

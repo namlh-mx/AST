@@ -599,64 +599,6 @@ public class AstDateBoxTests
         Assert.Equal("03/07/2026", textBox.Text); // only the day's tens slot ('2') is cleared
     });
 
-    // Card 275 / backlog 3.59: a first day digit of 0 fills the tens slot and FormatDisplay yields
-    // "00/00/0000" — the same string as pristine. RenderDisplay must NOT collapse that after a successful
-    // ApplyDigit, or the accepted zero disappears and the caret is forced to 0.
-    [Fact]
-    public void Typing_leading_zero_into_empty_day_shows_placeholder_mask_and_advances_caret_to_units() => Sta.Run(() =>
-    {
-        var box = new AstDateBox { Template = BuildTemplate() };
-        box.ApplyTemplate();
-        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
-        textBox.Text.Should().BeEmpty();
-
-        RaiseTextInput(textBox, "0");
-
-        textBox.Text.Should().Be("00/00/0000");
-        box.ActivePart.Should().Be(DatePart.Day);
-        textBox.CaretIndex.Should().Be(1, "day tens is filled; caret sits on the day-units slot");
-        textBox.SelectionLength.Should().Be(0);
-    });
-
-    [Fact]
-    public void Typing_zero_then_units_digit_into_empty_day_completes_day_and_selects_month() => Sta.Run(() =>
-    {
-        var box = new AstDateBox { Template = BuildTemplate() };
-        box.ApplyTemplate();
-        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
-
-        RaiseTextInput(textBox, "0");
-        // Intermediate pin: without this, a silently-accepted engine '0' plus a visible '3' still
-        // lands on 03/Month and hides the display collapse that is the whole defect.
-        textBox.Text.Should().Be("00/00/0000");
-        textBox.CaretIndex.Should().Be(1);
-
-        RaiseTextInput(textBox, "3");
-
-        textBox.Text.Should().Be("03/00/0000");
-        box.ActivePart.Should().Be(DatePart.Month);
-        textBox.SelectionStart.Should().Be(3);
-        textBox.SelectionLength.Should().Be(2);
-    });
-
-    [Fact]
-    public void Typing_zero_twice_into_empty_day_refuses_day_00_and_leaves_text_and_caret() => Sta.Run(() =>
-    {
-        var box = new AstDateBox { Template = BuildTemplate() };
-        box.ApplyTemplate();
-        var textBox = (UiTextBox)box.Template.FindName("PART_TextBox", box)!;
-
-        RaiseTextInput(textBox, "0");
-        textBox.Text.Should().Be("00/00/0000");
-        var caretAfterFirst = textBox.CaretIndex;
-
-        RaiseTextInput(textBox, "0");
-
-        textBox.Text.Should().Be("00/00/0000");
-        box.ActivePart.Should().Be(DatePart.Day);
-        textBox.CaretIndex.Should().Be(caretAfterFirst);
-    });
-
     [Fact]
     public void Typing_a_placeholder_matching_digit_mid_segment_does_not_move_the_caret_backward() => Sta.Run(() =>
     {

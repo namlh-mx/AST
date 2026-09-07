@@ -595,12 +595,6 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
                 // D4: same single leave question as the card, through the shared base gate.
                 if (!await ConfirmLeaveAsync())
                     return;
-
-                // Card 276 / backlog 3.58: the operator confirmed discarding the overlay draft.
-                // Tell the ViewModel before collapsing so dirty recomputes against the entry baseline
-                // without the thrown-away live cache.
-                if (DataContext is OrgUnitDeclarationViewModel discardVm)
-                    discardVm.DiscardLiveSupplementalDraft();
             }
             else if (SupplementalHost.IsDraftLocked)
             {
