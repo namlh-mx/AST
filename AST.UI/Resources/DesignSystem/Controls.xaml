@@ -461,20 +461,28 @@
         DisplayTextBox uses WPF-UI's own default ui:TextBox padding (no override) so it matches every
         other plain-textbox form field's height exactly. The Editable ComboBox is re-templated from scratch (WPF-UI 4.3 ships
         no ComboBox type) using AST's own Palette/Spacing tokens so it reads as one visual family with
-        ui:TextBox. ContentSite Padding is tuned so the first glyph shares the Display TextBoxView
-        origin (backlog 3.72 half B / card 297) — not the stock 8,0,8,0 that sat left and above that glyph.
+        ui:TextBox. ContentSite Padding is the named-part sum that centres with Display's TextBoxView
+        origin at every field height (backlog 3.72 half B / cards 297+301) — not the stock 8,0,8,0
+        that sat left and above that glyph, and not a single-DPI probe literal.
         Display-only overall — the picker does no filtering and no DB access. No
         Themes/Generic.xaml — same keyed-style convention as AstField / AstDateBox.
     -->
     <Style x:Key="AstOrgUnitPickerComboBox" TargetType="{x:Type ComboBox}">
         <!--
-            Matches the Display TextBoxView origin measured under the merged WPF-UI 4.3 dictionaries
-            (≈13.714,9.143 DIP at the layout harness DPI). Left/Top place ContentSite; Right/Bottom
-            mirror ui:TextBox's 10,8,10,7 so the selection string keeps the same inset family.
-            VerticalAlignment=Top on ContentSite is required — Center would ignore Top and re-introduce
-            the half-B vertical shift.
+            ContentSite margin mirrors Display's padded, centred box (card 301). Left inset is NOT a
+            single summed literal (that collapses three layout-rounded edges into one and drifts at
+            PerMonitorV2). Parts are applied as separate thicknesses so rounding matches Display:
+            - Padding.Left 1 = picker chrome BorderThickness (= WPF-UI TextBoxBorderThemeThickness)
+            - Padding Top/Right/Bottom 8,10,7 = TextControlThemePadding (WPF-UI 4.3.0 Variables.xaml)
+            - ContentTemplate host Margin.Left 10 = TextControlThemePadding.Left
+            - TextBlock Margin.Left 2 = TextBoxView default Margin = CaretElement.BidiCaretIndicatorWidth
+              https://github.com/lepoco/wpfui/blob/4.3.0/src/Wpf.Ui/Resources/Variables.xaml
+              https://github.com/lepoco/wpfui/blob/4.3.0/src/Wpf.Ui/Controls/TextBox/TextBox.xaml
+              https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/PresentationFramework/MS/Internal/documents/TextBoxView.cs
+              https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/PresentationFramework/System/Windows/Documents/CaretElement.cs
+            ContentSite VerticalAlignment=Center centres inside that asymmetric padded box.
         -->
-        <Setter Property="Padding" Value="13.714,9.143,10,7" />
+        <Setter Property="Padding" Value="1,8,10,7" />
         <Setter Property="Background" Value="{StaticResource AstSurfaceCardBrush}" />
         <Setter Property="Template">
             <Setter.Value>
@@ -590,12 +598,29 @@
                             Grid.Column="0"
                             Margin="{TemplateBinding Padding}"
                             HorizontalAlignment="Stretch"
-                            VerticalAlignment="Top"
+                            VerticalAlignment="Center"
                             Content="{TemplateBinding SelectionBoxItem}"
                             ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
-                            ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                            ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
-                            IsHitTestVisible="False" />
+                            IsHitTestVisible="False">
+                            <!--
+                                Closed selection must ellipsize when the label outruns ContentSite
+                                (chevron column is intentional capacity loss). Default generated
+                                TextBlock has TextTrimming=None → hard clip. Explicit template pins
+                                CharacterEllipsis; see https://learn.microsoft.com/dotnet/desktop/wpf/advanced/how-to-enable-text-trimming
+                            -->
+                            <ContentPresenter.ContentTemplate>
+                                <DataTemplate>
+                                    <!-- Token left (10) then TextBoxView/Bidi caret inset (2); see Padding comment. -->
+                                    <Border Margin="10,0,0,0" Background="Transparent">
+                                        <TextBlock
+                                            Margin="2,0,0,0"
+                                            Text="{Binding}"
+                                            TextTrimming="CharacterEllipsis"
+                                            TextWrapping="NoWrap" />
+                                    </Border>
+                                </DataTemplate>
+                            </ContentPresenter.ContentTemplate>
+                        </ContentPresenter>
                         <Popup
                             x:Name="PART_Popup"
                             AllowsTransparency="True"

@@ -135,28 +135,52 @@ public class AstOrgUnitPickerLayoutTests
     // Tolerance stays at the suite's existing 0.001 DIP — exact equality is the invariant, and this
     // harness already holds outer ActualWidth/Height to that epsilon at one process DPI.
     [Fact]
-    public void Display_and_Editable_first_glyph_origins_match() => Sta.RunOnSharedStaThread(() =>
+    public void Display_and_Editable_first_glyph_origins_match_at_36_and_40_dip() => Sta.RunOnSharedStaThread(() =>
     {
         OffscreenHost.EnsureApplication();
 
-        var display = MeasureFirstGlyphOrigin(AstOrgUnitPickerMode.Display);
-        var editable = MeasureFirstGlyphOrigin(AstOrgUnitPickerMode.Editable);
+        // Height-dependent failure (F-299-01): Top-pinned ContentSite matched only the natural 36-DIP
+        // box; Display recentres when the outer height grows. Exercise both observed field heights.
+        foreach (var heightDip in new[] { 36.0, 40.0 })
+        {
+            var display = MeasureFirstGlyphOrigin(AstOrgUnitPickerMode.Display, heightDip);
+            var editable = MeasureFirstGlyphOrigin(AstOrgUnitPickerMode.Editable, heightDip);
 
-        var dx = display.Origin.X - editable.Origin.X;
-        var dy = display.Origin.Y - editable.Origin.Y;
-        const double tolerance = 0.001;
-        var detail =
-            $"Display=({display.Origin.X:F3},{display.Origin.Y:F3}) [{display.RendererKind}] " +
-            $"Editable=({editable.Origin.X:F3},{editable.Origin.Y:F3}) [{editable.RendererKind}] " +
-            $"delta=({dx:F3},{dy:F3})";
+            var dx = display.Origin.X - editable.Origin.X;
+            var dy = display.Origin.Y - editable.Origin.Y;
+            const double tolerance = 0.001;
+            var detail =
+                $"height={heightDip:F0} Display=({display.Origin.X:F3},{display.Origin.Y:F3}) [{display.RendererKind}] " +
+                $"Editable=({editable.Origin.X:F3},{editable.Origin.Y:F3}) [{editable.RendererKind}] " +
+                $"delta=({dx:F3},{dy:F3})";
 
-        display.Origin.X.Should().BeApproximately(editable.Origin.X, tolerance,
-            $"first-glyph origin X differs: {detail}");
-        display.Origin.Y.Should().BeApproximately(editable.Origin.Y, tolerance,
-            $"first-glyph origin Y differs: {detail}");
+            display.Origin.X.Should().BeApproximately(editable.Origin.X, tolerance,
+                $"first-glyph origin X differs: {detail}");
+            display.Origin.Y.Should().BeApproximately(editable.Origin.Y, tolerance,
+                $"first-glyph origin Y differs: {detail}");
+        }
     });
 
-    private static (Point Origin, string RendererKind) MeasureFirstGlyphOrigin(AstOrgUnitPickerMode mode)
+    [Fact]
+    public void Editable_closed_selection_text_trims_with_ellipsis_when_label_overflows() => Sta.RunOnSharedStaThread(() =>
+    {
+        OffscreenHost.EnsureApplication();
+
+        const string longLabel =
+            "Đơn vị hành chính cấp tỉnh — tên rất dài để tràn khung đóng của picker cha và buộc cắt chữ";
+        var measured = MeasureEditableClosedSelectionText(longLabel, outerWidthDip: 240);
+
+        measured.TextBlock.TextTrimming.Should().Be(TextTrimming.CharacterEllipsis,
+            "closed Editable selection must ellipsize overflow instead of a hard clip (card 301 R4)");
+        measured.TextBlock.TextWrapping.Should().Be(TextWrapping.NoWrap);
+        measured.LaidOutTextWidth.Should().BeLessThan(measured.UnconstrainedTextWidth,
+            "label must actually overflow the closed selection host so the ellipsis path is exercised " +
+            $"(laidOut={measured.LaidOutTextWidth:F3}, unconstrained={measured.UnconstrainedTextWidth:F3})");
+    });
+
+    private static (Point Origin, string RendererKind) MeasureFirstGlyphOrigin(
+        AstOrgUnitPickerMode mode,
+        double? fieldHeightDip = null)
     {
         const string label = "R2-ROOT — R2-ROOT";
         var resources = OffscreenHost.BuildApplicationResources();
@@ -205,8 +229,20 @@ public class AstOrgUnitPickerLayoutTests
 
             var displayBox = (FrameworkElement)picker.Template.FindName("DisplayTextBox", picker)!;
             var comboBox = (ComboBox)picker.Template.FindName("EditableComboBox", picker)!;
+            if (fieldHeightDip is { } height)
+            {
+                // EditableComboBox Height binds to DisplayTextBox.ActualHeight; pin Display to force both.
+                displayBox.Height = height;
+            }
+
             comboBox.ApplyTemplate();
             window.UpdateLayout();
+
+            if (fieldHeightDip is { } expectedHeight)
+            {
+                displayBox.ActualHeight.Should().BeApproximately(expectedHeight, 0.001,
+                    "forced field height must land on DisplayTextBox so Editable mirrors it");
+            }
 
             FrameworkElement renderer;
             string kind;
@@ -234,6 +270,62 @@ public class AstOrgUnitPickerLayoutTests
 
             var origin = renderer.TransformToAncestor(picker).Transform(new Point(0, 0));
             return (origin, kind);
+        }
+        finally
+        {
+            window.Close();
+            Sta.PumpToIdle();
+        }
+    }
+
+    private static (TextBlock TextBlock, double LaidOutTextWidth, double UnconstrainedTextWidth) MeasureEditableClosedSelectionText(
+        string label,
+        double outerWidthDip)
+    {
+        var resources = OffscreenHost.BuildApplicationResources();
+        var picker = new AstOrgUnitPicker
+        {
+            Style = (Style)resources["AstOrgUnitPicker"],
+            Mode = AstOrgUnitPickerMode.Editable,
+            DisplayText = label,
+            Items = new[] { new OrgUnitPickerItem(1, label) },
+            SelectedOrgUnitId = 1,
+            Width = outerWidthDip,
+        };
+
+        var window = new Window
+        {
+            WindowStyle = WindowStyle.None,
+            ShowInTaskbar = false,
+            ShowActivated = false,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -32000,
+            Top = -32000,
+            Width = 900,
+            Height = 400,
+            Resources = resources,
+            Content = picker,
+        };
+        try
+        {
+            window.Show();
+            picker.ApplyTemplate();
+            window.UpdateLayout();
+
+            var comboBox = (ComboBox)picker.Template.FindName("EditableComboBox", picker)!;
+            comboBox.ApplyTemplate();
+            window.UpdateLayout();
+
+            comboBox.SelectedItem.Should().NotBeNull("overflow measurement requires a real selection");
+            var contentSite = (FrameworkElement)comboBox.Template.FindName("ContentSite", comboBox)!;
+            contentSite.Should().NotBeNull("ContentSite hosts the closed selection string");
+            var textBlock = FindDescendant<TextBlock>(contentSite)
+                ?? throw new InvalidOperationException(
+                    $"Editable TextBlock missing under ContentSite. Visual tree: {DescribeVisualTree(contentSite)}");
+
+            var laidOutTextWidth = textBlock.ActualWidth;
+            textBlock.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            return (textBlock, laidOutTextWidth, textBlock.DesiredSize.Width);
         }
         finally
         {
