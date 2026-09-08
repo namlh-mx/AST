@@ -462,19 +462,24 @@
         (no override) so it matches every other plain-textbox form field's height and ink row exactly.
         The Editable ComboBox is re-templated from scratch (WPF-UI 4.3 ships
         no ComboBox type) using AST's own Palette/Spacing tokens so it reads as one visual family with
-        ui:TextBox. ContentSite Padding is the named-part sum that centres with Display's TextBoxView
-        origin at every field height (backlog 3.72 half B / cards 297+301) — not the stock 8,0,8,0
-        that sat left and above that glyph, and not a single-DPI probe literal.
+        ui:TextBox. ContentSite Padding is the named-part sum that anchors Editable's closed text to
+        the same top edge as Display's TextBoxView — chrome border + TextControlThemePadding.Top —
+        at every field height (backlog 3.72 half B / cards 297+301+310), not the stock 8,0,8,0 that
+        sat left and above that glyph, and not a centre that only coincided at the natural 36-DIP box.
         Display-only overall — the picker does no filtering and no DB access. No
         Themes/Generic.xaml — same keyed-style convention as AstField / AstDateBox.
     -->
     <Style x:Key="AstOrgUnitPickerComboBox" TargetType="{x:Type ComboBox}">
         <!--
-            ContentSite margin mirrors Display's padded, centred box (card 301). Left inset is NOT a
-            single summed literal (that collapses three layout-rounded edges into one and drifts at
-            PerMonitorV2). Parts are applied as separate thicknesses so rounding matches Display:
+            ContentSite margin mirrors Display's padded, top-anchored box (cards 301+310). Left inset
+            is NOT a single summed literal (that collapses three layout-rounded edges into one and
+            drifts at PerMonitorV2). Parts are applied as separate thicknesses so rounding matches
+            Display:
             - Padding.Left 1 = picker chrome BorderThickness (= WPF-UI TextBoxBorderThemeThickness)
-            - Padding Top/Bottom 8,7 and the left token layers below = TextControlThemePadding + TextBoxView
+            - Host Grid row Height 1 = the same chrome BorderThickness on the top edge (separate
+              layout part — not folded into Padding.Top as a summed 9)
+            - Padding.Top 8 = TextControlThemePadding.Top (same named part Display's TextBoxView uses)
+            - Padding.Bottom 7 and the left token layers below = TextControlThemePadding remainder + TextBoxView
             - Padding.Right 2 restores the pre-card-297 visible text budget at the 240 DIP probe
               after layout rounding: 240 − 28 chevron − 13 left − 2 right ≥ 196 (64efd65 baseline).
               Right 3 left 0.571 DIP short of that floor. Mirroring TextControlThemePadding.Right (10)
@@ -486,7 +491,8 @@
               https://github.com/lepoco/wpfui/blob/4.3.0/src/Wpf.Ui/Controls/TextBox/TextBox.xaml
               https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/PresentationFramework/MS/Internal/documents/TextBoxView.cs
               https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/PresentationFramework/System/Windows/Documents/CaretElement.cs
-            ContentSite VerticalAlignment=Center centres inside that asymmetric padded box.
+            Host Grid VerticalAlignment=Top derives Editable ink from the box top (border row + Top
+            padding), not the box centre — Display's TextBoxView is top-anchored at any height.
         -->
         <Setter Property="Padding" Value="1,8,2,7" />
         <Setter Property="Background" Value="{StaticResource AstSurfaceCardBrush}" />
@@ -608,9 +614,12 @@
                             and ItemsControl.UpdateDisplayMemberTemplateSelector in the same tree.
                             Official template sample:
                             https://learn.microsoft.com/dotnet/api/system.windows.controls.combobox.selectionboxitemtemplate
-                            Host Grid carries Margin=Padding and VerticalAlignment=Center (same slot
-                            math as ContentSite alone in card 301). Columns 10 and 2 are the left
-                            token layers as separate layout parts. ContentSite fills the star column.
+                            Host Grid is top-anchored: a 1-DIP row is chrome BorderThickness, then
+                            Margin=Padding carries TextControlThemePadding.Top (8) as a separate part so
+                            Editable shares Display's top-edge construction at every height (card 310) —
+                            not one summed Top literal. Columns 10 and 2 are the left token layers.
+                            ContentSite fills the star column; VerticalAlignment=Center is inert in an
+                            Auto-height content row and is left unchanged.
                             Ellipsis without replacing the selection template: implicit TextBlock
                             style in ContentSite.Resources. It also reaches a consumer's TextBlock
                             inside a custom ItemTemplate unless that TextBlock sets Style or
@@ -618,35 +627,42 @@
                             https://learn.microsoft.com/dotnet/desktop/wpf/advanced/how-to-enable-text-trimming
                             https://learn.microsoft.com/dotnet/desktop/wpf/controls/how-to-create-apply-style#apply-a-style-implicitly
                         -->
-                        <Grid
-                            Grid.Column="0"
-                            Margin="{TemplateBinding Padding}"
-                            HorizontalAlignment="Stretch"
-                            VerticalAlignment="Center">
-                            <Grid.ColumnDefinitions>
-                                <!-- TextControlThemePadding.Left -->
-                                <ColumnDefinition Width="10" />
-                                <!-- TextBoxView / Bidi caret -->
-                                <ColumnDefinition Width="2" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <ContentPresenter
-                                x:Name="ContentSite"
-                                Grid.Column="2"
+                        <Grid Grid.Column="0" VerticalAlignment="Top">
+                            <Grid.RowDefinitions>
+                                <!-- picker chrome BorderThickness (= WPF-UI TextBoxBorderThemeThickness) -->
+                                <RowDefinition Height="1" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid
+                                Grid.Row="1"
+                                Margin="{TemplateBinding Padding}"
                                 HorizontalAlignment="Stretch"
-                                VerticalAlignment="Center"
-                                Content="{TemplateBinding SelectionBoxItem}"
-                                ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
-                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
-                                IsHitTestVisible="False">
-                                <ContentPresenter.Resources>
-                                    <Style TargetType="{x:Type TextBlock}">
-                                        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-                                        <Setter Property="TextWrapping" Value="NoWrap" />
-                                    </Style>
-                                </ContentPresenter.Resources>
-                            </ContentPresenter>
+                                VerticalAlignment="Top">
+                                <Grid.ColumnDefinitions>
+                                    <!-- TextControlThemePadding.Left -->
+                                    <ColumnDefinition Width="10" />
+                                    <!-- TextBoxView / Bidi caret -->
+                                    <ColumnDefinition Width="2" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter
+                                    x:Name="ContentSite"
+                                    Grid.Column="2"
+                                    HorizontalAlignment="Stretch"
+                                    VerticalAlignment="Center"
+                                    Content="{TemplateBinding SelectionBoxItem}"
+                                    ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                                    ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                    ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                    IsHitTestVisible="False">
+                                    <ContentPresenter.Resources>
+                                        <Style TargetType="{x:Type TextBlock}">
+                                            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                                            <Setter Property="TextWrapping" Value="NoWrap" />
+                                        </Style>
+                                    </ContentPresenter.Resources>
+                                </ContentPresenter>
+                            </Grid>
                         </Grid>
                         <Popup
                             x:Name="PART_Popup"

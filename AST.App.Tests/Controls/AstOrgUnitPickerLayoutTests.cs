@@ -138,59 +138,107 @@ public class AstOrgUnitPickerLayoutTests
     // not content hosts. Card 308 renamed the helper — TransformToAncestor of (0,0) never inspected a glyph.
     // Tolerance stays at the suite's existing 0.001 DIP — exact equality is the invariant, and this
     // harness already holds outer ActualWidth/Height to that epsilon at one process DPI.
-    // Card 308 deleted Display's VerticalContentAlignment=Center. The old 40-DIP arm of this test was
-    // guarding Display recentering (F-299-01); with Top alignment that recenter is gone, and ink parity
-    // across DPI is the sibling ink test below. Natural 36-DIP form height keeps the origin assertion.
+    // Card 310 restores the 40-DIP arm deleted by card 308: it guards F-299-01 (height-dependent
+    // Editable centering vs top-anchored Display). Keep MeasureRendererElementOrigin's honest name.
     [Fact]
-    public void Display_and_Editable_renderer_element_origins_match_at_36_dip() => Sta.RunOnSharedStaThread(() =>
+    public void Display_and_Editable_renderer_element_origins_match_at_36_and_40_dip() => Sta.RunOnSharedStaThread(() =>
     {
         OffscreenHost.EnsureApplication();
 
-        const double heightDip = 36.0;
-        var display = MeasureRendererElementOrigin(AstOrgUnitPickerMode.Display, heightDip);
-        var editable = MeasureRendererElementOrigin(AstOrgUnitPickerMode.Editable, heightDip);
+        foreach (var heightDip in new[] { 36.0, 40.0 })
+        {
+            var display = MeasureRendererElementOrigin(AstOrgUnitPickerMode.Display, heightDip);
+            var editable = MeasureRendererElementOrigin(AstOrgUnitPickerMode.Editable, heightDip);
 
-        var dx = display.Origin.X - editable.Origin.X;
-        var dy = display.Origin.Y - editable.Origin.Y;
-        const double tolerance = 0.001;
-        var detail =
-            $"height={heightDip:F0} Display=({display.Origin.X:F3},{display.Origin.Y:F3}) [{display.RendererKind}] " +
-            $"Editable=({editable.Origin.X:F3},{editable.Origin.Y:F3}) [{editable.RendererKind}] " +
-            $"delta=({dx:F3},{dy:F3})";
+            var dx = display.Origin.X - editable.Origin.X;
+            var dy = display.Origin.Y - editable.Origin.Y;
+            const double tolerance = 0.001;
+            var detail =
+                $"height={heightDip:F0} Display=({display.Origin.X:F3},{display.Origin.Y:F3}) [{display.RendererKind}] " +
+                $"Editable=({editable.Origin.X:F3},{editable.Origin.Y:F3}) [{editable.RendererKind}] " +
+                $"delta=({dx:F3},{dy:F3})";
 
-        display.Origin.X.Should().BeApproximately(editable.Origin.X, tolerance,
-            $"renderer-element origin X differs: {detail}");
-        display.Origin.Y.Should().BeApproximately(editable.Origin.Y, tolerance,
-            $"renderer-element origin Y differs: {detail}");
+            display.Origin.X.Should().BeApproximately(editable.Origin.X, tolerance,
+                $"renderer-element origin X differs: {detail}");
+            display.Origin.Y.Should().BeApproximately(editable.Origin.Y, tolerance,
+                $"renderer-element origin Y differs: {detail}");
+        }
     });
 
-    // Card 308 / backlog 3.72 half (B): renderer-element origins can match while the painted ink still sits
-    // one physical pixel low against every plain ui:TextBox on the form. Host the real sibling field in
-    // column 2, render at explicit DPI, and compare first-ink offsets from each box's layout top — not
-    // TransformToAncestor of a TextBoxView / TextBlock.
+    // Card 310 / backlog 3.72 half (B): display and editable ink must share one height-independent offset
+    // from the box top (same construction as sibling ui:TextBox). Sampling 36/40/44/60 proves the offset
+    // is constant — not that four tuned heights happen to agree. Each height must also equal its own
+    // 36-DIP baseline so a re-tune at four points still fails.
     [Fact]
-    public void Display_Editable_and_sibling_TextBox_first_ink_offsets_match_at_96_144_168_dpi()
+    public void Display_Editable_and_sibling_TextBox_first_ink_offsets_are_height_independent_at_96_144_168_dpi()
         => Sta.RunOnSharedStaThread(() =>
         {
             OffscreenHost.EnsureApplication();
 
             foreach (var dpi in new[] { 96.0, 144.0, 168.0 })
             {
-                var display = MeasureFirstInkOffsetFromBoxTopPx(AstOrgUnitPickerMode.Display, dpi);
-                var editable = MeasureFirstInkOffsetFromBoxTopPx(AstOrgUnitPickerMode.Editable, dpi);
+                var displayAt36 = MeasureFirstInkOffsetFromBoxTopPx(AstOrgUnitPickerMode.Display, dpi, 36.0);
+                var editableAt36 = MeasureFirstInkOffsetFromBoxTopPx(AstOrgUnitPickerMode.Editable, dpi, 36.0);
 
-                var detail =
-                    $"dpi={dpi:F0} display={display.PickerOffsetPx:F3} sibling(display-host)={display.SiblingOffsetPx:F3} " +
-                    $"editable={editable.PickerOffsetPx:F3} sibling(editable-host)={editable.SiblingOffsetPx:F3}";
+                foreach (var heightDip in new[] { 36.0, 40.0, 44.0, 60.0 })
+                {
+                    var display = MeasureFirstInkOffsetFromBoxTopPx(AstOrgUnitPickerMode.Display, dpi, heightDip);
+                    var editable = MeasureFirstInkOffsetFromBoxTopPx(AstOrgUnitPickerMode.Editable, dpi, heightDip);
 
-                display.PickerOffsetPx.Should().BeApproximately(display.SiblingOffsetPx, 0.51,
-                    $"display-mode picker ink offset must match sibling ui:TextBox: {detail}");
-                editable.PickerOffsetPx.Should().BeApproximately(editable.SiblingOffsetPx, 0.51,
-                    $"editable-mode picker ink offset must match sibling ui:TextBox: {detail}");
-                display.PickerOffsetPx.Should().BeApproximately(editable.PickerOffsetPx, 0.51,
-                    $"display-mode and editable-mode picker ink offsets must match: {detail}");
+                    var detail =
+                        $"dpi={dpi:F0} height={heightDip:F0} " +
+                        $"display={display.PickerOffsetPx:F3} sibling(display-host)={display.SiblingOffsetPx:F3} " +
+                        $"editable={editable.PickerOffsetPx:F3} sibling(editable-host)={editable.SiblingOffsetPx:F3} " +
+                        $"baseline36 display={displayAt36.PickerOffsetPx:F3} editable={editableAt36.PickerOffsetPx:F3}";
+
+                    display.PickerOffsetPx.Should().BeApproximately(display.SiblingOffsetPx, 0.51,
+                        $"display-mode picker ink offset must match sibling ui:TextBox: {detail}");
+                    editable.PickerOffsetPx.Should().BeApproximately(editable.SiblingOffsetPx, 0.51,
+                        $"editable-mode picker ink offset must match sibling ui:TextBox: {detail}");
+                    display.PickerOffsetPx.Should().BeApproximately(editable.PickerOffsetPx, 0.51,
+                        $"display-mode and editable-mode picker ink offsets must match: {detail}");
+                    display.PickerOffsetPx.Should().BeApproximately(displayAt36.PickerOffsetPx, 0.51,
+                        $"display ink offset must not depend on control height: {detail}");
+                    editable.PickerOffsetPx.Should().BeApproximately(editableAt36.PickerOffsetPx, 0.51,
+                        $"editable ink offset must not depend on control height: {detail}");
+                }
             }
         });
+
+    // Card 310 / F-309-02: live measurement was stable only over 1%–20% of peak-above-fill contrast.
+    // A perimeter that floors at max(8, 35%) skips a real first row at 25% contrast (fill 20 / peak 120 →
+    // threshold 55) and lets a one-row shift pass. This mutation paints that low-contrast first row, shifts
+    // it by one pixel, and requires the scanner to report different offsets.
+    [Fact]
+    public void First_ink_scanner_detects_one_row_shift_of_low_contrast_ink()
+    {
+        const int fillDarkness = 20;
+        const int peakDarkness = 120;
+        const int lowContrastDarkness = fillDarkness + (int)((peakDarkness - fillDarkness) * 0.25);
+        const int width = 32;
+        const int height = 40;
+        const int stride = width * 4;
+        const int left = 2;
+        const int right = 30;
+        const int top = 0;
+        const int bottom = 40;
+        const double boxTopPx = 0.0;
+
+        var baseline = PaintSyntheticInkBand(width, height, stride, left, right, top, bottom,
+            fillDarkness, peakDarkness, firstInkRow: 8, firstInkDarkness: lowContrastDarkness);
+        var mutated = PaintSyntheticInkBand(width, height, stride, left, right, top, bottom,
+            fillDarkness, peakDarkness, firstInkRow: 9, firstInkDarkness: lowContrastDarkness);
+
+        var baselineOffset = MeasureFirstInkOffsetInPixelBand(
+            baseline, stride, left, right, top, bottom, boxTopPx, "synthetic-baseline", dpi: 96.0);
+        var mutatedOffset = MeasureFirstInkOffsetInPixelBand(
+            mutated, stride, left, right, top, bottom, boxTopPx, "synthetic-mutated", dpi: 96.0);
+
+        mutatedOffset.Should().NotBe(baselineOffset,
+            $"scanner must see a one-row low-contrast shift (25% of peak-above-fill); " +
+            $"fill={fillDarkness} peak={peakDarkness} low={lowContrastDarkness} " +
+            $"baseline={baselineOffset:F3} mutated={mutatedOffset:F3}");
+    }
 
     [Fact]
     public void Editable_closed_selection_text_trims_with_ellipsis_when_label_overflows() => Sta.RunOnSharedStaThread(() =>
@@ -373,7 +421,8 @@ public class AstOrgUnitPickerLayoutTests
 
     private static (double PickerOffsetPx, double SiblingOffsetPx) MeasureFirstInkOffsetFromBoxTopPx(
         AstOrgUnitPickerMode mode,
-        double dpi)
+        double dpi,
+        double? fieldHeightDip = null)
     {
         const string label = "R2-ROOT — R2-ROOT";
         var resources = OffscreenHost.BuildApplicationResources();
@@ -438,8 +487,24 @@ public class AstOrgUnitPickerLayoutTests
 
             var displayBox = (FrameworkElement)picker.Template.FindName("DisplayTextBox", picker)!;
             var comboBox = (ComboBox)picker.Template.FindName("EditableComboBox", picker)!;
+            if (fieldHeightDip is { } height)
+            {
+                // EditableComboBox Height binds to DisplayTextBox.ActualHeight; pin Display and sibling
+                // so every presentation in the row shares the forced height under test.
+                displayBox.Height = height;
+                siblingBox.Height = height;
+            }
+
             comboBox.ApplyTemplate();
             window.UpdateLayout();
+
+            if (fieldHeightDip is { } expectedHeight)
+            {
+                displayBox.ActualHeight.Should().BeApproximately(expectedHeight, 0.001,
+                    "forced field height must land on DisplayTextBox so Editable mirrors it");
+                siblingBox.ActualHeight.Should().BeApproximately(expectedHeight, 0.001,
+                    "forced field height must land on sibling ui:TextBox for the form reference");
+            }
 
             if (mode == AstOrgUnitPickerMode.Editable)
             {
@@ -472,6 +537,52 @@ public class AstOrgUnitPickerLayoutTests
         }
     }
 
+    private static byte[] PaintSyntheticInkBand(
+        int width,
+        int height,
+        int stride,
+        int left,
+        int right,
+        int top,
+        int bottom,
+        int fillDarkness,
+        int peakDarkness,
+        int firstInkRow,
+        int firstInkDarkness)
+    {
+        var pixels = new byte[height * stride];
+        void PaintRow(int y, int darkness)
+        {
+            var value = (byte)(255 - darkness);
+            for (var x = left; x < right; x++)
+            {
+                var i = y * stride + x * 4;
+                pixels[i] = value;
+                pixels[i + 1] = value;
+                pixels[i + 2] = value;
+                pixels[i + 3] = 255;
+            }
+        }
+
+        // Fill band under the top border (same 3-px band the scanner samples at 96 DPI).
+        var fillBottom = Math.Min(bottom, top + 3);
+        for (var y = top; y < fillBottom; y++)
+            PaintRow(y, fillDarkness);
+
+        // Remainder of the content band stays at fill so only the planted rows read as ink.
+        for (var y = fillBottom; y < bottom; y++)
+            PaintRow(y, fillDarkness);
+
+        PaintRow(firstInkRow, firstInkDarkness);
+
+        // Peak body in the vertical middle so the scanner's peak sample lands above fill.
+        var midTop = top + ((bottom - top) / 4);
+        var midBottom = bottom - ((bottom - top) / 4);
+        var peakRow = midTop + ((midBottom - midTop) / 2);
+        PaintRow(peakRow, peakDarkness);
+        return pixels;
+    }
+
     private static double MeasureFirstInkOffsetFromBoxTopPx(
         byte[] pixels,
         int stride,
@@ -501,9 +612,25 @@ public class AstOrgUnitPickerLayoutTests
         var top = Math.Clamp((int)Math.Ceiling(boxTopPx + insetTop), 0, bitmapHeight - 1);
         var bottom = Math.Clamp((int)Math.Floor(boxBottomPx - insetBottom), top + 1, bitmapHeight);
 
-        // Disabled ui:TextBox fill is itself grey (~180 darkness against white). Absolute darkness would
-        // treat the fill as ink on every row. Sample the padded band just under the top border as fill,
-        // take peak from the vertical middle (glyph body), then require a clear step above the fill.
+        return MeasureFirstInkOffsetInPixelBand(
+            pixels, stride, left, right, top, bottom, boxTopPx, box.GetType().Name, dpi);
+    }
+
+    // Fill-relative first-ink row. Disabled ui:TextBox fill is grey, so absolute darkness is not usable.
+    // Live measurement for this repair was stable only over 1%–20% of peak-above-fill contrast; the old
+    // max(8, 35%) perimeter skipped real first rows inside that band (F-309-02).
+    private static double MeasureFirstInkOffsetInPixelBand(
+        byte[] pixels,
+        int stride,
+        int left,
+        int right,
+        int top,
+        int bottom,
+        double boxTopPx,
+        string boxName,
+        double dpi)
+    {
+        var scale = dpi / 96.0;
         var fillBottom = Math.Min(bottom, top + Math.Max(1, (int)Math.Ceiling(3.0 * scale)));
         var fillDarkness = 0;
         for (var y = top; y < fillBottom; y++)
@@ -536,9 +663,12 @@ public class AstOrgUnitPickerLayoutTests
         }
 
         (peakDarkness - fillDarkness).Should().BeGreaterThan(0,
-            $"no glyph-above-fill ink inside {box.GetType().Name} at dpi={dpi:F0}; fill={fillDarkness} peak={peakDarkness}");
+            $"no glyph-above-fill ink inside {boxName} at dpi={dpi:F0}; fill={fillDarkness} peak={peakDarkness}");
 
-        var threshold = fillDarkness + Math.Max(8, (int)((peakDarkness - fillDarkness) * 0.35));
+        // Threshold inside the measured 1%–20% of peak-above-fill contrast (F-309-02). Floor at 1 so a
+        // low-contrast first row still registers; the old max(8, 35%) skipped Assurance Advisor's 25% counterexample.
+        var contrast = peakDarkness - fillDarkness;
+        var threshold = fillDarkness + Math.Max(1, (int)Math.Ceiling(contrast * 0.10));
         for (var y = top; y < bottom; y++)
         {
             for (var x = left; x < right; x++)
@@ -553,7 +683,7 @@ public class AstOrgUnitPickerLayoutTests
         }
 
         throw new InvalidOperationException(
-            $"peak ink found but no row reached threshold={threshold} inside {box.GetType().Name} at dpi={dpi:F0}");
+            $"peak ink found but no row reached threshold={threshold} inside {boxName} at dpi={dpi:F0}");
     }
 
     private static (TextBlock TextBlock, double LaidOutTextWidth, double UnconstrainedTextWidth, double ChevronColumnWidth)
