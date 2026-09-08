@@ -20,6 +20,54 @@ namespace AST.App.Tests.Views;
 public class OrgUnitParentDecisionRenderedTests
 {
     [Fact]
+    public void HistoryLoadAfterPickerConstruction_ReplaceResolutionKeepsRealSelectionAndVisibleText()
+    {
+        var today = new DateOnly(2026, 9, 6);
+        var delayed = new TaskCompletionSource<IReadOnlyList<OrgUnitPickerItem>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        OffscreenHost.Run(
+            window =>
+            {
+                window.Width = 900;
+                window.Height = 400;
+                var vm = BuildViewModel(today, () => delayed.Task);
+                var host = new ParentRowHost(vm, window.Resources);
+
+                vm.LoadAllHistoryAsync().GetAwaiter().GetResult();
+                vm.HistoryRows.Should().ContainSingle();
+                var historyRow = vm.HistoryRows.Single();
+                vm.LoadAsync(
+                    historyRow.OrgUnitId,
+                    historyRow.EffectiveFrom,
+                    new OrgUnitPickerItem(historyRow.ParentId!.Value, historyRow.ParentLabel))
+                    .GetAwaiter().GetResult().Should().Be(CardLoadOutcome.Loaded);
+                vm.BeginReplaceCommand.Execute();
+
+                return host;
+            },
+            (window, row) =>
+            {
+                try
+                {
+                    delayed.SetResult([new OrgUnitPickerItem(1, "PAR — Cha")]);
+                    Sta.PumpToIdle();
+                    window.UpdateLayout();
+
+                    row.Picker.ApplyTemplate();
+                    var combo = (System.Windows.Controls.ComboBox)row.Picker.Template.FindName("EditableComboBox", row.Picker)!;
+                    combo.SelectedItem.Should().Be(row.ViewModel.ParentDecision.SelectedParentItem);
+                    combo.SelectedItem.Should().BeOfType<OrgUnitPickerItem>().Which.Display.Should().Be("PAR — Cha");
+                    combo.Text.Should().Be("PAR — Cha");
+                }
+                finally
+                {
+                    row.Dispose();
+                }
+            });
+    }
+
+    [Fact]
     public void ReplacePeriodCommit_RendersHeldParentAndDisablesSaveUntilDelayedDecisionResolves()
     {
         var today = new DateOnly(2026, 9, 6);
@@ -197,7 +245,7 @@ public class OrgUnitParentDecisionRenderedTests
         Func<Task<IReadOnlyList<OrgUnitPickerItem>>> currentEligibility)
     {
         var repository = new Mock<IOrgUnitRepository>();
-        repository.Setup(repo => repo.GetByIdentityAsync(3, today)).ReturnsAsync(Dto(today));
+        repository.Setup(repo => repo.GetByIdentityAsync(3, It.IsAny<DateOnly>())).ReturnsAsync(Dto(today));
         repository.Setup(repo => repo.GetByIdentityAsync(4, today)).ReturnsAsync(Dto(
             today,
             orgUnitId: 4,
@@ -207,6 +255,8 @@ public class OrgUnitParentDecisionRenderedTests
         repository.Setup(repo => repo.GetEligibleParentsAsync(
                 It.IsAny<DataScope>(), It.IsAny<EffectivePeriod>(), It.IsAny<long?>()))
             .Returns(currentEligibility);
+        repository.Setup(repo => repo.GetHistoryInScopeAsync(It.IsAny<DataScope>(), It.IsAny<long?>()))
+            .ReturnsAsync([Dto(today)]);
 
         var dates = new Mock<IBusinessDateProvider>();
         dates.SetupGet(provider => provider.Today).Returns(today);
@@ -227,7 +277,8 @@ public class OrgUnitParentDecisionRenderedTests
         long orgUnitId = 3,
         long parentId = 1,
         string parentOrgCode = "PAR",
-        string parentOrgName = "Cha") => new(
+        string parentOrgName = "Tên pháp lý cha",
+        string parentOrgNameShort = "Cha") => new(
         Id: orgUnitId * 10,
         OrgUnitId: orgUnitId,
         EffectiveFrom: today.AddDays(-10),
@@ -243,7 +294,8 @@ public class OrgUnitParentDecisionRenderedTests
         Supplemental: new OrgUnitSupplementalDto(),
         Status: VersionLifecycleStatus.Normal,
         ParentOrgCodeAsOf: parentOrgCode,
-        ParentOrgNameFullVnAsOf: parentOrgName);
+        ParentOrgNameFullVnAsOf: parentOrgName,
+        ParentOrgNameShortVnAsOf: parentOrgNameShort);
 
     // Real app controls/styles and bindings, hosted in a shown off-screen Window. The production View's
     // renderer is deliberately tiny and identical: it maps only the decision's two projection properties.

@@ -7,4 +7,10 @@ namespace AST.Core.Presentation;
 // AstOrgUnitPicker.Items; the picker itself still neither filters nor queries.
 
 [SharedComponent]
-public sealed record OrgUnitPickerItem(long Id, string Display);
+public sealed record OrgUnitPickerItem(long Id, string Display)
+{
+    public static string FormatDisplay(string? orgCode, string? orgNameShortVn) =>
+        string.IsNullOrWhiteSpace(orgCode) && string.IsNullOrWhiteSpace(orgNameShortVn)
+            ? string.Empty
+            : $"{orgCode} — {orgNameShortVn}";
+}

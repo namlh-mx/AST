@@ -325,7 +325,9 @@ internal sealed class OrgUnitRepository
             var coverage = _parentCoverage.GetActiveCoverage(VersionTable, candidate.IdentityId, null);
             if (!CoverageGap.TryFind(coverage, childPeriod, out _))
             {
-                eligible.Add(new OrgUnitPickerItem(candidate.IdentityId, $"{candidate.OrgCode} — {candidate.OrgNameShortVn}"));
+                eligible.Add(new OrgUnitPickerItem(
+                    candidate.IdentityId,
+                    OrgUnitPickerItem.FormatDisplay(candidate.OrgCode, candidate.OrgNameShortVn)));
             }
         }
 
@@ -567,6 +569,7 @@ internal sealed class OrgUnitRepository
                    h.operation_kind AS OperationKind,
                    p.org_code AS ParentOrgCodeAsOf,
                    p.org_name_full_vn AS ParentOrgNameFullVnAsOf,
+                   p.org_name_short_vn AS ParentOrgNameShortVnAsOf,
                    {businessSelect}
             FROM org_unit_version h
             LEFT JOIN org_unit_version p
@@ -693,7 +696,8 @@ internal sealed class OrgUnitRepository
             e.Status,
             e.OperationKind,
             e.ParentOrgCodeAsOf,
-            e.ParentOrgNameFullVnAsOf);
+            e.ParentOrgNameFullVnAsOf,
+            e.ParentOrgNameShortVnAsOf);
 }
 
 // One ACTIVE version's identity and period, as read under a composite write's own lock. Internal on

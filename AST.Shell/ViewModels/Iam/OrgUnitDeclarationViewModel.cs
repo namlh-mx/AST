@@ -1042,7 +1042,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         _addParentContext = _orgUnitId is { } loadedId
             ? (loadedId,
                 new EffectivePeriod(EffectiveFrom ?? _dates.Today, IsUndetermined ? EffectivePeriod.OpenEnd : EffectiveTo ?? EffectivePeriod.OpenEnd),
-                new OrgUnitPickerItem(loadedId, $"{OrgCode} — {OrgNameShortVn}"))
+                new OrgUnitPickerItem(loadedId, OrgUnitPickerItem.FormatDisplay(OrgCode, OrgNameShortVn)))
             : null;
         Clear();
         Mode = OrgUnitCardMode.Adding;
@@ -1504,7 +1504,9 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         var parentById = uniqueUnits.ToDictionary(u => u.OrgUnitId, u => u.ParentId);
         var nodesById = uniqueUnits.ToDictionary(
             u => u.OrgUnitId,
-            u => new OrgUnitTreeNode(u.OrgUnitId, $"{u.OrgCode} — {u.OrgNameShortVn}") { IsExpanded = true });
+            u => new OrgUnitTreeNode(
+                u.OrgUnitId,
+                OrgUnitPickerItem.FormatDisplay(u.OrgCode, u.OrgNameShortVn)) { IsExpanded = true });
         var roots = new List<OrgUnitTreeNode>();
 
         foreach (var unit in uniqueUnits)
@@ -1591,9 +1593,9 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // Never guess a label from a null AS-OF field (prefer a clear absence over a misleading value):
         // both null means "no parent (root) as of this row" or "the parent has no version covering that
         // date" (see OrgUnitVersionDto's own doc comment) -- either way there is nothing to show.
-        var parentLabel = dto.ParentOrgCodeAsOf is null && dto.ParentOrgNameFullVnAsOf is null
-            ? string.Empty
-            : $"{dto.ParentOrgCodeAsOf} — {dto.ParentOrgNameFullVnAsOf}";
+        var parentLabel = OrgUnitPickerItem.FormatDisplay(
+            dto.ParentOrgCodeAsOf,
+            dto.ParentOrgNameShortVnAsOf);
 
         var status = VersionStatusResolver.Resolve(dto.IsActive, dto.Status, dto.EffectiveFrom, dto.EffectiveTo, _dates.Today);
 
@@ -1726,6 +1728,9 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         if (key.Mode == OrgUnitCardMode.Replacing)
             AddIfAbsent(displayItems, _replaceCardParentItem);
         AddIfAbsent(displayItems, selectedItem);
+        selectedItem = parentId is { } selectedParentId
+            ? displayItems.FirstOrDefault(item => item.Id == selectedParentId)
+            : null;
 
         var presentation = ParentPresentationDisposition.Display;
         var commit = ParentCommitDisposition.NotApplicable;
@@ -1842,10 +1847,12 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         if (dto.ParentId is not { } parentId)
             return null;
 
-        if (dto.ParentOrgCodeAsOf is not null || dto.ParentOrgNameFullVnAsOf is not null)
+        if (dto.ParentOrgCodeAsOf is not null || dto.ParentOrgNameShortVnAsOf is not null)
         {
-            var label = $"{dto.ParentOrgCodeAsOf} — {dto.ParentOrgNameFullVnAsOf}";
-            if (!string.IsNullOrWhiteSpace(label.Replace("—", string.Empty, StringComparison.Ordinal)))
+            var label = OrgUnitPickerItem.FormatDisplay(
+                dto.ParentOrgCodeAsOf,
+                dto.ParentOrgNameShortVnAsOf);
+            if (!string.IsNullOrWhiteSpace(label))
                 return new OrgUnitPickerItem(parentId, label);
         }
 

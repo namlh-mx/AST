@@ -42,4 +42,5 @@ internal sealed class OrgUnitVersionEntity : IVersionRow
     // null on every other read path (QueryInScopeAsync/QueryApplicableAsync/LoadActiveVersionsAsync do not join it).
     public string? ParentOrgCodeAsOf { get; init; }
     public string? ParentOrgNameFullVnAsOf { get; init; }
+    public string? ParentOrgNameShortVnAsOf { get; init; }
 }

@@ -226,7 +226,7 @@ public class OrgUnitDeclarationViewModelTests
         VersionLifecycleStatus status = VersionLifecycleStatus.Normal, long id = 1,
         OrgUnitSupplementalDto? supplemental = null, string orgCode = "ABC", string orgNameFullVn = "Đon vị đầy đủ",
         string orgNameShortVn = "Đon vị", VersionOperationKind? operationKind = null, string? parentOrgCodeAsOf = null,
-        string? parentOrgNameFullVnAsOf = null) =>
+        string? parentOrgNameFullVnAsOf = null, string? parentOrgNameShortVnAsOf = null) =>
         new(
             Id: id, OrgUnitId: orgUnitId, EffectiveFrom: from, EffectiveTo: to, IsActive: isActive,
             OrgCode: orgCode, OrgNameFullVn: orgNameFullVn, OrgNameShortVn: orgNameShortVn,
@@ -234,7 +234,8 @@ public class OrgUnitDeclarationViewModelTests
             Supplemental: supplemental ?? new OrgUnitSupplementalDto(), Status: status,
             OperationKind: operationKind,
             ParentOrgCodeAsOf: parentOrgCodeAsOf ?? (parentId is null ? null : "PAR"),
-            ParentOrgNameFullVnAsOf: parentOrgNameFullVnAsOf ?? (parentId is null ? null : "Cha"));
+            ParentOrgNameFullVnAsOf: parentOrgNameFullVnAsOf ?? (parentId is null ? null : "Tên pháp lý cha"),
+            ParentOrgNameShortVnAsOf: parentOrgNameShortVnAsOf ?? (parentId is null ? null : "Cha"));
 
     private sealed class FakeAuthorizationService : IAuthorizationService
     {
@@ -2081,20 +2082,57 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
-    public async Task LoadAllHistoryAsync_MapsParentLabelFromTheAsOfParentFields()
+    public async Task LoadAllHistoryAsync_MapsParentLabelFromTheAsOfParentShortName()
     {
         var (vm, repo) = Build();
         await SeedInScopeTreeAsync(vm, repo, Dto(1, parentId: 5, Today, EffectivePeriod.OpenEnd));
         repo.HistoryResult =
         [
             Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd,
-                parentOrgCodeAsOf: "HO0001", parentOrgNameFullVnAsOf: "Tổng công ty"),
+                parentOrgCodeAsOf: "HO0001", parentOrgNameFullVnAsOf: "Tổng công ty",
+                parentOrgNameShortVnAsOf: "TCT"),
         ];
 
         await vm.LoadAllHistoryAsync();
 
         var row = Assert.Single(vm.HistoryRows);
-        Assert.Equal("HO0001 — Tổng công ty", row.ParentLabel);
+        Assert.Equal("HO0001 — TCT", row.ParentLabel);
+    }
+
+    [Fact]
+    public async Task BeginReplaceFromHistoryRow_SelectedParentIsTheMatchingDisplayItem()
+    {
+        var (vm, repo) = Build();
+        var historyDto = Dto(
+            3,
+            parentId: 1,
+            Today.AddDays(-10),
+            EffectivePeriod.OpenEnd,
+            id: 30,
+            orgCode: "CN001",
+            parentOrgCodeAsOf: "PAR",
+            parentOrgNameFullVnAsOf: "Tên pháp lý cha",
+            parentOrgNameShortVnAsOf: "Cha");
+        repo.HistoryResult = [historyDto];
+        repo.ByIdentityResult = historyDto;
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(1, "PAR — Cha")];
+
+        await vm.LoadAllHistoryAsync();
+        vm.HistoryRows.Should().ContainSingle();
+        var row = vm.HistoryRows.Single();
+        row.ParentLabel.Should().Be("PAR — Cha");
+        await vm.LoadAsync(
+            row.OrgUnitId,
+            row.EffectiveFrom,
+            new OrgUnitPickerItem(row.ParentId!.Value, row.ParentLabel));
+        vm.BeginReplaceCommand.Execute();
+        await WaitForParentPhaseAsync(vm, ParentEligibilityState.Resolved);
+
+        var selected = vm.ParentDecision.SelectedParentItem;
+        selected.Should().NotBeNull();
+        var listed = vm.ParentDecision.DisplayItems.Single(item => item.Id == selected!.Id);
+        selected.Should().BeSameAs(listed);
+        selected.Display.Should().Be("PAR — Cha");
     }
 
     [Fact]

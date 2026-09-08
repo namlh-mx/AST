@@ -136,6 +136,69 @@ public sealed class OrgUnitRepositoryTests : IamRepositoryTestBase
     }
 
     [Fact]
+    public async Task GetHistoryInScopeAsync_ResolvesParentShortNameAtEachRowsEffectiveFrom()
+    {
+        SkipUnlessDbAvailable();
+
+        var parent = await CreateOrgUnitAsync(
+            "HISTPAR", "Tên pháp lý cha cũ", "Tên tắt cha cũ", null, OpenFrom2020);
+        var childFrom = new DateOnly(2021, 1, 1);
+        var child = await CreateOrgUnitAsync(
+            "HCHILD", "Tên pháp lý con", "Tên tắt con", parent,
+            new EffectivePeriod(childFrom, EffectivePeriod.OpenEnd));
+        var rename = await OrgUnits.UpsertAsync(
+            parent,
+            new EffectivePeriod(new DateOnly(2025, 1, 1), EffectivePeriod.OpenEnd),
+            "HISTPAR",
+            "Tên pháp lý cha mới",
+            "Tên tắt cha mới",
+            null,
+            VersionOperationKind.Edit,
+            "tester",
+            "rename parent");
+        rename.IsError.Should().BeFalse(DescribeErrors(rename.Errors));
+
+        var row = (await OrgUnits.GetHistoryInScopeAsync(GlobalScope, child)).Should().ContainSingle().Subject;
+
+        row.EffectiveFrom.Should().Be(childFrom);
+        row.ParentOrgCodeAsOf.Should().Be("HISTPAR");
+        row.ParentOrgNameShortVnAsOf.Should().Be("Tên tắt cha cũ");
+    }
+
+    [Fact]
+    public async Task GetHistoryInScopeAsync_RowWithoutParent_HasNullParentAsOfFields()
+    {
+        SkipUnlessDbAvailable();
+
+        var root = await CreateOrgUnitAsync("HISTROOT", "Tên pháp lý gốc", "Tên tắt gốc", null, OpenFrom2020);
+
+        var row = (await OrgUnits.GetHistoryInScopeAsync(GlobalScope, root)).Should().ContainSingle().Subject;
+
+        row.ParentOrgCodeAsOf.Should().BeNull();
+        row.ParentOrgNameShortVnAsOf.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetHistoryInScopeAsync_ParentWithoutCoverageAtRowDate_HasNullParentAsOfFields()
+    {
+        SkipUnlessDbAvailable();
+
+        var parent = await CreateOrgUnitAsync("HISTGAP", "Tên pháp lý cha", "Tên tắt cha", null, OpenFrom2020);
+        var child = await CreateOrgUnitAsync("HISTGAPC", "Tên pháp lý con", "Tên tắt con", parent, OpenFrom2020);
+        using (var connection = Connections.CreateConnection())
+        {
+            await connection.ExecuteAsync(
+                "UPDATE org_unit_version SET effective_from = @from WHERE org_unit_id = @parent",
+                new { from = new DateOnly(2021, 1, 1), parent });
+        }
+
+        var row = (await OrgUnits.GetHistoryInScopeAsync(GlobalScope, child)).Should().ContainSingle().Subject;
+
+        row.ParentOrgCodeAsOf.Should().BeNull();
+        row.ParentOrgNameShortVnAsOf.Should().BeNull();
+    }
+
+    [Fact]
     public async Task GetHistoryInScopeAsync_ExcludesOtherIdentities()
     {
         SkipUnlessDbAvailable();
