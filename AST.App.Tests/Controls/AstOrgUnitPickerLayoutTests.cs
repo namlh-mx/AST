@@ -1,5 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Threading;
 using AST.Controls;
@@ -178,6 +180,68 @@ public class AstOrgUnitPickerLayoutTests
             $"(laidOut={measured.LaidOutTextWidth:F3}, unconstrained={measured.UnconstrainedTextWidth:F3})");
     });
 
+    // F-302-01: DisplayMemberPath keeps SelectionBoxItem as the record and publishes the display
+    // template via ItemTemplateSelector (dotnet/wpf ComboBox.UpdateSelectionBoxItem +
+    // ItemsControl.UpdateDisplayMemberTemplateSelector). A hard-coded ContentSite template that
+    // binds Text="{Binding}" therefore paints ToString(), not Display — and the suite stayed green
+    // while only asserting trimming. This fact must fail at 141d99d.
+    [Fact]
+    public void Editable_closed_selection_renders_Display_not_item_ToString() => Sta.RunOnSharedStaThread(() =>
+    {
+        OffscreenHost.EnsureApplication();
+
+        const string display = "R2-ROOT — R2-ROOT";
+        var item = new OrgUnitPickerItem(1, display);
+        var measured = MeasureEditableClosedSelectionText(display, outerWidthDip: 240);
+
+        measured.TextBlock.Text.Should().Be(display,
+            "closed ContentSite must render DisplayMemberPath's value, not the record ToString()");
+        measured.TextBlock.Text.Should().NotBe(item.ToString(),
+            "record ToString() is the severed-pipeline failure Assurance Advisor measured on 141d99d");
+    });
+
+    // F-302-01 future-consumer half: custom ItemTemplate must reach BOTH popup row and closed box.
+    // Assurance Advisor's probe cleared DisplayMemberPath and assigned a CUSTOM: prefix template; closed still
+    // painted the record. Shape reused here.
+    [Fact]
+    public void Editable_closed_selection_and_popup_row_both_honor_custom_ItemTemplate() => Sta.RunOnSharedStaThread(() =>
+    {
+        OffscreenHost.EnsureApplication();
+
+        const string display = "R2-ROOT — R2-ROOT";
+        const string customPrefix = "CUSTOM:";
+        var expected = customPrefix + display;
+
+        var (closedText, popupText, chevronWidth) = MeasureEditableCustomItemTemplateTexts(display, customPrefix, outerWidthDip: 240);
+
+        closedText.Should().Be(expected,
+            "closed selection must consume ItemTemplate / SelectionBoxItemTemplate pipeline");
+        popupText.Should().Be(expected,
+            "popup row must continue to honor the same ItemTemplate");
+        chevronWidth.Should().BeApproximately(28.0, 0.001,
+            "custom-template probe must not widen or drop the fixed chevron column");
+    });
+
+    // F-302-02: visible text budget vs pre-card-297 baseline (64efd65 measured 196.000 DIP at 240).
+    // Card 301 compared against rejected 467e8e1 (188.571) and missed the 7.429 DIP regression.
+    [Fact]
+    public void Editable_closed_selection_text_budget_meets_pre_297_baseline_at_240_dip() => Sta.RunOnSharedStaThread(() =>
+    {
+        OffscreenHost.EnsureApplication();
+
+        const string longLabel =
+            "Đơn vị hành chính cấp tỉnh — tên rất dài để tràn khung đóng của picker cha và buộc cắt chữ";
+        var measured = MeasureEditableClosedSelectionText(longLabel, outerWidthDip: 240);
+
+        measured.ChevronColumnWidth.Should().BeApproximately(28.0, 0.001,
+            "chevron column stays 28 DIP; budget arithmetic is 240 − 28 − left − right");
+        measured.LaidOutTextWidth.Should().BeGreaterThanOrEqualTo(196.0,
+            "visible text budget must be at least the pre-card-297 baseline of 196.000 DIP at the 240 DIP probe " +
+            $"(laidOut={measured.LaidOutTextWidth:F3}; 141d99d measured 188.571)");
+        measured.LaidOutTextWidth.Should().BeLessThan(measured.UnconstrainedTextWidth,
+            "budget fact still requires a real overflow so capacity is the constraining host, not the string");
+    });
+
     private static (Point Origin, string RendererKind) MeasureFirstGlyphOrigin(
         AstOrgUnitPickerMode mode,
         double? fieldHeightDip = null)
@@ -278,7 +342,8 @@ public class AstOrgUnitPickerLayoutTests
         }
     }
 
-    private static (TextBlock TextBlock, double LaidOutTextWidth, double UnconstrainedTextWidth) MeasureEditableClosedSelectionText(
+    private static (TextBlock TextBlock, double LaidOutTextWidth, double UnconstrainedTextWidth, double ChevronColumnWidth)
+        MeasureEditableClosedSelectionText(
         string label,
         double outerWidthDip)
     {
@@ -323,9 +388,103 @@ public class AstOrgUnitPickerLayoutTests
                 ?? throw new InvalidOperationException(
                     $"Editable TextBlock missing under ContentSite. Visual tree: {DescribeVisualTree(contentSite)}");
 
+            var rootGrid = VisualTreeHelper.GetChild(comboBox, 0) as Grid
+                ?? throw new InvalidOperationException("ComboBox template root Grid missing for chevron-column measure");
+            rootGrid.ColumnDefinitions.Count.Should().BeGreaterThanOrEqualTo(2);
+            var chevronWidth = rootGrid.ColumnDefinitions[1].ActualWidth;
+
             var laidOutTextWidth = textBlock.ActualWidth;
             textBlock.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            return (textBlock, laidOutTextWidth, textBlock.DesiredSize.Width);
+            return (textBlock, laidOutTextWidth, textBlock.DesiredSize.Width, chevronWidth);
+        }
+        finally
+        {
+            window.Close();
+            Sta.PumpToIdle();
+        }
+    }
+
+    private static (string ClosedText, string PopupText, double ChevronColumnWidth) MeasureEditableCustomItemTemplateTexts(
+        string display,
+        string customPrefix,
+        double outerWidthDip)
+    {
+        var resources = OffscreenHost.BuildApplicationResources();
+        var picker = new AstOrgUnitPicker
+        {
+            Style = (Style)resources["AstOrgUnitPicker"],
+            Mode = AstOrgUnitPickerMode.Editable,
+            DisplayText = display,
+            Items = new[] { new OrgUnitPickerItem(1, display) },
+            SelectedOrgUnitId = 1,
+            Width = outerWidthDip,
+        };
+
+        var window = new Window
+        {
+            WindowStyle = WindowStyle.None,
+            ShowInTaskbar = false,
+            ShowActivated = false,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -32000,
+            Top = -32000,
+            Width = 900,
+            Height = 400,
+            Resources = resources,
+            Content = picker,
+        };
+        try
+        {
+            window.Show();
+            picker.ApplyTemplate();
+            window.UpdateLayout();
+
+            var comboBox = (ComboBox)picker.Template.FindName("EditableComboBox", picker)!;
+            comboBox.ApplyTemplate();
+            window.UpdateLayout();
+
+            var textFactory = new FrameworkElementFactory(typeof(TextBlock));
+            textFactory.SetBinding(TextBlock.TextProperty, new Binding(nameof(OrgUnitPickerItem.Display))
+            {
+                StringFormat = customPrefix + "{0}",
+            });
+            var itemTemplate = new DataTemplate(typeof(OrgUnitPickerItem)) { VisualTree = textFactory };
+
+            // DisplayMemberPath is set by AstOrgUnitPicker's ControlTemplate (TemplateBinding), so
+            // ClearValue only reveals the template value again. A local empty string overrides it.
+            // ItemsControl rejects DisplayMemberPath together with ItemTemplate.
+            comboBox.DisplayMemberPath = string.Empty;
+            comboBox.ItemTemplate = itemTemplate;
+            // Setting ItemTemplate does not by itself refresh SelectionBoxItemTemplate; re-select
+            // so ComboBox.UpdateSelectionBoxItem republishes ItemTemplate onto the closed box.
+            var selected = comboBox.Items[0];
+            comboBox.SelectedItem = null;
+            window.UpdateLayout();
+            comboBox.SelectedItem = selected;
+            window.UpdateLayout();
+
+            var contentSite = (FrameworkElement)comboBox.Template.FindName("ContentSite", comboBox)!;
+            var closedBlock = FindDescendant<TextBlock>(contentSite)
+                ?? throw new InvalidOperationException(
+                    $"Closed TextBlock missing under ContentSite. Visual tree: {DescribeVisualTree(contentSite)}");
+
+            comboBox.IsDropDownOpen = true;
+            window.UpdateLayout();
+            Sta.PumpToIdle();
+
+            var popup = (Popup)comboBox.Template.FindName("PART_Popup", comboBox)!;
+            popup.IsOpen.Should().BeTrue("popup must open so the row renderer is measurable");
+            var popupRoot = popup.Child
+                ?? throw new InvalidOperationException("PART_Popup.Child missing after open");
+            var popupBlock = FindDescendant<TextBlock>(popupRoot)
+                ?? throw new InvalidOperationException(
+                    $"Popup TextBlock missing. Visual tree: {DescribeVisualTree(popupRoot)}");
+
+            var rootGrid = VisualTreeHelper.GetChild(comboBox, 0) as Grid
+                ?? throw new InvalidOperationException("ComboBox template root Grid missing for chevron-column measure");
+            rootGrid.ColumnDefinitions.Count.Should().BeGreaterThanOrEqualTo(2);
+
+            return (closedBlock.Text, popupBlock.Text, rootGrid.ColumnDefinitions[1].ActualWidth);
         }
         finally
         {

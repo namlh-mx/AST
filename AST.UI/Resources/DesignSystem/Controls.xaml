@@ -473,16 +473,21 @@
             single summed literal (that collapses three layout-rounded edges into one and drifts at
             PerMonitorV2). Parts are applied as separate thicknesses so rounding matches Display:
             - Padding.Left 1 = picker chrome BorderThickness (= WPF-UI TextBoxBorderThemeThickness)
-            - Padding Top/Right/Bottom 8,10,7 = TextControlThemePadding (WPF-UI 4.3.0 Variables.xaml)
-            - ContentTemplate host Margin.Left 10 = TextControlThemePadding.Left
-            - TextBlock Margin.Left 2 = TextBoxView default Margin = CaretElement.BidiCaretIndicatorWidth
+            - Padding Top/Bottom 8,7 and the left token layers below = TextControlThemePadding + TextBoxView
+            - Padding.Right 2 restores the pre-card-297 visible text budget at the 240 DIP probe
+              after layout rounding: 240 − 28 chevron − 13 left − 2 right ≥ 196 (64efd65 baseline).
+              Right 3 left 0.571 DIP short of that floor. Mirroring TextControlThemePadding.Right (10)
+              is not meaningful here — the content column ends at the chevron, not the box edge
+              (F-302-02 / card 303).
+            - Closed-selection host Grid columns 10 and 2 = TextControlThemePadding.Left and
+              TextBoxView / Bidi caret (separate layout parts, not one summed margin)
               https://github.com/lepoco/wpfui/blob/4.3.0/src/Wpf.Ui/Resources/Variables.xaml
               https://github.com/lepoco/wpfui/blob/4.3.0/src/Wpf.Ui/Controls/TextBox/TextBox.xaml
               https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/PresentationFramework/MS/Internal/documents/TextBoxView.cs
               https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/PresentationFramework/System/Windows/Documents/CaretElement.cs
             ContentSite VerticalAlignment=Center centres inside that asymmetric padded box.
         -->
-        <Setter Property="Padding" Value="1,8,10,7" />
+        <Setter Property="Padding" Value="1,8,2,7" />
         <Setter Property="Background" Value="{StaticResource AstSurfaceCardBrush}" />
         <Setter Property="Template">
             <Setter.Value>
@@ -593,34 +598,55 @@
                                 </ControlTemplate>
                             </ToggleButton.Template>
                         </ToggleButton>
-                        <ContentPresenter
-                            x:Name="ContentSite"
+                        <!--
+                            Closed selection must use WPF's SelectionBoxItemTemplate /
+                            ItemTemplateSelector pipeline (pre-297 bindings). DisplayMemberPath installs
+                            DisplayMemberTemplateSelector and UpdateSelectionBoxItem keeps the object as
+                            SelectionBoxItem while publishing the template separately — see
+                            https://github.com/dotnet/wpf/blob/79bf0b30a8ec7f7327b9362d8ed655a4f9c763fb/src/Microsoft.DotNet.Wpf/src/PresentationFramework/System/Windows/Controls/ComboBox.cs
+                            and ItemsControl.UpdateDisplayMemberTemplateSelector in the same tree.
+                            Official template sample:
+                            https://learn.microsoft.com/dotnet/api/system.windows.controls.combobox.selectionboxitemtemplate
+                            Host Grid carries Margin=Padding and VerticalAlignment=Center (same slot
+                            math as ContentSite alone in card 301). Columns 10 and 2 are the left
+                            token layers as separate layout parts. ContentSite fills the star column.
+                            Ellipsis without replacing the selection template: implicit TextBlock
+                            style in ContentSite.Resources. It also reaches a consumer's TextBlock
+                            inside a custom ItemTemplate unless that TextBlock sets Style or
+                            TextTrimming locally.
+                            https://learn.microsoft.com/dotnet/desktop/wpf/advanced/how-to-enable-text-trimming
+                            https://learn.microsoft.com/dotnet/desktop/wpf/controls/how-to-create-apply-style#apply-a-style-implicitly
+                        -->
+                        <Grid
                             Grid.Column="0"
                             Margin="{TemplateBinding Padding}"
                             HorizontalAlignment="Stretch"
-                            VerticalAlignment="Center"
-                            Content="{TemplateBinding SelectionBoxItem}"
-                            ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
-                            IsHitTestVisible="False">
-                            <!--
-                                Closed selection must ellipsize when the label outruns ContentSite
-                                (chevron column is intentional capacity loss). Default generated
-                                TextBlock has TextTrimming=None → hard clip. Explicit template pins
-                                CharacterEllipsis; see https://learn.microsoft.com/dotnet/desktop/wpf/advanced/how-to-enable-text-trimming
-                            -->
-                            <ContentPresenter.ContentTemplate>
-                                <DataTemplate>
-                                    <!-- Token left (10) then TextBoxView/Bidi caret inset (2); see Padding comment. -->
-                                    <Border Margin="10,0,0,0" Background="Transparent">
-                                        <TextBlock
-                                            Margin="2,0,0,0"
-                                            Text="{Binding}"
-                                            TextTrimming="CharacterEllipsis"
-                                            TextWrapping="NoWrap" />
-                                    </Border>
-                                </DataTemplate>
-                            </ContentPresenter.ContentTemplate>
-                        </ContentPresenter>
+                            VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <!-- TextControlThemePadding.Left -->
+                                <ColumnDefinition Width="10" />
+                                <!-- TextBoxView / Bidi caret -->
+                                <ColumnDefinition Width="2" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <ContentPresenter
+                                x:Name="ContentSite"
+                                Grid.Column="2"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Center"
+                                Content="{TemplateBinding SelectionBoxItem}"
+                                ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                IsHitTestVisible="False">
+                                <ContentPresenter.Resources>
+                                    <Style TargetType="{x:Type TextBlock}">
+                                        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                                        <Setter Property="TextWrapping" Value="NoWrap" />
+                                    </Style>
+                                </ContentPresenter.Resources>
+                            </ContentPresenter>
+                        </Grid>
                         <Popup
                             x:Name="PART_Popup"
                             AllowsTransparency="True"
