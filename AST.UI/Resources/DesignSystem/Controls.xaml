@@ -461,11 +461,20 @@
         DisplayTextBox uses WPF-UI's own default ui:TextBox padding (no override) so it matches every
         other plain-textbox form field's height exactly. The Editable ComboBox is re-templated from scratch (WPF-UI 4.3 ships
         no ComboBox type) using AST's own Palette/Spacing tokens so it reads as one visual family with
-        ui:TextBox. Display-only overall — the picker does no filtering and no DB access. No
+        ui:TextBox. ContentSite Padding is tuned so the first glyph shares the Display TextBoxView
+        origin (backlog 3.72 half B / card 297) — not the stock 8,0,8,0 that sat left and above that glyph.
+        Display-only overall — the picker does no filtering and no DB access. No
         Themes/Generic.xaml — same keyed-style convention as AstField / AstDateBox.
     -->
     <Style x:Key="AstOrgUnitPickerComboBox" TargetType="{x:Type ComboBox}">
-        <Setter Property="Padding" Value="8,0,8,0" />
+        <!--
+            Matches the Display TextBoxView origin measured under the merged WPF-UI 4.3 dictionaries
+            (≈13.714,9.143 DIP at the layout harness DPI). Left/Top place ContentSite; Right/Bottom
+            mirror ui:TextBox's 10,8,10,7 so the selection string keeps the same inset family.
+            VerticalAlignment=Top on ContentSite is required — Center would ignore Top and re-introduce
+            the half-B vertical shift.
+        -->
+        <Setter Property="Padding" Value="13.714,9.143,10,7" />
         <Setter Property="Background" Value="{StaticResource AstSurfaceCardBrush}" />
         <Setter Property="Template">
             <Setter.Value>
@@ -581,7 +590,7 @@
                             Grid.Column="0"
                             Margin="{TemplateBinding Padding}"
                             HorizontalAlignment="Stretch"
-                            VerticalAlignment="Center"
+                            VerticalAlignment="Top"
                             Content="{TemplateBinding SelectionBoxItem}"
                             ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
                             ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"

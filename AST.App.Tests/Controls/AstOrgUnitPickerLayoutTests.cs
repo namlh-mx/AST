@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using AST.Controls;
 using AST.Core.Presentation;
@@ -127,6 +128,178 @@ public class AstOrgUnitPickerLayoutTests
         toggle.ActualWidth.Should().BeApproximately(editableComboBox.ActualWidth, 0.001);
         toggle.ActualWidth.Should().BeGreaterThan(100, $"PART_ToggleButton collapsed: ActualWidth={toggle.ActualWidth}");
     });
+
+    // Half (B) of backlog 3.72: the outer boxes already match (assertion above); the operator-visible
+    // shift is the first glyph's origin inside each presentation. Measure the glyph renderers themselves
+    // (Display TextBoxView; Editable selected TextBlock under ContentSite), not their content hosts.
+    // Tolerance stays at the suite's existing 0.001 DIP — exact equality is the invariant, and this
+    // harness already holds outer ActualWidth/Height to that epsilon at one process DPI.
+    [Fact]
+    public void Display_and_Editable_first_glyph_origins_match() => Sta.RunOnSharedStaThread(() =>
+    {
+        OffscreenHost.EnsureApplication();
+
+        var display = MeasureFirstGlyphOrigin(AstOrgUnitPickerMode.Display);
+        var editable = MeasureFirstGlyphOrigin(AstOrgUnitPickerMode.Editable);
+
+        var dx = display.Origin.X - editable.Origin.X;
+        var dy = display.Origin.Y - editable.Origin.Y;
+        const double tolerance = 0.001;
+        var detail =
+            $"Display=({display.Origin.X:F3},{display.Origin.Y:F3}) [{display.RendererKind}] " +
+            $"Editable=({editable.Origin.X:F3},{editable.Origin.Y:F3}) [{editable.RendererKind}] " +
+            $"delta=({dx:F3},{dy:F3})";
+
+        display.Origin.X.Should().BeApproximately(editable.Origin.X, tolerance,
+            $"first-glyph origin X differs: {detail}");
+        display.Origin.Y.Should().BeApproximately(editable.Origin.Y, tolerance,
+            $"first-glyph origin Y differs: {detail}");
+    });
+
+    private static (Point Origin, string RendererKind) MeasureFirstGlyphOrigin(AstOrgUnitPickerMode mode)
+    {
+        const string label = "R2-ROOT — R2-ROOT";
+        var resources = OffscreenHost.BuildApplicationResources();
+        var picker = new AstOrgUnitPicker
+        {
+            Style = (Style)resources["AstOrgUnitPicker"],
+            Mode = mode,
+            DisplayText = label,
+            Items = new[] { new OrgUnitPickerItem(1, label), new OrgUnitPickerItem(2, "R2-CHILD — R2-CHILD") },
+            SelectedOrgUnitId = 1,
+        };
+        var field = new AstField
+        {
+            Style = (Style)resources["AstField"],
+            Label = "Đơn vị cha",
+            Content = picker,
+        };
+
+        var host = new Grid();
+        host.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        host.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+        host.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(field, 0);
+        host.Children.Add(field);
+
+        var window = new Window
+        {
+            WindowStyle = WindowStyle.None,
+            ShowInTaskbar = false,
+            ShowActivated = false,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -32000,
+            Top = -32000,
+            Width = 900,
+            Height = 400,
+            Resources = resources,
+        };
+        window.Content = host;
+        try
+        {
+            window.Show();
+            window.UpdateLayout();
+            field.ApplyTemplate();
+            picker.ApplyTemplate();
+            window.UpdateLayout();
+
+            var displayBox = (FrameworkElement)picker.Template.FindName("DisplayTextBox", picker)!;
+            var comboBox = (ComboBox)picker.Template.FindName("EditableComboBox", picker)!;
+            comboBox.ApplyTemplate();
+            window.UpdateLayout();
+
+            FrameworkElement renderer;
+            string kind;
+            if (mode == AstOrgUnitPickerMode.Display)
+            {
+                // WPF-UI's shipped TextBox template hosts text under PassiveScrollViewer (not the stock
+                // PART_ContentHost name alone). The operator-visible glyph lives on TextBoxView under that
+                // host — locate by the type name the merged WPF-UI 4.3 dictionaries actually produce.
+                renderer = FindDescendantByTypeName(displayBox, "TextBoxView")
+                    ?? throw new InvalidOperationException(
+                        $"Display TextBoxView missing. Visual tree under DisplayTextBox: {DescribeVisualTree(displayBox)}");
+                kind = $"TextBoxView; host={DescribeContentHost(displayBox)}";
+            }
+            else
+            {
+                comboBox.SelectedItem.Should().NotBeNull(
+                    "Editable glyph measurement requires a real selection; a blank SelectedItem would measure nothing and pass");
+                var contentSite = (FrameworkElement)comboBox.Template.FindName("ContentSite", comboBox)!;
+                contentSite.Should().NotBeNull("ContentSite is the Editable selection presenter");
+                renderer = FindDescendant<TextBlock>(contentSite)
+                    ?? throw new InvalidOperationException(
+                        $"Editable TextBlock missing under ContentSite. Visual tree: {DescribeVisualTree(contentSite)}");
+                kind = $"TextBlock under ContentSite; SelectedItem={comboBox.SelectedItem}";
+            }
+
+            var origin = renderer.TransformToAncestor(picker).Transform(new Point(0, 0));
+            return (origin, kind);
+        }
+        finally
+        {
+            window.Close();
+            Sta.PumpToIdle();
+        }
+    }
+
+    private static string DescribeContentHost(FrameworkElement displayBox)
+    {
+        if (displayBox is Control control)
+        {
+            var named = control.Template?.FindName("PART_ContentHost", control) as FrameworkElement;
+            if (named is not null)
+                return $"{named.GetType().Name}(PART_ContentHost)";
+        }
+
+        var passive = FindDescendantByTypeName(displayBox, "PassiveScrollViewer");
+        return passive is null
+            ? "none"
+            : $"{passive.GetType().Name}(type-walk, no PART_ContentHost name)";
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+                return match;
+            var nested = FindDescendant<T>(child);
+            if (nested is not null)
+                return nested;
+        }
+
+        return null;
+    }
+
+    private static FrameworkElement? FindDescendantByTypeName(DependencyObject root, string typeName)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child.GetType().Name == typeName && child is FrameworkElement fe)
+                return fe;
+            var nested = FindDescendantByTypeName(child, typeName);
+            if (nested is not null)
+                return nested;
+        }
+
+        return null;
+    }
+
+    private static string DescribeVisualTree(DependencyObject root, int depth = 0, int maxDepth = 6)
+    {
+        if (depth > maxDepth)
+            return "";
+        var name = root is FrameworkElement { Name: { Length: > 0 } named } ? named : "-";
+        var line = $"{new string(' ', depth * 2)}{root.GetType().Name}[{name}]";
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+            line += "\n" + DescribeVisualTree(VisualTreeHelper.GetChild(root, i), depth + 1, maxDepth);
+        return line;
+    }
 
     [Fact]
     public void EnsureApplication_owns_Application_on_the_shared_STA_thread() => Sta.RunOnSharedStaThread(() =>
