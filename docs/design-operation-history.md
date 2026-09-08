@@ -308,6 +308,26 @@ visible, proving the capability survives the rewrite. At the **screen** — `Loa
 passes `ScopeLevel.Global`, pinned so a future "cleanup" of that call site turns a test red instead of
 silently changing policy. A repository test alone proves neither.
 
+### 3.4 The grid carries the minimum a person needs to find a row
+
+Requester ruling, 2026-09-07, given while settling backlog 3.72.
+
+A per-object history grid exists so a person can **look a row up or search for it**. It is not the
+place to read an object's full profile. When the legal name of a related object is wanted, the
+operator opens that object's own detail. The grid therefore carries the minimum that makes a row
+findable, and the filter searches **only the criteria the grid already shows** — it never reaches
+past the visible columns into fields the operator cannot see.
+
+The first consequence, applied to the org-unit history grid in the same ruling: a related unit is
+named by its **short name**, the internal-management name, the same string the tree and the parent
+picker use. `docs/glossary.md` separates the two names: `org_name_full_vn` is the legal profile name
+and `org_name_short_vn` is the internal-management name. A grid row's **own** unit keeps both name
+columns, because those are what the row is about; a **related** unit gets one column and it is the
+short name.
+
+This is a presentation rule, not a temporal or scope rule. It does not license dropping a column that
+a temporal or authorization claim depends on.
+
 ## 4. Write path
 
 ### 4.1 The ten engine sites, and what each must stamp
