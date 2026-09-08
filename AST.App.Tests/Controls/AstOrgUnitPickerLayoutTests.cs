@@ -3,10 +3,12 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using AST.Controls;
 using AST.Core.Presentation;
 using FluentAssertions;
+using UiTextBox = Wpf.Ui.Controls.TextBox;
 
 namespace AST.App.Tests.Controls;
 
@@ -131,37 +133,64 @@ public class AstOrgUnitPickerLayoutTests
         toggle.ActualWidth.Should().BeGreaterThan(100, $"PART_ToggleButton collapsed: ActualWidth={toggle.ActualWidth}");
     });
 
-    // Half (B) of backlog 3.72: the outer boxes already match (assertion above); the operator-visible
-    // shift is the first glyph's origin inside each presentation. Measure the glyph renderers themselves
-    // (Display TextBoxView; Editable selected TextBlock under ContentSite), not their content hosts.
+    // Half (B) of backlog 3.72: the outer boxes already match (assertion above); this checks renderer-
+    // element origins (Display TextBoxView; Editable selected TextBlock under ContentSite), not ink and
+    // not content hosts. Card 308 renamed the helper — TransformToAncestor of (0,0) never inspected a glyph.
     // Tolerance stays at the suite's existing 0.001 DIP — exact equality is the invariant, and this
     // harness already holds outer ActualWidth/Height to that epsilon at one process DPI.
+    // Card 308 deleted Display's VerticalContentAlignment=Center. The old 40-DIP arm of this test was
+    // guarding Display recentering (F-299-01); with Top alignment that recenter is gone, and ink parity
+    // across DPI is the sibling ink test below. Natural 36-DIP form height keeps the origin assertion.
     [Fact]
-    public void Display_and_Editable_first_glyph_origins_match_at_36_and_40_dip() => Sta.RunOnSharedStaThread(() =>
+    public void Display_and_Editable_renderer_element_origins_match_at_36_dip() => Sta.RunOnSharedStaThread(() =>
     {
         OffscreenHost.EnsureApplication();
 
-        // Height-dependent failure (F-299-01): Top-pinned ContentSite matched only the natural 36-DIP
-        // box; Display recentres when the outer height grows. Exercise both observed field heights.
-        foreach (var heightDip in new[] { 36.0, 40.0 })
-        {
-            var display = MeasureFirstGlyphOrigin(AstOrgUnitPickerMode.Display, heightDip);
-            var editable = MeasureFirstGlyphOrigin(AstOrgUnitPickerMode.Editable, heightDip);
+        const double heightDip = 36.0;
+        var display = MeasureRendererElementOrigin(AstOrgUnitPickerMode.Display, heightDip);
+        var editable = MeasureRendererElementOrigin(AstOrgUnitPickerMode.Editable, heightDip);
 
-            var dx = display.Origin.X - editable.Origin.X;
-            var dy = display.Origin.Y - editable.Origin.Y;
-            const double tolerance = 0.001;
-            var detail =
-                $"height={heightDip:F0} Display=({display.Origin.X:F3},{display.Origin.Y:F3}) [{display.RendererKind}] " +
-                $"Editable=({editable.Origin.X:F3},{editable.Origin.Y:F3}) [{editable.RendererKind}] " +
-                $"delta=({dx:F3},{dy:F3})";
+        var dx = display.Origin.X - editable.Origin.X;
+        var dy = display.Origin.Y - editable.Origin.Y;
+        const double tolerance = 0.001;
+        var detail =
+            $"height={heightDip:F0} Display=({display.Origin.X:F3},{display.Origin.Y:F3}) [{display.RendererKind}] " +
+            $"Editable=({editable.Origin.X:F3},{editable.Origin.Y:F3}) [{editable.RendererKind}] " +
+            $"delta=({dx:F3},{dy:F3})";
 
-            display.Origin.X.Should().BeApproximately(editable.Origin.X, tolerance,
-                $"first-glyph origin X differs: {detail}");
-            display.Origin.Y.Should().BeApproximately(editable.Origin.Y, tolerance,
-                $"first-glyph origin Y differs: {detail}");
-        }
+        display.Origin.X.Should().BeApproximately(editable.Origin.X, tolerance,
+            $"renderer-element origin X differs: {detail}");
+        display.Origin.Y.Should().BeApproximately(editable.Origin.Y, tolerance,
+            $"renderer-element origin Y differs: {detail}");
     });
+
+    // Card 308 / backlog 3.72 half (B): renderer-element origins can match while the painted ink still sits
+    // one physical pixel low against every plain ui:TextBox on the form. Host the real sibling field in
+    // column 2, render at explicit DPI, and compare first-ink offsets from each box's layout top — not
+    // TransformToAncestor of a TextBoxView / TextBlock.
+    [Fact]
+    public void Display_Editable_and_sibling_TextBox_first_ink_offsets_match_at_96_144_168_dpi()
+        => Sta.RunOnSharedStaThread(() =>
+        {
+            OffscreenHost.EnsureApplication();
+
+            foreach (var dpi in new[] { 96.0, 144.0, 168.0 })
+            {
+                var display = MeasureFirstInkOffsetFromBoxTopPx(AstOrgUnitPickerMode.Display, dpi);
+                var editable = MeasureFirstInkOffsetFromBoxTopPx(AstOrgUnitPickerMode.Editable, dpi);
+
+                var detail =
+                    $"dpi={dpi:F0} display={display.PickerOffsetPx:F3} sibling(display-host)={display.SiblingOffsetPx:F3} " +
+                    $"editable={editable.PickerOffsetPx:F3} sibling(editable-host)={editable.SiblingOffsetPx:F3}";
+
+                display.PickerOffsetPx.Should().BeApproximately(display.SiblingOffsetPx, 0.51,
+                    $"display-mode picker ink offset must match sibling ui:TextBox: {detail}");
+                editable.PickerOffsetPx.Should().BeApproximately(editable.SiblingOffsetPx, 0.51,
+                    $"editable-mode picker ink offset must match sibling ui:TextBox: {detail}");
+                display.PickerOffsetPx.Should().BeApproximately(editable.PickerOffsetPx, 0.51,
+                    $"display-mode and editable-mode picker ink offsets must match: {detail}");
+            }
+        });
 
     [Fact]
     public void Editable_closed_selection_text_trims_with_ellipsis_when_label_overflows() => Sta.RunOnSharedStaThread(() =>
@@ -242,7 +271,7 @@ public class AstOrgUnitPickerLayoutTests
             "budget fact still requires a real overflow so capacity is the constraining host, not the string");
     });
 
-    private static (Point Origin, string RendererKind) MeasureFirstGlyphOrigin(
+    private static (Point Origin, string RendererKind) MeasureRendererElementOrigin(
         AstOrgUnitPickerMode mode,
         double? fieldHeightDip = null)
     {
@@ -340,6 +369,191 @@ public class AstOrgUnitPickerLayoutTests
             window.Close();
             Sta.PumpToIdle();
         }
+    }
+
+    private static (double PickerOffsetPx, double SiblingOffsetPx) MeasureFirstInkOffsetFromBoxTopPx(
+        AstOrgUnitPickerMode mode,
+        double dpi)
+    {
+        const string label = "R2-ROOT — R2-ROOT";
+        var resources = OffscreenHost.BuildApplicationResources();
+        var picker = new AstOrgUnitPicker
+        {
+            Style = (Style)resources["AstOrgUnitPicker"],
+            Mode = mode,
+            DisplayText = label,
+            Items = new[] { new OrgUnitPickerItem(1, label), new OrgUnitPickerItem(2, "R2-CHILD — R2-CHILD") },
+            SelectedOrgUnitId = 1,
+        };
+        var pickerField = new AstField
+        {
+            Style = (Style)resources["AstField"],
+            Label = "Đơn vị cha",
+            Content = picker,
+        };
+        var siblingBox = new UiTextBox
+        {
+            Text = label,
+            IsEnabled = false,
+        };
+        var siblingField = new AstField
+        {
+            Style = (Style)resources["AstField"],
+            Label = "Mã đơn vị",
+            Content = siblingBox,
+        };
+
+        // Real form row: `* | 16 | *` with picker in column 0 and a plain ui:TextBox field in column 2.
+        var host = new Grid();
+        host.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        host.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+        host.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(pickerField, 0);
+        Grid.SetColumn(siblingField, 2);
+        host.Children.Add(pickerField);
+        host.Children.Add(siblingField);
+
+        var window = new Window
+        {
+            WindowStyle = WindowStyle.None,
+            ShowInTaskbar = false,
+            ShowActivated = false,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -32000,
+            Top = -32000,
+            Width = 900,
+            Height = 400,
+            Background = Brushes.White,
+            Resources = resources,
+        };
+        window.Content = host;
+        try
+        {
+            window.Show();
+            window.UpdateLayout();
+            pickerField.ApplyTemplate();
+            siblingField.ApplyTemplate();
+            picker.ApplyTemplate();
+            window.UpdateLayout();
+
+            var displayBox = (FrameworkElement)picker.Template.FindName("DisplayTextBox", picker)!;
+            var comboBox = (ComboBox)picker.Template.FindName("EditableComboBox", picker)!;
+            comboBox.ApplyTemplate();
+            window.UpdateLayout();
+
+            if (mode == AstOrgUnitPickerMode.Editable)
+            {
+                comboBox.SelectedItem.Should().NotBeNull(
+                    "editable ink measurement requires a real selection; a blank SelectedItem would measure nothing and pass");
+            }
+
+            FrameworkElement pickerBox = mode == AstOrgUnitPickerMode.Display ? displayBox : comboBox;
+
+            var scale = dpi / 96.0;
+            var pixelWidth = Math.Max(1, (int)Math.Ceiling(host.ActualWidth * scale));
+            var pixelHeight = Math.Max(1, (int)Math.Ceiling(host.ActualHeight * scale));
+            var bitmap = new RenderTargetBitmap(pixelWidth, pixelHeight, dpi, dpi, PixelFormats.Pbgra32);
+            bitmap.Render(host);
+
+            var stride = pixelWidth * 4;
+            var pixels = new byte[pixelHeight * stride];
+            bitmap.CopyPixels(pixels, stride, 0);
+
+            var pickerOffset = MeasureFirstInkOffsetFromBoxTopPx(pixels, stride, pixelWidth, pixelHeight, host, pickerBox, dpi,
+                excludeRightChevronColumn: mode == AstOrgUnitPickerMode.Editable);
+            var siblingOffset = MeasureFirstInkOffsetFromBoxTopPx(pixels, stride, pixelWidth, pixelHeight, host, siblingBox, dpi,
+                excludeRightChevronColumn: false);
+            return (pickerOffset, siblingOffset);
+        }
+        finally
+        {
+            window.Close();
+            Sta.PumpToIdle();
+        }
+    }
+
+    private static double MeasureFirstInkOffsetFromBoxTopPx(
+        byte[] pixels,
+        int stride,
+        int bitmapWidth,
+        int bitmapHeight,
+        Visual ancestor,
+        FrameworkElement box,
+        double dpi,
+        bool excludeRightChevronColumn)
+    {
+        var scale = dpi / 96.0;
+        var topLeft = box.TransformToAncestor(ancestor).Transform(new Point(0, 0));
+        var boxLeftPx = topLeft.X * scale;
+        var boxTopPx = topLeft.Y * scale;
+        var boxRightPx = (topLeft.X + box.ActualWidth) * scale;
+        var boxBottomPx = (topLeft.Y + box.ActualHeight) * scale;
+
+        // Content column only: clear the 1-DIP chrome and the TextControlThemePadding.Left (10) so left/right
+        // border AA cannot register as the first ink row. Editable also drops the 28-DIP chevron column.
+        var insetLeft = 11.0 * scale;
+        var insetTop = 2.0 * scale;
+        var insetRight = excludeRightChevronColumn ? 30.0 * scale : 11.0 * scale;
+        var insetBottom = 2.0 * scale;
+
+        var left = Math.Clamp((int)Math.Ceiling(boxLeftPx + insetLeft), 0, bitmapWidth - 1);
+        var right = Math.Clamp((int)Math.Floor(boxRightPx - insetRight), left + 1, bitmapWidth);
+        var top = Math.Clamp((int)Math.Ceiling(boxTopPx + insetTop), 0, bitmapHeight - 1);
+        var bottom = Math.Clamp((int)Math.Floor(boxBottomPx - insetBottom), top + 1, bitmapHeight);
+
+        // Disabled ui:TextBox fill is itself grey (~180 darkness against white). Absolute darkness would
+        // treat the fill as ink on every row. Sample the padded band just under the top border as fill,
+        // take peak from the vertical middle (glyph body), then require a clear step above the fill.
+        var fillBottom = Math.Min(bottom, top + Math.Max(1, (int)Math.Ceiling(3.0 * scale)));
+        var fillDarkness = 0;
+        for (var y = top; y < fillBottom; y++)
+        {
+            for (var x = left; x < right; x++)
+            {
+                var i = y * stride + x * 4;
+                if (pixels[i + 3] < 8)
+                    continue;
+                var darkness = 255 - ((pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3);
+                if (darkness > fillDarkness)
+                    fillDarkness = darkness;
+            }
+        }
+
+        var midTop = top + ((bottom - top) / 4);
+        var midBottom = bottom - ((bottom - top) / 4);
+        var peakDarkness = fillDarkness;
+        for (var y = midTop; y < midBottom; y++)
+        {
+            for (var x = left; x < right; x++)
+            {
+                var i = y * stride + x * 4;
+                if (pixels[i + 3] < 8)
+                    continue;
+                var darkness = 255 - ((pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3);
+                if (darkness > peakDarkness)
+                    peakDarkness = darkness;
+            }
+        }
+
+        (peakDarkness - fillDarkness).Should().BeGreaterThan(0,
+            $"no glyph-above-fill ink inside {box.GetType().Name} at dpi={dpi:F0}; fill={fillDarkness} peak={peakDarkness}");
+
+        var threshold = fillDarkness + Math.Max(8, (int)((peakDarkness - fillDarkness) * 0.35));
+        for (var y = top; y < bottom; y++)
+        {
+            for (var x = left; x < right; x++)
+            {
+                var i = y * stride + x * 4;
+                if (pixels[i + 3] < 8)
+                    continue;
+                var darkness = 255 - ((pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3);
+                if (darkness >= threshold)
+                    return y - boxTopPx;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"peak ink found but no row reached threshold={threshold} inside {box.GetType().Name} at dpi={dpi:F0}");
     }
 
     private static (TextBlock TextBlock, double LaidOutTextWidth, double UnconstrainedTextWidth, double ChevronColumnWidth)

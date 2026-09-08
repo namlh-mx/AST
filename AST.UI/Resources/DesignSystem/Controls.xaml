@@ -458,8 +458,9 @@
         ActualWidth/ActualHeight (ElementName binding, the same technique AstDateBox uses for its own
         sibling-size parity) so the two branches are always exactly the same size — this, not shared
         Padding or Visibility alone, is what fixes the former 3-control overlay's field-height jump.
-        DisplayTextBox uses WPF-UI's own default ui:TextBox padding (no override) so it matches every
-        other plain-textbox form field's height exactly. The Editable ComboBox is re-templated from scratch (WPF-UI 4.3 ships
+        DisplayTextBox uses WPF-UI's own default ui:TextBox padding and vertical content alignment
+        (no override) so it matches every other plain-textbox form field's height and ink row exactly.
+        The Editable ComboBox is re-templated from scratch (WPF-UI 4.3 ships
         no ComboBox type) using AST's own Palette/Spacing tokens so it reads as one visual family with
         ui:TextBox. ContentSite Padding is the named-part sum that centres with Display's TextBoxView
         origin at every field height (backlog 3.72 half B / cards 297+301) — not the stock 8,0,8,0
@@ -684,7 +685,6 @@
                     <Grid>
                         <ui:TextBox
                             x:Name="DisplayTextBox"
-                            VerticalContentAlignment="Center"
                             IsEnabled="False"
                             Text="{TemplateBinding DisplayText}"
                             Visibility="Visible" />
