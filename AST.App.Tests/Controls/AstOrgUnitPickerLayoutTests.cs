@@ -166,9 +166,13 @@ public class AstOrgUnitPickerLayoutTests
     });
 
     // Card 310 / backlog 3.72 half (B): display and editable ink must share one height-independent offset
-    // from the box top (same construction as sibling ui:TextBox). Sampling 36/40/44/60 proves the offset
-    // is constant — not that four tuned heights happen to agree. Each height must also equal its own
-    // 36-DIP baseline so a re-tune at four points still fails.
+    // from the box top (same construction as sibling ui:TextBox). Independence comes from the layout
+    // construction, not from the sample: every vertical ancestor that owns allocated height surplus is
+    // top-anchored — the 1 DIP chrome border row and TextControlThemePadding.Top of 8 — so surplus falls
+    // below the desired-size subtree instead of moving its origin. Display gets the same property from
+    // WPF-UI's own top-aligned content host. Heights 36/40/44/60 are regression sentinels only: natural
+    // height, the exact height that failed before card 310, a nearby continuation, and a visibly tall
+    // outlier. Each height must also equal its own 36-DIP baseline so a re-tune at four points still fails.
     [Fact]
     public void Display_Editable_and_sibling_TextBox_first_ink_offsets_are_height_independent_at_96_144_168_dpi()
         => Sta.RunOnSharedStaThread(() =>
