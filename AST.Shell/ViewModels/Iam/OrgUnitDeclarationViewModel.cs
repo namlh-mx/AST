@@ -1018,6 +1018,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // the operator-message rules; do not lengthen back to "Đơn vị gốc (không có cha)".
     public const string RootParentDisplayLabel = "Đơn vị gốc";
 
+    // Settled display label when a read-only card has ParentId but no usable parent item (card 321).
+    // Inventory home is the operator-message rules. One sentence covers no-coverage and D6.
+    public const string UnresolvedParentDisplayLabel = "Lỗi dữ liệu về đơn vị cấp trên.";
+
     // an earlier ruling: single home for the replace-parent-period gate. Both SyncReplaceParentPeriodGate and
     // RefreshParentSurface read this — do not re-express the predicate in the view code-behind.
     // Card 261 Part 3: the former `ParentId is null ||` disjunct was redundant — long Id != null long?
@@ -1788,6 +1792,11 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
                 || (key.Mode == OrgUnitCardMode.ReadOnly && IsRoot)
                 ? RootParentDisplayLabel
                 : string.Empty);
+
+        // Card 321: ReadOnly + ParentId != null + no usable item. Do not key on empty text — that
+        // would put this sentence on every root. Adding/Replacing keep their own never-blank rules.
+        if (key.Mode == OrgUnitCardMode.ReadOnly && parentId is not null && selectedItem is null)
+            displayText = UnresolvedParentDisplayLabel;
 
         return ParentDecision.Create(
             key,

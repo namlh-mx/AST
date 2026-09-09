@@ -617,6 +617,70 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
+    public async Task LoadAsync_ReadOnly_NonRootParentDoesNotResolve_ParentFieldShowsSettledSentence()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(2, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd) with
+        {
+            ParentOrgCodeAsOf = null,
+            ParentOrgNameFullVnAsOf = null,
+            ParentOrgNameShortVnAsOf = null,
+        };
+
+        await vm.LoadAsync(2, Today);
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.ParentId.Should().Be(5);
+        vm.ParentDecision.DisplayText.Should().Be(OrgUnitDeclarationViewModel.UnresolvedParentDisplayLabel);
+    }
+
+    [Fact]
+    public async Task LoadAsync_ReadOnly_RootUnit_ParentFieldShowsRootLabel()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: null, Today.AddDays(-10), EffectivePeriod.OpenEnd);
+
+        await vm.LoadAsync(1, Today);
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.ParentId.Should().BeNull();
+        vm.ParentDecision.DisplayText.Should().Be(OrgUnitDeclarationViewModel.RootParentDisplayLabel);
+        vm.ParentDecision.DisplayText.Should().NotBe(OrgUnitDeclarationViewModel.UnresolvedParentDisplayLabel);
+    }
+
+    [Fact]
+    public async Task LoadAsync_ReadOnly_ParentResolves_ParentFieldShowsParentLabelNotDataErrorSentence()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(2, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd);
+
+        await vm.LoadAsync(2, Today);
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.ParentId.Should().Be(5);
+        vm.ParentDecision.DisplayText.Should().Be(OrgUnitPickerItem.FormatDisplay("PAR", "Cha"));
+        vm.ParentDecision.DisplayText.Should().NotBe(OrgUnitDeclarationViewModel.UnresolvedParentDisplayLabel);
+    }
+
+    [Fact]
+    public async Task LoadAsync_ReadOnly_NonRootParentDoesNotResolve_CardLoadSucceeds()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(2, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd) with
+        {
+            ParentOrgCodeAsOf = null,
+            ParentOrgNameFullVnAsOf = null,
+            ParentOrgNameShortVnAsOf = null,
+        };
+
+        var outcome = await vm.LoadAsync(2, Today);
+
+        outcome.Should().Be(CardLoadOutcome.Loaded);
+        vm.Severity.Should().Be(StatusSeverity.None);
+        vm.StatusMessage.Should().BeNull();
+    }
+
+    [Fact]
     public async Task LoadAsync_ComputesStatusViaVersionStatusResolver()
     {
         var (vm, repo) = Build();
@@ -5111,6 +5175,12 @@ public class OrgUnitDeclarationViewModelTests
     public void RootParentDisplayLabel_IsTheSettledShortForm()
     {
         OrgUnitDeclarationViewModel.RootParentDisplayLabel.Should().Be("Đơn vị gốc");
+    }
+
+    [Fact]
+    public void UnresolvedParentDisplayLabel_IsTheSettledSentence()
+    {
+        OrgUnitDeclarationViewModel.UnresolvedParentDisplayLabel.Should().Be("Lỗi dữ liệu về đơn vị cấp trên.");
     }
 
     // Card 261 / backlog 3.51 Part 1: Branch B display list carries the card's parent; gate still
