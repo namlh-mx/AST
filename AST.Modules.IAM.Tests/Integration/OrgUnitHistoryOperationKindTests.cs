@@ -5,8 +5,11 @@ using AST.Core.Time;
 
 namespace AST.Modules.IAM.Tests.Integration;
 
-// Phase 4d task 1 — per-row `operation_kind` recording (VersionOperationKind: Add/Edit/Close/Cancel) +
-// GetHistoryInScopeAsync's parent-as-of JOIN.
+// Phase 4d task 1 — per-row `operation_kind` recording + GetHistoryInScopeAsync's parent-as-of JOIN.
+// ⚠ VersionOperationKind has FIVE members and org_unit reaches all five: `Replace` writes this same
+// column through OrgUnitRepository.UpsertAsync. The four-value list this header used to carry was
+// F-244-03 at a seventh anchor, found 2026-09-08 (backlog 3.44). `Replace` is exercised in
+// OrgUnitReplacementTests, not here, so this file's own coverage is unchanged by the correction.
 public sealed class OrgUnitHistoryOperationKindTests : IamRepositoryTestBase
 {
     private static readonly EffectivePeriod OpenFrom2020 = new(new DateOnly(2020, 1, 1), EffectivePeriod.OpenEnd);
