@@ -557,6 +557,39 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
+    public async Task BeginAddThenCancel_WhileLoadAsyncInFlight_StillSupersedesTheLoad()
+    {
+        var (vm, repo) = Build();
+        var holdLoad = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var loadEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        repo.ByIdentityByOrgUnitId[1] = Dto(1, parentId: null, Today.AddDays(-10), EffectivePeriod.OpenEnd,
+            orgCode: "STALE", orgNameFullVn: "Stale Full", orgNameShortVn: "Stale");
+        repo.BeforeByIdentityReturn = async (id, _) =>
+        {
+            if (id == 1)
+            {
+                loadEntered.TrySetResult();
+                await holdLoad.Task;
+            }
+        };
+
+        var inFlight = vm.LoadAsync(1, Today);
+        await loadEntered.Task;
+
+        vm.BeginAddCommand.Execute();
+        await vm.CancelCommand.Execute();
+
+        holdLoad.TrySetResult();
+        var outcome = await inFlight;
+
+        Assert.Equal(CardLoadOutcome.Superseded, outcome);
+        Assert.Equal(OrgUnitCardMode.ReadOnly, vm.Mode);
+        Assert.Equal(string.Empty, vm.OrgCode);
+        Assert.Equal(string.Empty, vm.OrgNameFullVn);
+        Assert.Equal(string.Empty, vm.OrgNameShortVn);
+    }
+
+    [Fact]
     public async Task LoadAsync_PopulatesFieldsFromTheResolvedVersion()
     {
         var (vm, repo) = Build();
