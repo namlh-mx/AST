@@ -243,6 +243,38 @@ public sealed class OrgUnitRepositoryTests : IamRepositoryTestBase
     }
 
     [Fact]
+    public async Task GetByIdentityAsync_ParentWithOverlappingActiveVersions_SucceedsWithNullParentAsOfFields()
+    {
+        SkipUnlessDbAvailable();
+
+        var asOf = new DateOnly(2026, 6, 1);
+        var parent = await CreateOrgUnitAsync(
+            "CARDOVLP", "Tên pháp lý cha", "Tên tắt cha", null, OpenFrom2020);
+        var child = await CreateOrgUnitAsync(
+            "OVLPCHLD", "Tên pháp lý con", "Tên tắt con", parent, OpenFrom2020);
+        using (var connection = Connections.CreateConnection())
+        {
+            await connection.ExecuteAsync(
+                """
+                INSERT INTO org_unit_version
+                    (org_unit_id, org_code, org_name_full_vn, org_name_short_vn, parent_id,
+                     effective_from, effective_to, isactive, recorded_by, reason)
+                VALUES
+                    (@parent, 'CARDOVLP', 'Tên pháp lý cha chồng lấn', 'Tên tắt cha chồng lấn', NULL,
+                     @from, @to, 1, 'tester-raw', 'card-320-overlap-seed')
+                """,
+                new { parent, from = OpenFrom2020.From, to = OpenFrom2020.To });
+        }
+
+        var result = await OrgUnits.GetByIdentityAsync(child, asOf);
+
+        result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
+        result.Value.ParentOrgCodeAsOf.Should().BeNull();
+        result.Value.ParentOrgNameFullVnAsOf.Should().BeNull();
+        result.Value.ParentOrgNameShortVnAsOf.Should().BeNull();
+    }
+
+    [Fact]
     public async Task GetHistoryInScopeAsync_IncludesInactiveVersions_UnlikeGetInScopeAsync()
     {
         SkipUnlessDbAvailable();

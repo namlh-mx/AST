@@ -20,6 +20,7 @@ internal sealed class OrgUnitRepository
     // that parameter into derived state (CS9107). Classic constructor keeps the same DI shape.
     private readonly ITemporalFkValidator _fkValidator;
     private readonly IParentCoverageProvider _parentCoverage;
+    private readonly Serilog.ILogger _logger = Serilog.Log.Logger;
 
     public OrgUnitRepository(
         IDbConnectionFactory connections,
@@ -305,6 +306,20 @@ internal sealed class OrgUnitRepository
         var parent = await ResolveAtAsync(parentId, asOf);
         if (parent.IsError)
         {
+            if (parent.FirstError.Code == "EffectivePeriod.OverlappingVersions")
+            {
+                // This technical breadcrumb lets support correlate a reported blank parent with the identity,
+                // as-of date and offending version ids in the resolver description. It is written to the
+                // workstation-local %LOCALAPPDATA%\AST\logs\; across roughly thirty installations it is neither
+                // detection nor monitoring. Durable detection belongs to backlog 3.78.
+                _logger.Error(
+                    "Parent resolution conflict {ErrorCode} for parent identity {ParentOrgUnitId} at {AsOf}: {Description}",
+                    parent.FirstError.Code,
+                    parentId,
+                    asOf,
+                    parent.FirstError.Description);
+            }
+
             return dto;
         }
 

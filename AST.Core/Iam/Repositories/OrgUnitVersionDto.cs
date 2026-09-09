@@ -21,11 +21,10 @@ public sealed record OrgUnitVersionDto(
     // Nullable: pre-4d rows in a real DB would have NULL (today's DB is pre-release/empty, so this is
     // theoretical) -- also null on every read path except GetHistoryInScopeAsync (see OrgUnitVersionEntity).
     VersionOperationKind? OperationKind = null,
-    // Phase 4d GetHistoryInScopeAsync only -- the parent identity's org_code and Vietnamese names AS OF this row's own
-    // EffectiveFrom. Resolved via a JOIN that filters BOTH isactive=1 AND closed-closed period containment
-    // (effective_from <= asOf <= effective_to) together -- the same two conditions GetByIdentityAsync's
-    // point-in-time resolution requires (hard invariant #2, rule-effective-period); omitting either one
-    // duplicates/misses rows. Null = no parent (root) or the parent identity has no version covering that date.
+    // Parent labels are populated by GetByIdentityAsync at its requested as-of date and by GetHistoryInScopeAsync
+    // at each row's EffectiveFrom. Both paths require an active parent version whose closed period contains that date.
+    // Null means the row is a root, the parent has no covering active version, or overlapping active parent versions
+    // make the parent resolution ambiguous.
     string? ParentOrgCodeAsOf = null,
     string? ParentOrgNameFullVnAsOf = null,
     string? ParentOrgNameShortVnAsOf = null);
