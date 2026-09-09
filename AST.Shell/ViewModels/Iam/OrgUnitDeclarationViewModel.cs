@@ -191,6 +191,11 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     private int _historyLoadGeneration;
     private int _cardLoadGeneration;
 
+    // Entering a mutating mode takes ownership of the card; any in-flight LoadAsync must return
+    // Superseded and write nothing. NOT called from Clear() — LoadAsync/LoadFromHistoryRow bump
+    // before calling Clear(), so a bump inside Clear() would make every load supersede itself.
+    private void InvalidateInFlightCardLoad() => ++_cardLoadGeneration;
+
     // Mode-entry field baseline for IsDirty (card 273). Distinct from _snapshot, which is the Hủy
     // recovery bundle captured BEFORE Add/Close transform the form.
     private EntryDirtyBaseline? _entryDirtyBaseline;
@@ -1038,6 +1043,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private void ExecuteBeginAdd()
     {
+        InvalidateInFlightCardLoad();
         _snapshot = CaptureSnapshot();
         _addParentContext = _orgUnitId is { } loadedId
             ? (loadedId,
@@ -1270,6 +1276,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private void ExecuteBeginEdit()
     {
+        InvalidateInFlightCardLoad();
         _snapshot = CaptureSnapshot();
         Mode = OrgUnitCardMode.Editing;
         CaptureEntryDirtyBaseline();
@@ -1277,6 +1284,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private void ExecuteBeginReplace()
     {
+        InvalidateInFlightCardLoad();
         // Keep the current values on the card — do not Clear(). RecomputeParentEligibility unlocks the
         // parent picker; period/code/names are already editable in Editing today, so Replacing's
         // distinctive unlock against Editing is the parent only (card 238 / F-237-01).
@@ -1288,6 +1296,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private void ExecuteBeginClose()
     {
+        InvalidateInFlightCardLoad();
         _snapshot = CaptureSnapshot();
         // Close always needs a concrete end date — clear open-end so the EP To box is editable.
         // Suppress dirty-marking: these assignments are mode-entry defaults, not operator edits.
