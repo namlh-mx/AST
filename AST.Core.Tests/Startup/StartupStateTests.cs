@@ -12,7 +12,7 @@ public class StartupStateTests
         var raised = 0;
         state.Changed += (_, _) => raised++;
 
-        var status = new StartupStatus(StartupMode.Connected, "Startup.Ok", "Đã kết nối.");
+        var status = new StartupStatus(StartupMode.Connected, StartupCodes.Ready, "Đã kết nối.");
         state.Set(status);
 
         Assert.Same(status, state.Status);

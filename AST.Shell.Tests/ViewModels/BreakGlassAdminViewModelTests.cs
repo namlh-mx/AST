@@ -75,7 +75,7 @@ public class BreakGlassAdminViewModelTests
         vm.LoadCommand.Execute();
         vm.NewAdmin = "someone";
         vm.AddCommand.Execute();
-        svc.LoadResult = Error.Failure("BreakGlass.Io", "Không đọc được tập tin.");
+        svc.LoadResult = ConfigErrors.IoError("File B");
 
         vm.ClearForm();
 

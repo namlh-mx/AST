@@ -32,7 +32,7 @@ public class StatusSeverityViewModelTests
 
     private sealed class FakeRunner : IStartupRunner
     {
-        public StartupStatus Rerun() => new(StartupMode.Connected, "Startup.Ok", "Đã kết nối.");
+        public StartupStatus Rerun() => new(StartupMode.Connected, StartupCodes.Ready, "Đã kết nối.");
     }
 
     private sealed class FailVerifier : IAdminKeyVerifier

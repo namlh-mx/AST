@@ -34,7 +34,7 @@ public class ConnectionDeclarationViewModelTests
     {
         public int Calls;
         public StartupMode Mode = StartupMode.Connected;
-        public StartupStatus Rerun() { Calls++; return new StartupStatus(Mode, "Startup.Ok", "Đã kết nối."); }
+        public StartupStatus Rerun() { Calls++; return new StartupStatus(Mode, StartupCodes.Ready, "Đã kết nối."); }
     }
 
     private static ConnectionDeclarationViewModel Build(

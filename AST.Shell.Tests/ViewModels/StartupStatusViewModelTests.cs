@@ -32,7 +32,7 @@ public class StartupStatusViewModelTests
         var changed = new List<string>();
         vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName!);
 
-        state.Set(new StartupStatus(StartupMode.Connected, "Startup.Ok", "Đã kết nối."));
+        state.Set(new StartupStatus(StartupMode.Connected, StartupCodes.Ready, "Đã kết nối."));
 
         Assert.True(vm.IsConnected);
         Assert.Equal("Đã kết nối.", vm.Message);
