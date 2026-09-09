@@ -296,7 +296,24 @@ internal sealed class OrgUnitRepository
             return result.Errors;
         }
 
-        return ToDto(result.Value);
+        var dto = ToDto(result.Value);
+        if (result.Value.ParentId is not long parentId)
+        {
+            return dto;
+        }
+
+        var parent = await ResolveAtAsync(parentId, asOf);
+        if (parent.IsError)
+        {
+            return dto;
+        }
+
+        return dto with
+        {
+            ParentOrgCodeAsOf = parent.Value.OrgCode,
+            ParentOrgNameFullVnAsOf = parent.Value.OrgNameFullVn,
+            ParentOrgNameShortVnAsOf = parent.Value.OrgNameShortVn,
+        };
     }
 
     public async Task<IReadOnlyList<OrgUnitPickerItem>> GetEligibleParentsAsync(

@@ -112,6 +112,137 @@ public sealed class OrgUnitRepositoryTests : IamRepositoryTestBase
     // Phase 4d (history-grid read) — GetHistoryInScopeAsync has NO isactive/period filter, unlike
     // every Get* method above.
     [Fact]
+    public async Task GetByIdentityAsync_ResolvesParentLabelsAtRequestedAsOf_NotChildEffectiveFrom()
+    {
+        SkipUnlessDbAvailable();
+
+        var parent = await CreateOrgUnitAsync(
+            "CARDPAR", "Tên pháp lý cha cũ", "Tên tắt cha cũ", null, OpenFrom2020);
+        var child = await CreateOrgUnitAsync(
+            "CARDCHD", "Tên pháp lý con", "Tên tắt con", parent, OpenFrom2020);
+        var rename = await OrgUnits.UpsertAsync(
+            parent,
+            new EffectivePeriod(new DateOnly(2025, 1, 1), EffectivePeriod.OpenEnd),
+            "CARDPAR",
+            "Tên pháp lý cha mới",
+            "Tên tắt cha mới",
+            null,
+            VersionOperationKind.Edit,
+            "tester",
+            "rename parent");
+        rename.IsError.Should().BeFalse(DescribeErrors(rename.Errors));
+
+        var result = await OrgUnits.GetByIdentityAsync(child, new DateOnly(2026, 6, 1));
+
+        result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
+        result.Value.ParentOrgCodeAsOf.Should().Be("CARDPAR");
+        result.Value.ParentOrgNameFullVnAsOf.Should().Be("Tên pháp lý cha mới");
+        result.Value.ParentOrgNameShortVnAsOf.Should().Be("Tên tắt cha mới");
+    }
+
+    [Fact]
+    public async Task GetByIdentityAsync_InactiveInPeriodParentVersion_DoesNotSupplyLabels()
+    {
+        SkipUnlessDbAvailable();
+
+        var parent = await CreateOrgUnitAsync(
+            "IDECOY", "Tên pháp lý không hoạt động", "Tên tắt không hoạt động", null, OpenFrom2020);
+        var correction = await OrgUnits.UpsertAsync(
+            parent,
+            OpenFrom2020,
+            "IVALID",
+            "Tên pháp lý đang hoạt động",
+            "Tên tắt đang hoạt động",
+            null,
+            VersionOperationKind.Edit,
+            "tester",
+            "replace inactive decoy");
+        correction.IsError.Should().BeFalse(DescribeErrors(correction.Errors));
+        var child = await CreateOrgUnitAsync(
+            "ICHILD", "Tên pháp lý con", "Tên tắt con", parent, OpenFrom2020);
+
+        var result = await OrgUnits.GetByIdentityAsync(child, new DateOnly(2026, 6, 1));
+
+        result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
+        result.Value.ParentOrgCodeAsOf.Should().Be("IVALID");
+        result.Value.ParentOrgNameFullVnAsOf.Should().Be("Tên pháp lý đang hoạt động");
+        result.Value.ParentOrgNameShortVnAsOf.Should().Be("Tên tắt đang hoạt động");
+    }
+
+    [Fact]
+    public async Task GetByIdentityAsync_ActiveOutOfPeriodParentVersion_DoesNotSupplyLabels()
+    {
+        SkipUnlessDbAvailable();
+
+        var parent = await CreateOrgUnitAsync(
+            "PVALID1",
+            "Tên pháp lý đúng kỳ",
+            "Tên tắt đúng kỳ",
+            null,
+            new EffectivePeriod(new DateOnly(2020, 1, 1), new DateOnly(2024, 12, 31)));
+        var future = await OrgUnits.UpsertAsync(
+            parent,
+            new EffectivePeriod(new DateOnly(2025, 1, 1), EffectivePeriod.OpenEnd),
+            "PDECOY2",
+            "Tên pháp lý ngoài kỳ",
+            "Tên tắt ngoài kỳ",
+            null,
+            VersionOperationKind.Edit,
+            "tester",
+            "future decoy");
+        future.IsError.Should().BeFalse(DescribeErrors(future.Errors));
+        var child = await CreateOrgUnitAsync(
+            "PCHILD", "Tên pháp lý con", "Tên tắt con", parent, OpenFrom2020);
+
+        var result = await OrgUnits.GetByIdentityAsync(child, new DateOnly(2024, 6, 1));
+
+        result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
+        result.Value.ParentOrgCodeAsOf.Should().Be("PVALID1");
+        result.Value.ParentOrgNameFullVnAsOf.Should().Be("Tên pháp lý đúng kỳ");
+        result.Value.ParentOrgNameShortVnAsOf.Should().Be("Tên tắt đúng kỳ");
+    }
+
+    [Fact]
+    public async Task GetByIdentityAsync_RootChild_HasNullParentAsOfFields()
+    {
+        SkipUnlessDbAvailable();
+
+        var root = await CreateOrgUnitAsync(
+            "CARDROOT", "Tên pháp lý gốc", "Tên tắt gốc", null, OpenFrom2020);
+
+        var result = await OrgUnits.GetByIdentityAsync(root, new DateOnly(2026, 6, 1));
+
+        result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
+        result.Value.ParentOrgCodeAsOf.Should().BeNull();
+        result.Value.ParentOrgNameFullVnAsOf.Should().BeNull();
+        result.Value.ParentOrgNameShortVnAsOf.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetByIdentityAsync_ParentWithoutCoverageAtRequestedAsOf_HasNullParentAsOfFields()
+    {
+        SkipUnlessDbAvailable();
+
+        var parent = await CreateOrgUnitAsync(
+            "CARDGAP", "Tên pháp lý cha", "Tên tắt cha", null, OpenFrom2020);
+        var child = await CreateOrgUnitAsync(
+            "GAPCHILD", "Tên pháp lý con", "Tên tắt con", parent, OpenFrom2020);
+        using (var connection = Connections.CreateConnection())
+        {
+            await connection.ExecuteAsync(
+                "UPDATE org_unit_version SET effective_from = @from WHERE org_unit_id = @parent",
+                new { from = new DateOnly(2021, 1, 1), parent });
+        }
+
+        var result = await OrgUnits.GetByIdentityAsync(child, new DateOnly(2020, 6, 1));
+
+        result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
+        result.Value.ParentOrgCodeAsOf.Should().BeNull();
+        result.Value.ParentOrgNameFullVnAsOf.Should().BeNull();
+        result.Value.ParentOrgNameShortVnAsOf.Should().BeNull();
+    }
+
+    [Fact]
     public async Task GetHistoryInScopeAsync_IncludesInactiveVersions_UnlikeGetInScopeAsync()
     {
         SkipUnlessDbAvailable();
