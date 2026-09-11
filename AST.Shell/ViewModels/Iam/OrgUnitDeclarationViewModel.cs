@@ -8,6 +8,7 @@ using AST.Core.Iam.Repositories;
 using AST.Core.Presentation;
 using AST.Core.Time;
 using AST.Shell.Presentation;
+using AST.Shell.Presentation.Iam;
 using ErrorOr;
 using Prism.Commands;
 using Prism.Mvvm;
@@ -1418,9 +1419,9 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         "EffectivePeriod.NoCoverage" =>
             "Đơn vị không hiệu lực tại ngày đã chọn.",
         "EffectivePeriod.OverlappingVersions" =>
-            "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
+            IamDeclarationMessages.PeriodOverlap,
         // Authz.* cannot reach this map: callers are GetByIdentityAsync → resolver only (brief 162).
-        _ => "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        _ => PlatformErrorDescriber.CatchAll,
     };
 
     // §A (2026-08-10): History "Xem" is a ROW-IDENTIFIED read ("show THIS version"), not a date-resolved
@@ -1588,7 +1589,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         {
             if (generation == _historyLoadGeneration)
             {
-                StatusMessage = "Ứng dụng không tải được dữ liệu lịch sử.";
+                StatusMessage = IamDeclarationMessages.HistoryLoadFailed;
                 Severity = StatusSeverity.Error;
             }
         }
@@ -1681,7 +1682,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         {
             if (refreshFailed)
             {
-                StatusMessage = "Đã lưu. Dữ liệu hiển thị chưa cập nhật.";
+                StatusMessage = IamDeclarationMessages.SavedDisplayNotUpdated;
                 Severity = StatusSeverity.Warning;
             }
             else
@@ -2021,7 +2022,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
             if (!IsUndetermined && EffectiveTo < EffectiveFrom)
             {
-                return "Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực.";
+                return IamDeclarationMessages.CloseDateBeforeStart;
             }
         }
 
@@ -2249,7 +2250,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             or ReplacePeriodParentCoverageMismatchMessage;
 
     // Brief 163 FR1: one permission-family sentence for every Authz / scope / admin-flag denial on this screen.
-    private const string PermissionDeniedMessage = "Người dùng không được cấp quyền.";
+    private const string PermissionDeniedMessage = IamDeclarationMessages.PermissionDenied;
 
     // Presentation map for ErrorOr codes from all four service write gestures on this screen —
     // Add, Edit, close/cancel, and Replace. Codes are the contract; VN wording is the VM's job.
@@ -2289,7 +2290,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         VersionCloseRules.Codes.CloseDateEqualsVersionEnd =>
             "Ngày kết thúc hiệu lực đã được khai báo trước đó.",
         VersionCloseRules.Codes.CloseDateOutsideVersionPeriod =>
-            "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
+            IamDeclarationMessages.CloseDateOutsideDeclaredPeriod,
         VersionCloseRules.Codes.VersionAlreadyEnded =>
             "Đơn vị đã hết hiệu lực.",
         VersionCloseRules.Codes.CloseDateNotApplicableToCancelPlan =>
@@ -2311,15 +2312,15 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         "OrgUnit.VersionNotFound" or "VersionedRepository.VersionNotFound" =>
             "Không tìm thấy phiên bản đơn vị cho thao tác này.",
         "VersionedRepository.NotAFuturePlan" =>
-            "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
+            IamDeclarationMessages.StaleDataReload,
         "VersionedRepository.DependentSetChanged" =>
-            "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
+            IamDeclarationMessages.StaleDataReload,
         "VersionedRepository.DependentNotEnlisted" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "VersionedRepository.LockTimeout" =>
-            "Dữ liệu đang được người dùng khác khai báo.",
+            IamDeclarationMessages.ConcurrentDeclaration,
         "VersionedRepository.InvalidShrink" =>
-            "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
+            IamDeclarationMessages.CloseDateOutsideDeclaredPeriod,
         "OrgUnit.GapNotAllowed" =>
             "Kỳ hiệu lực không liên tục.",
         "OrgUnit.RootNotClosable" =>
@@ -2341,9 +2342,9 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             "Người dùng không có quyền thay thế đơn vị gốc.",
         // Same house sentence as NotAFuturePlan / DependentSetChanged: stale card, reload the screen.
         "OrgUnit.PredecessorMarksNothing" =>
-            "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
+            IamDeclarationMessages.StaleDataReload,
         "OrgUnit.ParentWithinPredecessor" =>
-            "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
+            IamDeclarationMessages.StaleDataReload,
         // Already the service Description and pinned by IAM integration tests 12/13; arm so the generic
         // fallback cannot swallow it.
         "OrgUnit.PredecessorNotEmpty" =>
@@ -2359,9 +2360,9 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // only offers the route when a tail exists. Mapped anyway so a future caller cannot re-open the
         // English Description leak; this is not a claim that a route exists.
         "OrgUnit.EndsOnDisagreesWithPeriod" or "OrgUnit.EndsOnNotBeforeStoredEnd" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "EffectivePeriod.OverlappingVersions" =>
-            "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
+            IamDeclarationMessages.PeriodOverlap,
         // Brief 160: unreachable on this screen's save path today; arm kept so a later route cannot
         // re-open the Description leak. Not a claim that the route exists.
         "EffectivePeriod.NoCoverage" =>
@@ -2369,7 +2370,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // Brief 160: unreachable on this screen's save path today; arm kept so a later route cannot
         // re-open the Description leak. Not a claim that the route exists.
         "EffectivePeriod.InvalidRange" =>
-            "Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực.",
+            IamDeclarationMessages.CloseDateBeforeStart,
         "TemporalFk.DependentsUncovered" =>
             "Đơn vị không được đóng do còn đơn vị cấp dưới hoặc còn người dùng phụ thuộc.",
         "Authz.ScopeInsufficient" =>
@@ -2379,19 +2380,19 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // Explicit R-SYS arms: reachable via DenyOrPropagate / CompositeWrite / audit (brief 162);
         // completeness tests prove they are handled deliberately, not by accident.
         "Function.DuplicateKey" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "User.DuplicateUsername" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "RolePermission.DuplicateGrant" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "CompositeWrite.NotEnlisted" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "AuditLogWriter.NoAmbientConnection" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         // Any other Authz.* — generic only; never pass through Description (English raise sites exist).
         _ when error.Code.StartsWith("Authz.", StringComparison.Ordinal) =>
             PermissionDeniedMessage,
-        _ => "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        _ => PlatformErrorDescriber.CatchAll,
     };
 
     // Test-only public wrappers — completeness tests call the private maps without InternalsVisibleTo.

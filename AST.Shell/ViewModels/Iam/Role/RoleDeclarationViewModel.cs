@@ -8,6 +8,7 @@ using AST.Core.Iam.Repositories;
 using AST.Core.Presentation;
 using AST.Core.Time;
 using AST.Shell.Presentation;
+using AST.Shell.Presentation.Iam;
 using ErrorOr;
 using Prism.Commands;
 using Prism.Mvvm;
@@ -86,12 +87,12 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
     // text. Public because no AST.Shell.Tests InternalsVisibleTo exists on AST.Shell.csproj and adding
     // one is out of this round's Scope (VM + tests only).
     // Brief 163 FR1: permission-family sentence. Public AdminFlag alias kept for tests / same-code UX.
-    private const string PermissionDeniedMessage = "Người dùng không được cấp quyền.";
+    private const string PermissionDeniedMessage = IamDeclarationMessages.PermissionDenied;
 
     public const string AdminFlagChangeNotAuthorizedMessage = PermissionDeniedMessage;
 
     private const string StaleCardReloadMessage =
-        "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.";
+        IamDeclarationMessages.StaleDataReload;
     private const string CloseSuccessMessage = "Đã cập nhật hiệu lực vai trò.";
 
     private static readonly Regex RoleCodePattern = new(@"^[a-z0-9_]{5,20}$", RegexOptions.Compiled);
@@ -647,7 +648,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
             return;
         if (outcome == CardLoadOutcome.Failed || Severity == StatusSeverity.Error)
         {
-            StatusMessage = "Đã lưu. Dữ liệu hiển thị chưa cập nhật.";
+            StatusMessage = IamDeclarationMessages.SavedDisplayNotUpdated;
             Severity = StatusSeverity.Warning;
             return;
         }
@@ -735,7 +736,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
         await RefreshHistoryAsync();
         if (Severity == StatusSeverity.Error)
         {
-            StatusMessage = "Đã lưu. Dữ liệu hiển thị chưa cập nhật.";
+            StatusMessage = IamDeclarationMessages.SavedDisplayNotUpdated;
             Severity = StatusSeverity.Warning;
         }
         else
@@ -761,22 +762,22 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
         "VersionedRepository.BaseVersionRequired" =>
             "Kỳ hiệu lực của quyền không phù hợp với kỳ hiệu lực của vai trò.",
         "VersionedRepository.DependentSetChanged" =>
-            "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
+            IamDeclarationMessages.StaleDataReload,
         "VersionedRepository.DependentNotEnlisted" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         // Defensive. Only CancelPlanAsync raises this, and the service routes an in-force version
         // to CloseVersionAsync (Retire) instead. Measured 2026-08-28.
         "VersionedRepository.NotAFuturePlan" =>
             StaleCardReloadMessage,
         "VersionedRepository.LockTimeout" =>
-            "Dữ liệu đang được người dùng khác khai báo.",
+            IamDeclarationMessages.ConcurrentDeclaration,
         // Defensive. The engine raises this iff newTo < From || newTo >= To
         // (VersionedRepository.CloseVersionCoreAsync); VersionCloseRules.Validate rejects that
         // identical predicate before the repository is called, so a close that reaches the engine is
         // already inside the window. DERIVED from the two predicates, not measured: the 2026-08-28
         // probe witnesses only the already-ended payload (VersionAlreadyEnded), which is one branch.
         "VersionedRepository.InvalidShrink" =>
-            "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
+            IamDeclarationMessages.CloseDateOutsideDeclaredPeriod,
         "TemporalFk.DependentsUncovered" =>
             "Vai trò không được đóng do còn người dùng phụ thuộc.",
         "Authz.ScopeInsufficient" =>
@@ -784,20 +785,20 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
         "Authz.NotGranted" =>
             PermissionDeniedMessage,
         "Function.DuplicateKey" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "User.DuplicateUsername" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "RolePermission.DuplicateGrant" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "Role.CascadeGrantNotProbed" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "CompositeWrite.NotEnlisted" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "AuditLogWriter.NoAmbientConnection" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         _ when error.Code.StartsWith("Authz.", StringComparison.Ordinal) =>
             PermissionDeniedMessage,
-        _ => "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        _ => PlatformErrorDescriber.CatchAll,
     };
 
     // Test-only public wrapper (Fix Round 1 §6): the VersionCloseRules.Codes.All coverage test needs to
@@ -828,31 +829,31 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
         // RolePermissionGrantToAdd carry no date or period field, so no caller can express an
         // invalid range; the service derives the period itself.
         "EffectivePeriod.InvalidRange" =>
-            "Ngày kết thúc hiệu lực không được trước ngày bắt đầu hiệu lực.",
+            IamDeclarationMessages.CloseDateBeforeStart,
         "EffectivePeriod.OverlappingVersions" =>
-            "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
+            IamDeclarationMessages.PeriodOverlap,
         "Authz.ScopeInsufficient" =>
             PermissionDeniedMessage,
         "Authz.NotGranted" =>
             PermissionDeniedMessage,
         "VersionedRepository.LockTimeout" =>
-            "Dữ liệu đang được người dùng khác khai báo.",
+            IamDeclarationMessages.ConcurrentDeclaration,
         // Defensive, and unreachable on BOTH revoke branches, for two different reasons: CancelPlan
         // calls CancelPlanAsync, which never shrinks, so the code cannot be raised there at all;
         // Retire passes today-1, while the branch itself requires From < today and the grant is
         // resolved as applicable at today (so To >= today), giving From <= today-1 < To. DERIVED
         // from the branch algebra; the 2026-08-28 probe witnesses only the CancelPlan branch.
         "VersionedRepository.InvalidShrink" =>
-            "Ngày kết thúc hiệu lực không nằm trong kỳ hiệu lực đã khai báo.",
+            IamDeclarationMessages.CloseDateOutsideDeclaredPeriod,
         "Role.CodeOwnershipChanged" or "Role.VersionOutOfDate" or "Role.ExpectedCodeMismatch"
             // Defensive: a stale save is pre-empted by Role.VersionOutOfDate from
             // ReDecideIdentityAsync (measured 2026-08-28).
             or "VersionedRepository.NotAFuturePlan" or "VersionedRepository.VersionNotFound" =>
-            "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
+            IamDeclarationMessages.StaleDataReload,
         "VersionedRepository.DependentSetChanged" =>
-            "Dữ liệu đã được thay đổi, người dùng tải lại chức năng để cập nhật.",
+            IamDeclarationMessages.StaleDataReload,
         "VersionedRepository.DependentNotEnlisted" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         // UNRESOLVED, deliberately. Two raise sites: DeleteVersionAsync (deleting the last active
         // version) and AutoCutExclusivelyOwnedAsync (parent shrink) — a save-revoke payload witnesses
         // neither. An external review read both as unreachable from Save; a READ does not meet this
@@ -860,24 +861,24 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
         "VersionedRepository.BaseVersionRequired" =>
             "Kỳ hiệu lực của quyền không phù hợp với kỳ hiệu lực của vai trò.",
         "RolePermission.NotOwnedByRole" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "RolePermission.IdentityAlreadyVersioned" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "Function.DuplicateKey" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "User.DuplicateUsername" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "RolePermission.DuplicateGrant" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "CompositeWrite.NotEnlisted" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         "AuditLogWriter.NoAmbientConnection" =>
-            "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            PlatformErrorDescriber.CatchAll,
         // Role.CodeNotAscii: unreachable — ValidateFields RoleCodePattern excludes non-ASCII before
         // the service is called (brief 163 step 6). No arm.
         _ when error.Code.StartsWith("Authz.", StringComparison.Ordinal) =>
             PermissionDeniedMessage,
-        _ => "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+        _ => PlatformErrorDescriber.CatchAll,
     };
 
     // Test-only public wrapper — FormatSaveError completeness + fall-through without InternalsVisibleTo.
@@ -890,8 +891,8 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
         "EffectivePeriod.NoCoverage" =>
             "Vai trò không hiệu lực tại ngày đã chọn.",
         "EffectivePeriod.OverlappingVersions" =>
-            "Kỳ hiệu lực bị trùng lặp một phần hoặc toàn phần.",
-        _ => "Lỗi hệ thống, người dùng thử lại sau hoặc liên hệ quản trị viên.",
+            IamDeclarationMessages.PeriodOverlap,
+        _ => PlatformErrorDescriber.CatchAll,
     };
 
     public string FormatLoadErrorPublic(Error error) => FormatLoadError(error);
@@ -1299,7 +1300,7 @@ public sealed class RoleDeclarationViewModel : BindableBase, IDeclarationForm, I
         {
             if (generation == _historyLoadGeneration)
             {
-                StatusMessage = "Ứng dụng không tải được dữ liệu lịch sử.";
+                StatusMessage = IamDeclarationMessages.HistoryLoadFailed;
                 Severity = StatusSeverity.Error;
             }
         }
