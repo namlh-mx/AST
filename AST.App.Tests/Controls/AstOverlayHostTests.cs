@@ -322,6 +322,97 @@ public class AstOverlayHostTests
                     "supporting evidence B9: focus returns to the element that opened the host");
             });
 
+    [Fact]
+    public void B10_styled_host_without_local_background_resolves_the_style_owned_non_transparent_scrim()
+        => OffscreenHost.Run(
+            window =>
+            {
+                var host = new AstOverlayHost
+                {
+                    Style = (Style)window.FindResource("AstOverlayHost"),
+                    Content = new TextBlock { Text = "form" },
+                };
+                host.ReadLocalValue(Control.BackgroundProperty).Should().Be(
+                    DependencyProperty.UnsetValue,
+                    "B10 instantiates a styled host with no local Background");
+                return host;
+            },
+            (_, host) =>
+            {
+                host.IsOpen = true;
+                Sta.PumpToIdle();
+
+                var resolved = host.Background as SolidColorBrush;
+                resolved.Should().NotBeNull();
+                resolved!.Color.Should().Be(Color.FromArgb(0x80, 0, 0, 0));
+                resolved.Color.A.Should().NotBe(0);
+
+                var border = TemplateScrimBorder(host);
+                border.Background.Should().BeSameAs(resolved);
+            });
+
+    [Fact]
+    public void B11_open_host_is_the_input_hit_outside_the_subform_closed_host_yields_the_backing_element()
+        => OffscreenHost.Run(
+            window =>
+            {
+                window.Width = 400;
+                window.Height = 400;
+                var root = new Grid { Width = 400, Height = 400 };
+                var behind = new Button
+                {
+                    Content = "Behind",
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Stretch,
+                };
+                var form = new Border
+                {
+                    Width = 80,
+                    Height = 80,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Background = Brushes.White,
+                    Child = new TextBlock { Text = "form" },
+                };
+                var host = new AstOverlayHost
+                {
+                    Style = (Style)window.FindResource("AstOverlayHost"),
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Stretch,
+                    Content = form,
+                };
+                root.Children.Add(behind);
+                root.Children.Add(host);
+                return root;
+            },
+            (window, root) =>
+            {
+                var host = root.Children.OfType<AstOverlayHost>().Single();
+                var behind = root.Children.OfType<Button>().Single();
+                var form = (Border)host.Content;
+                var testPoint = new Point(20, 20);
+
+                host.IsOpen = true;
+                Sta.PumpToIdle();
+
+                host.ActualWidth.Should().Be(root.ActualWidth);
+                host.ActualHeight.Should().Be(root.ActualHeight);
+                var formOrigin = form.TransformToAncestor(root).Transform(new Point(0, 0));
+                var formRect = new Rect(formOrigin, form.RenderSize);
+                formRect.Contains(testPoint).Should().BeFalse("the test point must lie outside the sub-form");
+
+                var openHit = root.InputHitTest(testPoint) as DependencyObject;
+                IsSelfOrAncestor(host, openHit).Should().BeTrue(
+                    $"open hit must be the host or a descendant; was {DescribeHit(openHit)}");
+
+                host.IsOpen = false;
+                Sta.PumpToIdle();
+
+                var closedHit = root.InputHitTest(testPoint) as DependencyObject;
+                IsSelfOrAncestor(behind, closedHit).Should().BeTrue(
+                    $"closed hit must be the backing button or a descendant; was {DescribeHit(closedHit)}");
+            });
+
     private static AstOverlayHost BuildHost(params UIElement[] children)
     {
         var panel = new StackPanel();
@@ -365,6 +456,37 @@ private static T FindNamed<T>(DependencyObject root, string name) where T : Fram
 
         return false;
     }
+
+    private static Border TemplateScrimBorder(AstOverlayHost host)
+    {
+        host.ApplyTemplate();
+        VisualTreeHelper.GetChildrenCount(host).Should().BeGreaterThan(0);
+        var child = VisualTreeHelper.GetChild(host, 0) as Border;
+        child.Should().NotBeNull("the keyed template's root must be the scrim Border");
+        return child!;
+    }
+
+    private static bool IsSelfOrAncestor(DependencyObject ancestor, DependencyObject? node)
+    {
+        for (var current = node; current is not null; current = HitTestParent(current))
+        {
+            if (ReferenceEquals(current, ancestor))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static DependencyObject? HitTestParent(DependencyObject current)
+    {
+        if (current is Visual)
+            return VisualTreeHelper.GetParent(current) ?? LogicalTreeHelper.GetParent(current);
+
+        return LogicalTreeHelper.GetParent(current);
+    }
+
+    private static string DescribeHit(DependencyObject? hit) =>
+        hit is null ? "null" : hit.GetType().Name;
 
     private static IEnumerable<DependencyObject> Walk(DependencyObject root)
     {

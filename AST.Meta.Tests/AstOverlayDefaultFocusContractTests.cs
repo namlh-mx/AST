@@ -2,22 +2,23 @@ using FluentAssertions;
 
 namespace AST.Meta.Tests;
 
-// Guard-parser fixtures for card 342 C3.6, plus the production-tree contract.
-// Perimeter (C3.7): this guard enforces XAML-declared production hosts. It does not
-// discover a host constructed wholly in production C#. There is no such host at the
-// card-344 base SHA. Do not pretend Roslyn closes that gap.
+// Guard-parser fixtures for card 342 C3.6 / card 346 Parts D and E, plus the production-tree contract.
+// Perimeter (C3.7): this guard enforces XAML-declared production hosts. It does not discover a host
+// constructed wholly in production C#. An XAML-declared host whose content is code-assigned or otherwise
+// not statically provable fails closed. Do not pretend Roslyn closes the wholly-C#-constructed gap.
 public class AstOverlayDefaultFocusContractTests
 {
     [Fact]
-    public void Production_tree_has_exactly_one_marker_on_the_org_unit_host()
+    public void Production_tree_includes_the_org_unit_host_and_evaluates_every_host()
     {
         var scans = XamlCompositionGraph.Load(MetaTest.RepoRoot()).ScanHosts();
-        scans.Should().ContainSingle("one XAML-declared production AstOverlayHost");
-        var scan = scans[0];
-        scan.ContractFailure.Should().BeNull();
-        scan.HostFile.Should().Be("AST/Views/Iam/OrgUnit/OrgUnitDeclarationView.xaml");
-        scan.Markers.Should().ContainSingle();
-        scan.Markers[0].File.Should().Be("AST/Views/Iam/OrgUnit/OrgUnitSupplementalDialog.xaml");
+        AssertEveryHostSatisfiesContract(scans);
+        var org = scans.Should().ContainSingle(s =>
+            s.HostFile == "AST/Views/Iam/OrgUnit/OrgUnitDeclarationView.xaml").Which;
+        org.Markers.Should().ContainSingle();
+        org.Markers[0].File.Should().Be("AST/Views/Iam/OrgUnit/OrgUnitSupplementalDialog.xaml");
+        org.StyleReference.Should().Be("{StaticResource AstOverlayHost}");
+        org.BackgroundLiteral.Should().Be("#80000000");
     }
 
     [Fact]
@@ -114,6 +115,24 @@ public class AstOverlayDefaultFocusContractTests
     }
 
     [Fact]
+    public void Owner_qualified_PreviewKeyDown_on_the_host_fails()
+    {
+        using var repo = FixtureRepo.OwnerQualifiedPreviewKeyDownOnHost();
+        Single(repo).ContractFailure.Should().Contain("PreviewKeyDown");
+        Single(repo).ContractFailure.Should().Contain("AstOverlayHost");
+        Single(repo).ContractFailure.Should().NotContain("0 true IsDefaultFocus marker");
+    }
+
+    [Fact]
+    public void Owner_qualified_PreviewKeyDown_on_the_marked_field_fails()
+    {
+        using var repo = FixtureRepo.OwnerQualifiedPreviewKeyDownOnMarked();
+        Single(repo).ContractFailure.Should().Contain("PreviewKeyDown");
+        Single(repo).ContractFailure.Should().Contain("marked default-focus");
+        Single(repo).ContractFailure.Should().NotContain("0 true IsDefaultFocus marker");
+    }
+
+    [Fact]
     public void Bound_content_fails_closed()
     {
         using var repo = FixtureRepo.BoundContent();
@@ -121,6 +140,124 @@ public class AstOverlayDefaultFocusContractTests
         failure.Should().NotBeNull();
         failure.Should().Contain("bound or assigned Content");
         failure.Should().Contain("statically provable XAML target");
+    }
+
+    [Fact]
+    public void Nested_bound_content_beside_a_valid_marker_fails_closed()
+    {
+        using var repo = FixtureRepo.NestedBoundContent();
+        var failure = Single(repo).ContractFailure;
+        failure.Should().NotBeNull();
+        failure.Should().Contain("bound or assigned Content");
+        failure.Should().Contain("<ContentControl>");
+        failure.Should().Contain("chain:");
+        failure.Should().NotContain("1 true IsDefaultFocus marker");
+    }
+
+    [Fact]
+    public void Resolved_root_plus_child_markers_report_two_runtime_instances()
+    {
+        using var repo = FixtureRepo.RootPlusChild();
+        Single(repo).Markers.Should().HaveCount(2);
+        Single(repo).ContractFailure.Should().Contain("2 true IsDefaultFocus marker");
+        Single(repo).Markers.Select(m => m.File).Should().Contain(f => f.Contains("Dialog.xaml"));
+    }
+
+    [Fact]
+    public void Usage_true_and_root_true_is_one_marked_instance()
+    {
+        using var repo = FixtureRepo.UsageTrueRootTrue();
+        var scan = Single(repo);
+        scan.Markers.Should().HaveCount(1);
+        scan.ContractFailure.Should().BeNull();
+        scan.Markers[0].ContributingDeclarations.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Usage_false_and_root_true_is_zero_true_markers()
+    {
+        using var repo = FixtureRepo.UsageFalseRootTrue();
+        var scan = Single(repo);
+        scan.Markers.Should().BeEmpty();
+        scan.ContractFailure.Should().Contain("0 true IsDefaultFocus marker");
+    }
+
+    [Fact]
+    public void Two_valid_hosts_each_satisfy_the_contract()
+    {
+        using var repo = FixtureRepo.TwoValidHosts();
+        var scans = XamlCompositionGraph.Load(repo.Root).ScanHosts();
+        scans.Should().HaveCount(2);
+        AssertEveryHostSatisfiesContract(scans);
+    }
+
+    [Fact]
+    public void Two_valid_hosts_first_invalid_names_that_host()
+    {
+        using var repo = FixtureRepo.TwoValidHosts(firstMarked: false, secondMarked: true);
+        var scans = XamlCompositionGraph.Load(repo.Root).ScanHosts();
+        scans.Should().HaveCount(2);
+        var first = scans.Should().ContainSingle(s => s.HostFile.Contains("HostA.xaml")).Which;
+        first.ContractFailure.Should().Contain("0 true IsDefaultFocus marker");
+        first.ContractFailure.Should().Contain("HostA.xaml");
+        scans.Should().ContainSingle(s => s.HostFile.Contains("HostB.xaml")).Which
+            .ContractFailure.Should().BeNull();
+    }
+
+    [Fact]
+    public void Two_valid_hosts_second_invalid_names_that_host()
+    {
+        using var repo = FixtureRepo.TwoValidHosts(firstMarked: true, secondMarked: false);
+        var scans = XamlCompositionGraph.Load(repo.Root).ScanHosts();
+        scans.Should().HaveCount(2);
+        var second = scans.Should().ContainSingle(s => s.HostFile.Contains("HostB.xaml")).Which;
+        second.ContractFailure.Should().Contain("0 true IsDefaultFocus marker");
+        second.ContractFailure.Should().Contain("HostB.xaml");
+        scans.Should().ContainSingle(s => s.HostFile.Contains("HostA.xaml")).Which
+            .ContractFailure.Should().BeNull();
+    }
+
+    [Fact]
+    public void Accepted_static_resource_style_key_passes()
+    {
+        using var repo = FixtureRepo.CurrentShape();
+        Single(repo).ContractFailure.Should().BeNull();
+        Single(repo).StyleReference.Should().Be("{StaticResource AstOverlayHost}");
+    }
+
+    [Fact]
+    public void Missing_style_fails_closed_for_missing_style_not_marker_count()
+    {
+        using var repo = FixtureRepo.MissingStyle();
+        var failure = Single(repo).ContractFailure;
+        failure.Should().Contain("missing Style {StaticResource AstOverlayHost}");
+        failure.Should().NotContain("true IsDefaultFocus marker");
+    }
+
+    [Fact]
+    public void Wrong_style_key_fails_closed_for_the_wrong_key_not_marker_count()
+    {
+        using var repo = FixtureRepo.WrongStyleKey();
+        var failure = Single(repo).ContractFailure;
+        failure.Should().Contain("Style key 'AstField' is not the required AstOverlayHost");
+        failure.Should().NotContain("true IsDefaultFocus marker");
+    }
+
+    [Fact]
+    public void Unclassifiable_dynamic_style_fails_closed_for_that_reason_not_marker_count()
+    {
+        using var repo = FixtureRepo.DynamicStyle();
+        var failure = Single(repo).ContractFailure;
+        failure.Should().Contain("unclassifiable or dynamic Style");
+        failure.Should().Contain("DynamicResource");
+        failure.Should().NotContain("true IsDefaultFocus marker");
+    }
+
+    private static void AssertEveryHostSatisfiesContract(IReadOnlyList<OverlayHostScan> scans)
+    {
+        scans.Should().NotBeEmpty();
+        foreach (var scan in scans)
+            scan.ContractFailure.Should().BeNull($"{scan.HostFile}:{scan.HostLine}: {scan.ContractFailure}");
     }
 
     private static OverlayHostScan Single(FixtureRepo repo)
@@ -205,17 +342,7 @@ internal sealed class FixtureRepo : IDisposable
     }
 
     public static FixtureRepo PreviewKeyDownOnHost() => Write(
-        File("AST.Prod/Host.xaml", """
-            <UserControl x:Class="AST.Prod.HostView"
-                         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                         xmlns:controls="clr-namespace:AST.Controls;assembly=AST.UI"
-                         xmlns:local="clr-namespace:AST.Prod">
-              <controls:AstOverlayHost PreviewKeyDown="OnPreview">
-                <local:Dialog />
-              </controls:AstOverlayHost>
-            </UserControl>
-            """),
+        Host("        <local:Dialog />", extraHostAttributes: "PreviewKeyDown=\"OnPreview\""),
         Dialog(marker: true));
 
     public static FixtureRepo PreviewKeyDownOnMarked() => Write(
@@ -223,15 +350,73 @@ internal sealed class FixtureRepo : IDisposable
         File("AST.Prod/Dialog.xaml", UserControl("AST.Prod.Dialog",
             """        <Button controls:AstOverlayHost.IsDefaultFocus="True" PreviewKeyDown="OnPreview" />""")));
 
+    public static FixtureRepo OwnerQualifiedPreviewKeyDownOnHost() => Write(
+        Host("        <local:Dialog />", extraHostAttributes: "TextBox.PreviewKeyDown=\"OnPreview\""),
+        Dialog(marker: true));
+
+    public static FixtureRepo OwnerQualifiedPreviewKeyDownOnMarked() => Write(
+        Host("        <local:Dialog />"),
+        File("AST.Prod/Dialog.xaml", UserControl("AST.Prod.Dialog",
+            """        <Button controls:AstOverlayHost.IsDefaultFocus="True" TextBox.PreviewKeyDown="OnPreview" />""")));
+
     public static FixtureRepo BoundContent() => Write(
-        File("AST.Prod/Host.xaml", """
-            <UserControl x:Class="AST.Prod.HostView"
-                         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                         xmlns:controls="clr-namespace:AST.Controls;assembly=AST.UI">
-              <controls:AstOverlayHost Content="{Binding Anything}" />
-            </UserControl>
-            """));
+        File("AST.Prod/Host.xaml", HostXaml(
+            content: "",
+            extraHostAttributes: "Content=\"{Binding Anything}\"",
+            includeContentElement: false)));
+
+    public static FixtureRepo NestedBoundContent() => Write(
+        Host("""
+                    <StackPanel>
+                      <Button controls:AstOverlayHost.IsDefaultFocus="True" />
+                      <ContentControl Content="{Binding DynamicEditor}" />
+                    </StackPanel>
+                    """));
+
+    public static FixtureRepo RootPlusChild() => Write(
+        Host("        <local:Dialog />"),
+        File("AST.Prod/Dialog.xaml", UserControl(
+            "AST.Prod.Dialog",
+            """        <Button controls:AstOverlayHost.IsDefaultFocus="True" />""",
+            rootMarker: true)));
+
+    public static FixtureRepo UsageTrueRootTrue() => Write(
+        Host("""        <local:Dialog controls:AstOverlayHost.IsDefaultFocus="True" />"""),
+        File("AST.Prod/Dialog.xaml", UserControl(
+            "AST.Prod.Dialog",
+            "        <Button />",
+            rootMarker: true)));
+
+    public static FixtureRepo UsageFalseRootTrue() => Write(
+        Host("        <local:Dialog controls:AstOverlayHost.IsDefaultFocus=\"False\" />"),
+        File("AST.Prod/Dialog.xaml", UserControl(
+            "AST.Prod.Dialog",
+            "        <Button />",
+            rootMarker: true)));
+
+    public static FixtureRepo TwoValidHosts(bool firstMarked = true, bool secondMarked = true) => Write(
+        File("AST.Prod/HostA.xaml", HostXaml("        <local:DialogA />", xClass: "AST.Prod.HostA")),
+        File("AST.Prod/DialogA.xaml", UserControl("AST.Prod.DialogA",
+            firstMarked
+                ? """        <Button controls:AstOverlayHost.IsDefaultFocus="True" />"""
+                : "        <Button />")),
+        File("AST.Prod/HostB.xaml", HostXaml("        <local:DialogB />", xClass: "AST.Prod.HostB")),
+        File("AST.Prod/DialogB.xaml", UserControl("AST.Prod.DialogB",
+            secondMarked
+                ? """        <Button controls:AstOverlayHost.IsDefaultFocus="True" />"""
+                : "        <Button />")));
+
+    public static FixtureRepo MissingStyle() => Write(
+        Host("        <local:Dialog />", style: null),
+        Dialog(marker: true));
+
+    public static FixtureRepo WrongStyleKey() => Write(
+        Host("        <local:Dialog />", style: "{StaticResource AstField}"),
+        Dialog(marker: true));
+
+    public static FixtureRepo DynamicStyle() => Write(
+        Host("        <local:Dialog />", style: "{DynamicResource AstOverlayHost}"),
+        Dialog(marker: true));
 
     public void Dispose()
     {
@@ -260,8 +445,11 @@ internal sealed class FixtureRepo : IDisposable
         return new FixtureRepo(root);
     }
 
-    private static (string Path, string Contents) Host(string content) =>
-        File("AST.Prod/Host.xaml", HostXaml(content));
+    private static (string Path, string Contents) Host(
+        string content,
+        string? style = "{StaticResource AstOverlayHost}",
+        string extraHostAttributes = "") =>
+        File("AST.Prod/Host.xaml", HostXaml(content, style: style, extraHostAttributes: extraHostAttributes));
 
     private static (string Path, string Contents) Dialog(bool marker) =>
         File("AST.Prod/Dialog.xaml", UserControl("AST.Prod.Dialog",
@@ -271,27 +459,40 @@ internal sealed class FixtureRepo : IDisposable
 
     private static (string Path, string Contents) File(string path, string contents) => (path, contents);
 
-    private static string HostXaml(string content) => $"""
-        <UserControl x:Class="AST.Prod.HostView"
-                     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                     xmlns:controls="clr-namespace:AST.Controls;assembly=AST.UI"
-                     xmlns:local="clr-namespace:AST.Prod">
-          <controls:AstOverlayHost>
-        {content}
-          </controls:AstOverlayHost>
-        </UserControl>
-        """;
-
-    private static string UserControl(string xClass, string content) => $"""
+    private static string HostXaml(
+        string content,
+        string xClass = "AST.Prod.HostView",
+        string? style = "{StaticResource AstOverlayHost}",
+        string extraHostAttributes = "",
+        bool includeContentElement = true)
+    {
+        var styleAttr = style is null ? "" : $" Style=\"{style}\"";
+        var extra = string.IsNullOrWhiteSpace(extraHostAttributes) ? "" : " " + extraHostAttributes.Trim();
+        var inner = includeContentElement ? "\n" + content + "\n          " : "";
+        return $"""
         <UserControl x:Class="{xClass}"
                      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                      xmlns:controls="clr-namespace:AST.Controls;assembly=AST.UI"
                      xmlns:local="clr-namespace:AST.Prod">
+          <controls:AstOverlayHost{styleAttr}{extra}>{inner}</controls:AstOverlayHost>
+        </UserControl>
+        """;
+    }
+
+    private static string UserControl(string xClass, string content, bool rootMarker = false)
+    {
+        var marker = rootMarker ? " controls:AstOverlayHost.IsDefaultFocus=\"True\"" : "";
+        return $"""
+        <UserControl x:Class="{xClass}"{marker}
+                     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                     xmlns:controls="clr-namespace:AST.Controls;assembly=AST.UI"
+                     xmlns:local="clr-namespace:AST.Prod">
         {content}
         </UserControl>
         """;
+    }
 
     private const string Csproj = """
         <Project Sdk="Microsoft.NET.Sdk">

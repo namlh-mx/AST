@@ -1323,7 +1323,8 @@
 
             Background="#80000000"
 
-            CloseRequested="OnSupplementalCloseRequested">
+            CloseRequested="OnSupplementalCloseRequested"
+            Style="{StaticResource AstOverlayHost}">
 
             <Border
 

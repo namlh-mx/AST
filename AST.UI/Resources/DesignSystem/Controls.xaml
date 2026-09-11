@@ -751,4 +751,17 @@
             </Setter.Value>
         </Setter>
     </Style>
+    <Style x:Key="AstOverlayHost" TargetType="{x:Type controls:AstOverlayHost}">
+        <!-- The style owns the default scrim. A consumer may override the colour; omitting Background must not remove the wash or the input barrier. -->
+        <Setter Property="Background" Value="#80000000" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type controls:AstOverlayHost}">
+                    <Border Background="{TemplateBinding Background}">
+                        <ContentPresenter />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 </ResourceDictionary>

@@ -79,11 +79,21 @@ internal sealed class XamlCompositionGraph
         var preview = new List<string>();
         var chain = new List<string> { FormatSite(hostDoc.RelativePath, hostLine, OverlayTypeName) };
         string? closed = null;
+        var styleReference = host.Attribute("Style")?.Value;
+        var backgroundLiteral = host.Attribute("Background")?.Value;
+
+        if (!TryClassifyStyle(host, out var styleFailure))
+        {
+            closed = FailClosed(hostDoc.RelativePath, hostLine, styleFailure!, chain);
+            return new OverlayHostScan(
+                hostDoc.RelativePath, hostLine, markers, preview, closed, styleReference, backgroundLiteral);
+        }
 
         if (HasBoundOrAssignedContent(host, out var contentReason))
         {
             closed = FailClosed(hostDoc.RelativePath, hostLine, contentReason, chain);
-            return new OverlayHostScan(hostDoc.RelativePath, hostLine, markers, preview, closed);
+            return new OverlayHostScan(
+                hostDoc.RelativePath, hostLine, markers, preview, closed, styleReference, backgroundLiteral);
         }
 
         var content = InstantiatedContent(host).ToList();
@@ -94,7 +104,8 @@ internal sealed class XamlCompositionGraph
                 hostLine,
                 "no statically traversable inline content",
                 chain);
-            return new OverlayHostScan(hostDoc.RelativePath, hostLine, markers, preview, closed);
+            return new OverlayHostScan(
+                hostDoc.RelativePath, hostLine, markers, preview, closed, styleReference, backgroundLiteral);
         }
 
         CollectPreview(host, hostDoc.RelativePath, preview, marked: false);
@@ -112,7 +123,8 @@ internal sealed class XamlCompositionGraph
         if (closed is null && preview.Count > 0)
             closed = string.Join(Environment.NewLine, preview);
 
-        return new OverlayHostScan(hostDoc.RelativePath, hostLine, markers, preview, closed);
+        return new OverlayHostScan(
+            hostDoc.RelativePath, hostLine, markers, preview, closed, styleReference, backgroundLiteral);
     }
 
     private void WalkInstantiated(
@@ -144,19 +156,18 @@ internal sealed class XamlCompositionGraph
                 continue;
             }
 
-            if (TryReadMarker(element, doc.AssemblyName, out var markerValue, out var markerError))
+            if (HasBoundOrAssignedContent(element, out var boundReason))
             {
-                if (markerError is not null)
-                {
-                    closed = FailClosed(doc.RelativePath, LineOf(element), markerError, chain);
-                    return;
-                }
+                closed = FailClosed(doc.RelativePath, LineOf(element), boundReason, chain);
+                return;
+            }
 
-                if (markerValue)
-                {
-                    markers.Add(new MarkerLocation(doc.RelativePath, LineOf(element)));
-                    CollectPreview(element, doc.RelativePath, preview, marked: true);
-                }
+            var usageDeclared = TryReadMarker(
+                element, doc.AssemblyName, out var usageValue, out var usageError);
+            if (usageError is not null)
+            {
+                closed = FailClosed(doc.RelativePath, LineOf(element), usageError, chain);
+                return;
             }
 
             if (TryResolve(element, doc.AssemblyName, out var key, out var resolved, out var unresolvedAst))
@@ -171,8 +182,32 @@ internal sealed class XamlCompositionGraph
                     return;
                 }
 
+                var rootDeclared = TryReadMarker(
+                    resolved!.Root, resolved.AssemblyName, out var rootValue, out var rootError);
+                if (rootError is not null)
+                {
+                    closed = FailClosed(resolved.RelativePath, LineOf(resolved.Root), rootError, chain);
+                    return;
+                }
+
+                var effectiveTrue = usageDeclared ? usageValue : rootDeclared && rootValue;
+                if (effectiveTrue)
+                {
+                    var sites = new List<(string File, int Line)>();
+                    if (usageDeclared)
+                        sites.Add((doc.RelativePath, LineOf(element)));
+                    if (rootDeclared)
+                        sites.Add((resolved.RelativePath, LineOf(resolved.Root)));
+                    markers.Add(new MarkerLocation(sites[0].File, sites[0].Line)
+                    {
+                        ContributingDeclarations = sites,
+                    });
+                    CollectPreview(element, doc.RelativePath, preview, marked: true);
+                    CollectPreview(resolved.Root, resolved.RelativePath, preview, marked: true);
+                }
+
                 expanding.Add(key);
-                chain.Add(FormatSite(resolved!.RelativePath, LineOf(resolved.Root), key.Type));
+                chain.Add(FormatSite(resolved.RelativePath, LineOf(resolved.Root), key.Type));
                 WalkInstantiated(
                     resolved,
                     InstantiatedContent(resolved.Root),
@@ -192,6 +227,14 @@ internal sealed class XamlCompositionGraph
                     $"unresolved AST-owned content element <{element.Name.LocalName}>",
                     chain);
                 return;
+            }
+            else if (usageDeclared && usageValue)
+            {
+                markers.Add(new MarkerLocation(doc.RelativePath, LineOf(element))
+                {
+                    ContributingDeclarations = [(doc.RelativePath, LineOf(element))],
+                });
+                CollectPreview(element, doc.RelativePath, preview, marked: true);
             }
 
             WalkInstantiated(doc, InstantiatedContent(element), chain, expanding, markers, preview, ref closed);
@@ -265,19 +308,54 @@ internal sealed class XamlCompositionGraph
     {
         foreach (var attr in element.Attributes())
         {
-            if (!attr.Name.LocalName.Equals("PreviewKeyDown", StringComparison.Ordinal))
+            if (!IsPreviewKeyDownAttribute(attr.Name.LocalName))
                 continue;
             var role = marked ? "marked default-focus element" : OverlayTypeName;
             preview.Add($"{file}:{LineOf(element)}: PreviewKeyDown attribute on {role}");
         }
     }
 
-    private static bool HasBoundOrAssignedContent(XElement host, out string reason)
+    private static bool IsPreviewKeyDownAttribute(string localName) =>
+        localName.Equals("PreviewKeyDown", StringComparison.Ordinal)
+        || localName.EndsWith(".PreviewKeyDown", StringComparison.Ordinal);
+
+    private static bool TryClassifyStyle(XElement host, out string? failure)
     {
-        var content = host.Attribute("Content");
+        var reference = host.Attribute("Style")?.Value;
+        if (string.IsNullOrWhiteSpace(reference))
+        {
+            failure = "missing Style {StaticResource AstOverlayHost}";
+            return false;
+        }
+
+        var trimmed = reference.Trim();
+        if (trimmed.StartsWith("{StaticResource", StringComparison.Ordinal) && trimmed.EndsWith('}'))
+        {
+            var inner = trimmed[1..^1];
+            var parts = inner.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 2 && parts[0].Equals("StaticResource", StringComparison.Ordinal))
+            {
+                if (parts[1].Equals(OverlayTypeName, StringComparison.Ordinal))
+                {
+                    failure = null;
+                    return true;
+                }
+
+                failure = $"Style key '{parts[1]}' is not the required AstOverlayHost";
+                return false;
+            }
+        }
+
+        failure = $"unclassifiable or dynamic Style '{trimmed}'";
+        return false;
+    }
+
+    private static bool HasBoundOrAssignedContent(XElement element, out string reason)
+    {
+        var content = element.Attribute("Content");
         if (content is not null && IsMarkupExtension(content.Value))
         {
-            reason = $"bound or assigned Content '{content.Value.Trim()}'";
+            reason = $"bound or assigned Content '{content.Value.Trim()}' on <{element.Name.LocalName}>";
             return true;
         }
 
@@ -457,7 +535,9 @@ internal sealed record OverlayHostScan(
     int HostLine,
     IReadOnlyList<MarkerLocation> Markers,
     IReadOnlyList<string> PreviewKeyDown,
-    string? ClosedFailure)
+    string? ClosedFailure,
+    string? StyleReference = null,
+    string? BackgroundLiteral = null)
 {
     public string? ContractFailure
     {
@@ -477,4 +557,8 @@ internal sealed record OverlayHostScan(
     }
 }
 
-internal sealed record MarkerLocation(string File, int Line);
+internal sealed record MarkerLocation(string File, int Line)
+{
+    public IReadOnlyList<(string File, int Line)> ContributingDeclarations { get; init; } =
+        Array.Empty<(string File, int Line)>();
+}

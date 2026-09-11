@@ -12,8 +12,9 @@ namespace AST.Controls;
 // contained with KeyboardNavigationMode.Cycle; LostFocus is not vetoed, because the confirm dialog
 // lives at the window root.
 //
-// No DefaultStyleKeyProperty override and no Themes/Generic.xaml: ContentControl's default template
-// presents Content; open/closed chrome is applied from IsOpen in code.
+// Chrome comes from the keyed Style `AstOverlayHost` in Controls.xaml: that style owns the default
+// scrim brush (#80000000) and a Border template that paints Background. The host is useless without
+// it. No DefaultStyleKeyProperty override and no Themes/Generic.xaml.
 public class AstOverlayHost : ContentControl
 {
     public static readonly DependencyProperty IsOpenProperty = DependencyProperty.Register(
