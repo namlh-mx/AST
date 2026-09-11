@@ -2103,6 +2103,51 @@ public class OrgUnitDeclarationViewModelTests
         Assert.Equal(VersionStatus.None, vm.Status);
     }
 
+    // Backlog 3.77: the probe after a SUCCESSFUL close awaits, and the card sits in ReadOnly while it
+    // does, so Thêm is live. The success branch called LoadAsync without comparing ownership, and
+    // LoadAsync opens with Clear() -- wiping the Add mode the operator had just entered. The
+    // expected-absence branch already compared it; this pins the same rule on the other branch.
+    [Fact]
+    public async Task Save_Close_Success_BeginAddDuringTheProbe_KeepsTheBlankAddingForm()
+    {
+        var declaration = new FakeOrgUnitDeclarationService();
+        var (vm, repo, _) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77, orgCode: "KEEP");
+        await vm.LoadAsync(1, Today);
+        declaration.CloseResult = new UpsertResult(0, [], []);
+        // Still visible today after the close -> the probe takes its SUCCESS branch, not the absence one.
+        repo.ByIdentityResultAfterClose = Dto(1, parentId: 5, Today.AddDays(-10), Today, id: 78, orgCode: "KEEP");
+        vm.BeginCloseCommand.Execute();
+        vm.EffectiveTo = Today;
+        vm.IsUndetermined = false;
+        vm.Reason = "đóng ngay hôm nay";
+
+        var probeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holdProbe = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var probeArmed = true;
+        repo.BeforeByIdentityReturn = async (_, _) =>
+        {
+            if (!probeArmed)
+                return;
+
+            probeArmed = false;
+            probeEntered.TrySetResult();
+            await holdProbe.Task;
+        };
+
+        var save = vm.SaveCommand.Execute();
+        await probeEntered.Task;
+
+        vm.BeginAddCommand.Execute();
+        holdProbe.TrySetResult();
+        await save;
+
+        Assert.Equal(OrgUnitCardMode.Adding, vm.Mode);
+        Assert.Equal(string.Empty, vm.OrgCode);
+        Assert.Equal(string.Empty, vm.OrgNameFullVn);
+        Assert.Equal(string.Empty, vm.OrgNameShortVn);
+    }
+
     // Phase 4d Task 3a: LoadTreeAsync/LoadAllHistoryAsync history capability
     // (View wiring is a separate follow-up task) -- these tests exercise the VM surface directly.
 

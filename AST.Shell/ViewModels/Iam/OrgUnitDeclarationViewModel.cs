@@ -2201,6 +2201,15 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             return;
         }
 
+        // Backlog 3.77: the same ownership question the absence branch above already asks. A mode entered
+        // during the probe bumps _cardLoadGeneration, and LoadAsync opens with Clear() -- so reloading here
+        // would erase a newer user action, which CompleteSaveAfterVerificationAsync's own rule forbids.
+        if (ownership != _cardLoadGeneration)
+        {
+            await CompleteSaveAfterVerificationAsync(orgUnitId, CardLoadOutcome.Superseded, successMessage);
+            return;
+        }
+
         var loaded = await LoadAsync(orgUnitId, _dates.Today);
         await CompleteSaveAfterVerificationAsync(orgUnitId, loaded, successMessage);
     }
