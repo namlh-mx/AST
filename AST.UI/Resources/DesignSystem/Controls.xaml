@@ -134,6 +134,32 @@
         <Setter Property="RevealButtonEnabled" Value="True" />
     </Style>
     <!--
+        Equal-width action buttons on declaration screens (Thêm / Sửa / Đóng / Hủy / Lưu).
+        Promoted from OrgUnitDeclarationView and RoleDeclarationView; screens keep StaticResource use.
+    -->
+    <Style
+        x:Key="EqualActionButton"
+        BasedOn="{StaticResource {x:Type ui:Button}}"
+        TargetType="ui:Button">
+        <Setter Property="Width" Value="110" />
+        <Setter Property="Margin" Value="0,0,8,0" />
+    </Style>
+    <!--
+        Equal-width history toolbar buttons (Làm mới / Hiện tất cả / Xem).
+        Promoted from OrgUnitDeclarationView and RoleDeclarationView; screens keep StaticResource use.
+    -->
+    <Style
+        x:Key="EqualHistoryButton"
+        BasedOn="{StaticResource {x:Type ui:Button}}"
+        TargetType="ui:Button">
+        <Setter Property="Width" Value="128" />
+        <Setter Property="MinWidth" Value="128" />
+        <Setter Property="MaxWidth" Value="128" />
+        <Setter Property="Margin" Value="0,0,12,0" />
+        <Setter Property="Appearance" Value="Secondary" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <!--
         Form field: Label above a Content input slot, with an optional Helper hint and an Error line.
         Lookless ContentControl (AST.UI/Controls/AstField.cs) so the input slot is a real Content
         passthrough (ui:TextBox / AstPasswordBox / ComboBox / ui:NumberBox). AstField displays validation

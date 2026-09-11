@@ -9,29 +9,6 @@
     xmlns:views="clr-namespace:AST.Views"
     Language="vi-VN">
 
-    <views:DeclarationFormView.Resources>
-        <ResourceDictionary>
-            <Style
-                x:Key="EqualActionButton"
-                BasedOn="{StaticResource {x:Type ui:Button}}"
-                TargetType="ui:Button">
-                <Setter Property="Width" Value="110" />
-                <Setter Property="Margin" Value="0,0,8,0" />
-            </Style>
-            <Style
-                x:Key="EqualHistoryButton"
-                BasedOn="{StaticResource {x:Type ui:Button}}"
-                TargetType="ui:Button">
-                <Setter Property="Width" Value="128" />
-                <Setter Property="MinWidth" Value="128" />
-                <Setter Property="MaxWidth" Value="128" />
-                <Setter Property="Margin" Value="0,0,12,0" />
-                <Setter Property="Appearance" Value="Secondary" />
-                <Setter Property="HorizontalContentAlignment" Value="Center" />
-            </Style>
-        </ResourceDictionary>
-    </views:DeclarationFormView.Resources>
-
     <controls:AstScreen
         Icon="PersonLock24"
         Message="{Binding StatusMessage}"
