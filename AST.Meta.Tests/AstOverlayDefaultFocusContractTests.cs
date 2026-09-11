@@ -231,6 +231,8 @@ public class AstOverlayDefaultFocusContractTests
         using var repo = FixtureRepo.MissingStyle();
         var failure = Single(repo).ContractFailure;
         failure.Should().Contain("missing Style {StaticResource AstOverlayHost}");
+        failure.Should().Contain("exact keyed Style {StaticResource AstOverlayHost}");
+        failure.Should().NotContain("statically provable XAML target");
         failure.Should().NotContain("true IsDefaultFocus marker");
     }
 
@@ -240,6 +242,8 @@ public class AstOverlayDefaultFocusContractTests
         using var repo = FixtureRepo.WrongStyleKey();
         var failure = Single(repo).ContractFailure;
         failure.Should().Contain("Style key 'AstField' is not the required AstOverlayHost");
+        failure.Should().Contain("exact keyed Style {StaticResource AstOverlayHost}");
+        failure.Should().NotContain("statically provable XAML target");
         failure.Should().NotContain("true IsDefaultFocus marker");
     }
 
@@ -250,6 +254,8 @@ public class AstOverlayDefaultFocusContractTests
         var failure = Single(repo).ContractFailure;
         failure.Should().Contain("unclassifiable or dynamic Style");
         failure.Should().Contain("DynamicResource");
+        failure.Should().Contain("exact keyed Style {StaticResource AstOverlayHost}");
+        failure.Should().NotContain("statically provable XAML target");
         failure.Should().NotContain("true IsDefaultFocus marker");
     }
 

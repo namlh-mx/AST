@@ -84,7 +84,12 @@ internal sealed class XamlCompositionGraph
 
         if (!TryClassifyStyle(host, out var styleFailure))
         {
-            closed = FailClosed(hostDoc.RelativePath, hostLine, styleFailure!, chain);
+            closed = FailClosed(
+                hostDoc.RelativePath,
+                hostLine,
+                styleFailure!,
+                chain,
+                "The consumer needs the exact keyed Style {StaticResource AstOverlayHost}.");
             return new OverlayHostScan(
                 hostDoc.RelativePath, hostLine, markers, preview, closed, styleReference, backgroundLiteral);
         }
@@ -501,8 +506,14 @@ internal sealed class XamlCompositionGraph
 
     private static string FormatSite(string file, int line, string type) => $"{file}:{line}/{type}";
 
-    private static string FailClosed(string file, int line, string reason, IReadOnlyList<string> chain) =>
-        $"{file}:{line}: {reason}. The consumer needs a statically provable XAML target or a newly reviewed extension of this model. chain: {string.Join(" -> ", chain)}";
+    private static string FailClosed(
+        string file,
+        int line,
+        string reason,
+        IReadOnlyList<string> chain,
+        string remediation =
+            "The consumer needs a statically provable XAML target or a newly reviewed extension of this model.") =>
+        $"{file}:{line}: {reason}. {remediation} chain: {string.Join(" -> ", chain)}";
 
     private sealed record ProjectInfo(string Directory, string AssemblyName);
 

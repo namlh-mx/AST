@@ -327,9 +327,13 @@ public class AstOverlayHostTests
         => OffscreenHost.Run(
             window =>
             {
+                window.Width = 400;
+                window.Height = 400;
                 var host = new AstOverlayHost
                 {
                     Style = (Style)window.FindResource("AstOverlayHost"),
+                    Width = 400,
+                    Height = 400,
                     Content = new TextBlock { Text = "form" },
                 };
                 host.ReadLocalValue(Control.BackgroundProperty).Should().Be(
@@ -349,6 +353,10 @@ public class AstOverlayHostTests
 
                 var border = TemplateScrimBorder(host);
                 border.Background.Should().BeSameAs(resolved);
+                AssertSameArrangedBounds(
+                    border,
+                    host,
+                    "the style-owned scrim Border must cover the arranged host");
             });
 
     [Fact]
@@ -390,25 +398,33 @@ public class AstOverlayHostTests
                 var host = root.Children.OfType<AstOverlayHost>().Single();
                 var behind = root.Children.OfType<Button>().Single();
                 var form = (Border)host.Content;
-                var testPoint = new Point(20, 20);
+                var nearOrigin = new Point(20, 20);
+                var nearOpposite = new Point(380, 380);
 
                 host.IsOpen = true;
                 Sta.PumpToIdle();
 
-                host.ActualWidth.Should().Be(root.ActualWidth);
-                host.ActualHeight.Should().Be(root.ActualHeight);
+                AssertSameArrangedBounds(
+                    host,
+                    root,
+                    "the open host's arranged bounds must equal the root");
+                AssertSameArrangedBounds(
+                    TemplateScrimBorder(host),
+                    host,
+                    "the template-root Border must cover the host");
+
                 var formOrigin = form.TransformToAncestor(root).Transform(new Point(0, 0));
                 var formRect = new Rect(formOrigin, form.RenderSize);
-                formRect.Contains(testPoint).Should().BeFalse("the test point must lie outside the sub-form");
+                formRect.Contains(nearOrigin).Should().BeFalse("the origin-corner test point must lie outside the sub-form");
+                formRect.Contains(nearOpposite).Should().BeFalse("the opposite-edge test point must lie outside the sub-form");
 
-                var openHit = root.InputHitTest(testPoint) as DependencyObject;
-                IsSelfOrAncestor(host, openHit).Should().BeTrue(
-                    $"open hit must be the host or a descendant; was {DescribeHit(openHit)}");
+                AssertHostOwnsHit(root, host, nearOrigin);
+                AssertHostOwnsHit(root, host, nearOpposite);
 
                 host.IsOpen = false;
                 Sta.PumpToIdle();
 
-                var closedHit = root.InputHitTest(testPoint) as DependencyObject;
+                var closedHit = root.InputHitTest(nearOrigin) as DependencyObject;
                 IsSelfOrAncestor(behind, closedHit).Should().BeTrue(
                     $"closed hit must be the backing button or a descendant; was {DescribeHit(closedHit)}");
             });
@@ -432,7 +448,7 @@ public class AstOverlayHostTests
         throw new InvalidOperationException($"No {typeof(T).Name} under {root.GetType().Name}");
     }
 
-private static T FindNamed<T>(DependencyObject root, string name) where T : FrameworkElement
+    private static T FindNamed<T>(DependencyObject root, string name) where T : FrameworkElement
     {
         if (root is T self && self.Name == name)
             return self;
@@ -464,6 +480,25 @@ private static T FindNamed<T>(DependencyObject root, string name) where T : Fram
         var child = VisualTreeHelper.GetChild(host, 0) as Border;
         child.Should().NotBeNull("the keyed template's root must be the scrim Border");
         return child!;
+    }
+
+    private static void AssertSameArrangedBounds(
+        FrameworkElement inner,
+        FrameworkElement outer,
+        string because)
+    {
+        var origin = inner.TransformToAncestor(outer).Transform(new Point(0, 0));
+        origin.Should().Be(new Point(0, 0), $"{because}: origin");
+        inner.ActualWidth.Should().Be(outer.ActualWidth, $"{because}: width");
+        inner.ActualHeight.Should().Be(outer.ActualHeight, $"{because}: height");
+        inner.RenderSize.Should().Be(outer.RenderSize, $"{because}: render size");
+    }
+
+    private static void AssertHostOwnsHit(UIElement root, AstOverlayHost host, Point point)
+    {
+        var hit = root.InputHitTest(point) as DependencyObject;
+        IsSelfOrAncestor(host, hit).Should().BeTrue(
+            $"open hit at {point} must be the host or a descendant; was {DescribeHit(hit)}");
     }
 
     private static bool IsSelfOrAncestor(DependencyObject ancestor, DependencyObject? node)

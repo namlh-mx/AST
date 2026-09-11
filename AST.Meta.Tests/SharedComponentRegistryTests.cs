@@ -24,6 +24,9 @@ public class SharedComponentRegistryTests
         RegexOptions.Compiled);
 
     private static readonly Regex XamlKey = new("x:Key=\"(Ast[A-Za-z0-9]+)\"", RegexOptions.Compiled);
+    private static readonly Regex RegistryRow = new(
+        @"^\|\s*`(?<name>[^`]+)`\s*\|\s*(?:`(?<path>[^`]+)`|(?<plain>[^|]+?))\s*\|(?<rest>.*)$",
+        RegexOptions.Compiled | RegexOptions.Multiline);
 
     private static string Registry(string root) =>
         File.ReadAllText(Path.Combine(root, "docs", "shared-components.md"));
@@ -141,6 +144,44 @@ public class SharedComponentRegistryTests
                 + string.Join("\n  ", dangling));
     }
 
+    [Fact]
+    public void RegistryRowsAreUniqueByNameAndLocationAndCarryLocked()
+    {
+        var rows = RegistryRows(MetaTest.RepoRoot());
+        Assert.True(rows.Count > 0, "the registry must parse at least one data row");
+
+        var invalidLocked = rows
+            .Where(row => row.Locked is not ("yes" or "no"))
+            .Select(row => $"`{row.Name}` Locked={row.Locked}")
+            .ToList();
+        Assert.True(
+            invalidLocked.Count == 0,
+            "every registry row with a customization boundary must carry Locked yes or no:\n  "
+                + string.Join("\n  ", invalidLocked));
+
+        var duplicates = rows
+            .GroupBy(row => (row.Name, row.Location))
+            .Where(group => group.Count() > 1)
+            .Select(group => $"`{group.Key.Name}` | `{group.Key.Location}` x{group.Count()}")
+            .ToList();
+        Assert.True(
+            duplicates.Count == 0,
+            "registry rows must be unique by name plus location:\n  "
+                + string.Join("\n  ", duplicates));
+    }
+
+    [Fact]
+    public void AstOverlayHostHasExactlyOneLockedControlRowAndOneLockedStyleRow()
+    {
+        var rows = RegistryRows(MetaTest.RepoRoot());
+        Assert.Equal(
+            1,
+            CountRows(rows, "AstOverlayHost", "AST.UI/Controls/AstOverlayHost.cs", "yes"));
+        Assert.Equal(
+            1,
+            CountRows(rows, "AstOverlayHost", "Controls.xaml", "yes"));
+    }
+
     private static string ControlName(string csPath) =>
         Path.GetFileNameWithoutExtension(csPath).Replace(".xaml", "", StringComparison.Ordinal);
 
@@ -200,6 +241,36 @@ public class SharedComponentRegistryTests
 
         return set;
     }
+
+    private static IReadOnlyList<(string Name, string Location, string Locked)> RegistryRows(string root)
+    {
+        var registry = File.ReadAllText(Path.Combine(root, "docs", "shared-components.md"));
+        return RegistryRow.Matches(registry)
+            .Select(match =>
+            {
+                var location = (match.Groups["path"].Success
+                    ? match.Groups["path"].Value
+                    : match.Groups["plain"].Value).Trim();
+                var rest = match.Groups["rest"].Value;
+                var locked =
+                    rest.Contains("Unlocked", StringComparison.Ordinal)
+                    || rest.Contains("NOT LOCKED", StringComparison.Ordinal)
+                        ? "no"
+                        : rest.Contains("LOCKED:", StringComparison.Ordinal)
+                            ? "yes"
+                            : "";
+                return (match.Groups["name"].Value, location, locked);
+            })
+            .Where(row => row.Item3.Length > 0)
+            .ToList();
+    }
+
+    private static int CountRows(
+        IEnumerable<(string Name, string Location, string Locked)> rows,
+        string name,
+        string location,
+        string locked) =>
+        rows.Count(row => row.Name == name && row.Location == location && row.Locked == locked);
 
     // Skip build output and this test project itself — the guard's own source mentions the marker as text,
     // and must never scan itself as if it declared a shared component.
