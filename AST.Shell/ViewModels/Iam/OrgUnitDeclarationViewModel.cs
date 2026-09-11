@@ -173,7 +173,11 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
         BeginAddCommand = new DelegateCommand(ExecuteBeginAdd, () => CanAdd).ObservesProperty(() => Mode);
         BeginEditCommand = new DelegateCommand(ExecuteBeginEdit, () => CanEdit).ObservesProperty(() => Mode).ObservesProperty(() => Status);
-        BeginReplaceCommand = new DelegateCommand(ExecuteBeginReplace, () => CanReplace).ObservesProperty(() => Mode).ObservesProperty(() => Status).ObservesProperty(() => IsRoot);
+        BeginReplaceCommand = new DelegateCommand(ExecuteBeginReplace, () => CanReplace)
+            .ObservesProperty(() => Mode)
+            .ObservesProperty(() => Status)
+            .ObservesProperty(() => IsRoot)
+            .ObservesProperty(() => CanReplace);
         BeginCloseCommand = new DelegateCommand(ExecuteBeginClose, () => CanClose).ObservesProperty(() => Mode).ObservesProperty(() => Status).ObservesProperty(() => IsRoot);
         CancelCommand = new AsyncDelegateCommand(ExecuteCancelAsync, () => CanCancel).ObservesProperty(() => Mode);
         SaveCommand = new AsyncDelegateCommand(ExecuteSaveAsync, () => CanSave)
@@ -959,10 +963,14 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // DELIBERATELY UNLIKE CanClose (card 259 / requester ruling 2026-09-06): the root may only be
     // re-declared via Đóng cái cũ → tạo cái mới. Thay thế is never a back door — no break-glass carve-out
     // here. Do not copy CanClose's (!IsRoot || IsBreakGlassAdmin(...)) shape back onto this property.
+    //
+    // Card 328: a ReadOnly parent that cannot resolve to a display item already shows card 321's
+    // sentence. Refuse Thay thế rather than enter a mode ParentDecision cannot represent.
     public bool CanReplace =>
         Mode == OrgUnitCardMode.ReadOnly
         && !IsRoot
-        && Status is VersionStatus.Effective or VersionStatus.Pending;
+        && Status is VersionStatus.Effective or VersionStatus.Pending
+        && !IsReadOnlyParentUnresolved(ParentDecision.Key.Mode, ParentDecision.ParentId, ParentDecision.SelectedParentItem);
 
     public bool CanCancel => Mode != OrgUnitCardMode.ReadOnly;
 
@@ -1718,6 +1726,12 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         }
     }
 
+    // One named home for card 321's unresolved-parent predicate. BuildParentDecision and CanReplace
+    // both read this; do not re-derive from ParentId + tree at the gate.
+    private static bool IsReadOnlyParentUnresolved(
+        OrgUnitCardMode mode, long? parentId, OrgUnitPickerItem? selectedItem) =>
+        mode == OrgUnitCardMode.ReadOnly && parentId is not null && selectedItem is null;
+
     private ParentDecision BuildParentDecision(
         ParentDecisionKey key,
         ParentEligibilityState phase,
@@ -1795,7 +1809,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
         // Card 321: ReadOnly + ParentId != null + no usable item. Do not key on empty text — that
         // would put this sentence on every root. Adding/Replacing keep their own never-blank rules.
-        if (key.Mode == OrgUnitCardMode.ReadOnly && parentId is not null && selectedItem is null)
+        if (IsReadOnlyParentUnresolved(key.Mode, parentId, selectedItem))
             displayText = UnresolvedParentDisplayLabel;
 
         return ParentDecision.Create(
@@ -1841,6 +1855,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         RaisePropertyChanged(nameof(IsReplaceParentAbsentFromCandidates));
         RaisePropertyChanged(nameof(PeriodCommitBlocked));
         RaisePropertyChanged(nameof(CanSave));
+        RaisePropertyChanged(nameof(CanReplace));
     }
 
     private OrgUnitPickerItem? ResolveParentItem(long? id, OrgUnitPickerItem? preferred = null)

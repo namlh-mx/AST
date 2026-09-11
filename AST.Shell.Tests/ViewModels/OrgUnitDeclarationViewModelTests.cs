@@ -861,6 +861,67 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
+    public void CanReplace_WhenReadOnlyParentCannotBeResolved_IsFalse()
+    {
+        var (vm, _) = Build();
+        var row = new OrgUnitHistoryRow(
+            Id: 42, OrgUnitId: 7, EffectiveFrom: Today.AddDays(-10), EffectiveTo: EffectivePeriod.OpenEnd,
+            FromText: "x", ToText: "y", RecordedAtText: "z", StatusText: "Hiệu lực",
+            Status: VersionStatus.Effective, OrgCode: "CN001", NameFull: "Chi nhánh một",
+            NameShort: "CN1", ParentId: 99, ParentLabel: string.Empty, Operation: "Thêm",
+            RecordedBy: "tester", Reason: "seed", Supplemental: new OrgUnitSupplementalDto());
+
+        vm.LoadFromHistoryRow(row);
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.IsRoot.Should().BeFalse();
+        vm.Status.Should().Be(VersionStatus.Effective);
+        vm.ParentDecision.DisplayText.Should().Be(OrgUnitDeclarationViewModel.UnresolvedParentDisplayLabel);
+        vm.CanReplace.Should().BeFalse();
+        vm.BeginReplaceCommand.CanExecute().Should().BeFalse();
+    }
+
+    [Fact]
+    public void CanReplace_WhenReadOnlyParentResolves_IsTrue()
+    {
+        var (vm, _) = Build();
+        var row = new OrgUnitHistoryRow(
+            Id: 42, OrgUnitId: 7, EffectiveFrom: Today.AddDays(-10), EffectiveTo: EffectivePeriod.OpenEnd,
+            FromText: "x", ToText: "y", RecordedAtText: "z", StatusText: "Hiệu lực",
+            Status: VersionStatus.Effective, OrgCode: "CN001", NameFull: "Chi nhánh một",
+            NameShort: "CN1", ParentId: 5, ParentLabel: "P — Cha", Operation: "Thêm",
+            RecordedBy: "tester", Reason: "seed", Supplemental: new OrgUnitSupplementalDto());
+
+        vm.LoadFromHistoryRow(row);
+
+        vm.CanReplace.Should().BeTrue();
+        vm.BeginReplaceCommand.CanExecute().Should().BeTrue();
+    }
+
+    [Fact]
+    public void BeginReplaceCommand_ReevaluatesAfterUnresolvedParentDecisionIsPublished()
+    {
+        var (vm, _) = Build();
+        var row = new OrgUnitHistoryRow(
+            Id: 42, OrgUnitId: 7, EffectiveFrom: Today.AddDays(-10), EffectiveTo: EffectivePeriod.OpenEnd,
+            FromText: "x", ToText: "y", RecordedAtText: "z", StatusText: "Hiệu lực",
+            Status: VersionStatus.Effective, OrgCode: "CN001", NameFull: "Chi nhánh một",
+            NameShort: "CN1", ParentId: 99, ParentLabel: string.Empty, Operation: "Thêm",
+            RecordedBy: "tester", Reason: "seed", Supplemental: new OrgUnitSupplementalDto());
+
+        bool? lastCanExecuteFromChanged = null;
+        vm.BeginReplaceCommand.CanExecuteChanged += (_, _) =>
+            lastCanExecuteFromChanged = vm.BeginReplaceCommand.CanExecute();
+
+        vm.LoadFromHistoryRow(row);
+
+        vm.CanReplace.Should().BeFalse();
+        vm.BeginReplaceCommand.CanExecute().Should().BeFalse();
+        lastCanExecuteFromChanged.Should().BeFalse(
+            "CanExecuteChanged must fire after the unresolved parent decision is published, not stop at Status=Effective when CanExecute was still true");
+    }
+
+    [Fact]
     public async Task LoadAsync_SwitchingToARecordThatFailsToResolve_ClearsThePreviouslyLoadedFields()
     {
         // Reproduces a real UX bug: viewing record A then clicking to view record B (whose
