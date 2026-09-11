@@ -812,6 +812,55 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
+    public void LoadFromHistoryRow_ThenBeginReplace_RowParentLabel_IsThePublishedDisplayText()
+    {
+        var (vm, _) = Build();
+        const string parentLabel = "P — Cha";
+        var row = new OrgUnitHistoryRow(
+            Id: 42, OrgUnitId: 7, EffectiveFrom: Today.AddDays(-10), EffectiveTo: EffectivePeriod.OpenEnd,
+            FromText: "x", ToText: "y", RecordedAtText: "z", StatusText: "Hiệu lực",
+            Status: VersionStatus.Effective, OrgCode: "CN001", NameFull: "Chi nhánh một",
+            NameShort: "CN1", ParentId: 5, ParentLabel: parentLabel, Operation: "Thêm",
+            RecordedBy: "tester", Reason: "seed", Supplemental: new OrgUnitSupplementalDto());
+
+        vm.LoadFromHistoryRow(row);
+        vm.BeginReplaceCommand.Execute();
+
+        vm.Mode.Should().Be(OrgUnitCardMode.Replacing);
+        vm.ParentDecision.DisplayText.Should().Be(parentLabel);
+        vm.ParentDecision.DisplayText.Should().NotBeNullOrEmpty();
+    }
+
+    // Characterisation (card 326 / backlog 3.75 second half): the same history row is read two
+    // different ways, and the second way does not merely blank the box -- it THROWS. ReadOnly uses
+    // UnresolvedParentDisplayLabel when ParentId is set, the row label is blank and the tree does not
+    // hold that id (card 321). Replacing has no such fallback, so BuildParentDecision reaches
+    // ParentDecision's invariant holding a parent with no display item, and that invariant is a throw.
+    // Measured 2026-09-10. Characterisation only: card 326 forbids fixing it here.
+    [Fact]
+    public void LoadFromHistoryRow_BlankParentLabelAndParentMissingFromTree_ReadOnlyShowsTheSentence_ReplacingThrows()
+    {
+        var (vm, _) = Build();
+        var row = new OrgUnitHistoryRow(
+            Id: 42, OrgUnitId: 7, EffectiveFrom: Today.AddDays(-10), EffectiveTo: EffectivePeriod.OpenEnd,
+            FromText: "x", ToText: "y", RecordedAtText: "z", StatusText: "Hiệu lực",
+            Status: VersionStatus.Effective, OrgCode: "CN001", NameFull: "Chi nhánh một",
+            NameShort: "CN1", ParentId: 99, ParentLabel: string.Empty, Operation: "Thêm",
+            RecordedBy: "tester", Reason: "seed", Supplemental: new OrgUnitSupplementalDto());
+
+        vm.LoadFromHistoryRow(row);
+
+        vm.TreeRoots.Should().BeEmpty();
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.ParentDecision.DisplayText.Should().Be(OrgUnitDeclarationViewModel.UnresolvedParentDisplayLabel);
+
+        var enterReplace = () => vm.BeginReplaceCommand.Execute();
+
+        enterReplace.Should().Throw<InvalidOperationException>()
+            .WithMessage("An active parent decision cannot hold a parent without its non-empty ordinary display item.");
+    }
+
+    [Fact]
     public async Task LoadAsync_SwitchingToARecordThatFailsToResolve_ClearsThePreviouslyLoadedFields()
     {
         // Reproduces a real UX bug: viewing record A then clicking to view record B (whose
