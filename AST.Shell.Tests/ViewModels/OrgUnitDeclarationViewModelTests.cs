@@ -2184,6 +2184,9 @@ public class OrgUnitDeclarationViewModelTests
             await holdProbe.Task;
         };
 
+        var treeCallsBefore = repo.InScopeCallCount;
+        var historyCallsBefore = repo.HistoryCallCount;
+
         var save = vm.SaveCommand.Execute();
         await probeEntered.Task;
 
@@ -2195,6 +2198,15 @@ public class OrgUnitDeclarationViewModelTests
         Assert.Equal(string.Empty, vm.OrgCode);
         Assert.Equal(string.Empty, vm.OrgNameFullVn);
         Assert.Equal(string.Empty, vm.OrgNameShortVn);
+
+        // F-327-01 (Assurance Advisor, second read of card 325): keeping the form is only half the outcome. A
+        // superseded arm that merely returned would preserve every value asserted above and still
+        // drop the save's own effects, so pin them too: the write DID succeed and the operator must
+        // be told, and the tree and history must reload behind the new form.
+        Assert.Equal("Đã lưu.", vm.StatusMessage);
+        Assert.Equal(StatusSeverity.Success, vm.Severity);
+        Assert.True(repo.InScopeCallCount > treeCallsBefore);
+        Assert.True(repo.HistoryCallCount > historyCallsBefore);
     }
 
     // Phase 4d Task 3a: LoadTreeAsync/LoadAllHistoryAsync history capability
