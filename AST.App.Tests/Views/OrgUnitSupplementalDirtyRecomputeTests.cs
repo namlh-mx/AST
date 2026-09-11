@@ -20,6 +20,9 @@ using UiTextBox = Wpf.Ui.Controls.TextBox;
 namespace AST.App.Tests.Views;
 
 // C7 dirty latch, N2 whitespace (four observables together), N4 reopen-after-B7.
+// Parent dirty is forwarded through the dialog's own DraftChanged event onto
+// OrgUnitDeclarationView.ForwardSupplementalDraftChanged. The XAML wiring from that
+// event to OnSupplementalDraftChanged is card 273's accepted OffscreenHost boundary.
 public class OrgUnitSupplementalDirtyRecomputeTests
 {
     [Fact]
@@ -39,13 +42,13 @@ public class OrgUnitSupplementalDirtyRecomputeTests
         {
             dialog.LoadDraft(new SupplementalDraft(), lockFields: false, allowUnlock: true);
             var vm = BuildLoadedEditingViewModel();
+            WireProductionDraftChanged(dialog, vm);
             var phone = Editor(dialog, 0);
             phone.Focus();
             Sta.PumpToIdle();
             phone.Text = "0909123456";
             dialog.IsDirtyUnlocked.Should().BeTrue();
             dialog.SaveButton.IsEnabled.Should().BeTrue();
-            OrgUnitDeclarationView.ForwardSupplementalDraftChanged(vm, dialog.Draft.ToDto());
             vm.IsDirty.Should().BeTrue();
 
             BubblingKey.Raise(phone, Key.Escape);
@@ -55,7 +58,6 @@ public class OrgUnitSupplementalDirtyRecomputeTests
             dialog.Draft.BusinessNumber.Should().BeEmpty();
             dialog.IsDirtyUnlocked.Should().BeFalse();
             dialog.SaveButton.IsEnabled.Should().BeFalse();
-            OrgUnitDeclarationView.ForwardSupplementalDraftChanged(vm, dialog.Draft.ToDto());
             vm.IsDirty.Should().BeFalse();
         });
 
@@ -104,6 +106,7 @@ public class OrgUnitSupplementalDirtyRecomputeTests
             var seed = new SupplementalDraft { Phone = "0123456789" };
             dialog.LoadDraft(seed, lockFields: false, allowUnlock: true);
             var vm = BuildLoadedEditingViewModel(new OrgUnitSupplementalDto(Phone: "0123456789"));
+            WireProductionDraftChanged(dialog, vm);
             var phone = FindPhone(dialog);
             phone.Focus();
             Sta.PumpToIdle();
@@ -111,7 +114,6 @@ public class OrgUnitSupplementalDirtyRecomputeTests
 
             phone.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent, phone));
             Sta.PumpToIdle();
-            OrgUnitDeclarationView.ForwardSupplementalDraftChanged(vm, dialog.Draft.ToDto());
 
             phone.Text.Should().Be("0123456789", "N2 field text");
             dialog.Draft.Phone.Should().Be("0123456789", "N2 draft value");
@@ -126,6 +128,7 @@ public class OrgUnitSupplementalDirtyRecomputeTests
         {
             dialog.LoadDraft(new SupplementalDraft(), lockFields: false, allowUnlock: true);
             var vm = BuildLoadedEditingViewModel();
+            WireProductionDraftChanged(dialog, vm);
             var phone = FindPhone(dialog);
             phone.Focus();
             Sta.PumpToIdle();
@@ -133,7 +136,6 @@ public class OrgUnitSupplementalDirtyRecomputeTests
 
             phone.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent, phone));
             Sta.PumpToIdle();
-            OrgUnitDeclarationView.ForwardSupplementalDraftChanged(vm, dialog.Draft.ToDto());
 
             phone.Text.Should().BeEmpty("N2 field text");
             dialog.Draft.Phone.Should().BeEmpty("N2 draft value");
@@ -185,6 +187,13 @@ public class OrgUnitSupplementalDirtyRecomputeTests
         if (!window.Resources.Contains("InverseBool"))
             window.Resources["InverseBool"] = new InverseBooleanConverter();
         return new OrgUnitSupplementalDialog();
+    }
+
+private static void WireProductionDraftChanged(
+        OrgUnitSupplementalDialog dialog, OrgUnitDeclarationViewModel vm)
+    {
+        dialog.DraftChanged += (_, _) =>
+            OrgUnitDeclarationView.ForwardSupplementalDraftChanged(vm, dialog.Draft.ToDto());
     }
 
     private static void Click(Button button) =>

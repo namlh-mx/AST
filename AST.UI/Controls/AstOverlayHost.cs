@@ -1,6 +1,5 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -22,6 +21,18 @@ public class AstOverlayHost : ContentControl
         typeof(bool),
         typeof(AstOverlayHost),
         new PropertyMetadata(false, OnIsOpenChanged));
+
+    public static readonly DependencyProperty IsDefaultFocusProperty = DependencyProperty.RegisterAttached(
+        "IsDefaultFocus",
+        typeof(bool),
+        typeof(AstOverlayHost),
+        new PropertyMetadata(false));
+
+    public static bool GetIsDefaultFocus(DependencyObject element) =>
+        (bool)element.GetValue(IsDefaultFocusProperty);
+
+    public static void SetIsDefaultFocus(DependencyObject element, bool value) =>
+        element.SetValue(IsDefaultFocusProperty, value);
 
     public event EventHandler? CloseRequested;
 
@@ -118,19 +129,23 @@ public class AstOverlayHost : ContentControl
 
         foreach (var element in Walk(this))
         {
-            if (element is TextBoxBase editor
-                && editor.IsEnabled
-                && editor.Focusable
-                && editor.IsVisible
-                && KeyboardNavigation.GetIsTabStop(editor))
+            if (element is UIElement candidate
+                && GetIsDefaultFocus(candidate)
+                && IsEligibleFocusTarget(candidate))
             {
-                editor.Focus();
+                candidate.Focus();
                 return;
             }
         }
 
         MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
     }
+
+    private static bool IsEligibleFocusTarget(UIElement element) =>
+        element.IsEnabled
+        && element.IsVisible
+        && element.Focusable
+        && KeyboardNavigation.GetIsTabStop(element);
 
     private DependencyObject FocusScope() =>
         Window.GetWindow(this) as DependencyObject

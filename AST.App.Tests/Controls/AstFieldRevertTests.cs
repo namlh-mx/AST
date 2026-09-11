@@ -10,12 +10,15 @@ using UiTextBox = Wpf.Ui.Controls.TextBox;
 
 namespace AST.App.Tests.Controls;
 
+// Standalone attached-behaviour fixture: deliberately no dialog canonicalisation.
+// "  dirty  " becoming "dirty" is owned by
+// OrgUnitSupplementalDirtyRecomputeTests.Leading_trailing_whitespace_on_lost_focus_trims_and_stays_clean_on_all_four_observables.
 // C1–C7 on a real Wpf.Ui.Controls.TextBox descendant of AstOverlayHost. Logical focus plus bubbling
 // KeyDown. N3's Tab-out-then-refocus is included so a stale armed session cannot hide itself.
 public class AstFieldRevertTests
 {
     [Fact]
-    public void C1_to_C7_two_press_ladder_on_wpfui_textbox_including_tab_out_refocus()
+    public void C1_to_C7_standalone_attached_behaviour_has_no_dialog_canonicalisation()
         => OffscreenHost.Run(
             _ =>
             {
@@ -98,6 +101,76 @@ public class AstFieldRevertTests
                 editor.Text = "temp-again";
                 BubblingKey.Raise(editor, Key.Escape);
                 editor.Text.Should().Be(snapshot, "C4: re-arm uses the focus-entry snapshot, not the restored value");
+            });
+
+[Fact]
+    public void C1_logical_focus_without_keyboard_focus_arms_the_focus_entry_snapshot()
+        => OffscreenHost.Run(
+            _ =>
+            {
+                var editor = new UiTextBox { Name = "Editor", Text = "keep" };
+                AstFieldRevert.SetIsEnabled(editor, true);
+                var scope = new StackPanel { Name = "Scope" };
+                FocusManager.SetIsFocusScope(scope, true);
+                scope.Children.Add(editor);
+                var outside = new Button { Name = "Outside", Content = "Ngoài" };
+                var root = new StackPanel();
+                root.Children.Add(outside);
+                root.Children.Add(scope);
+                return root;
+            },
+            (window, root) =>
+            {
+                var editor = FindNamed<UiTextBox>(root, "Editor");
+                var outside = FindNamed<Button>(root, "Outside");
+                var scope = FindNamed<StackPanel>(root, "Scope");
+                // SetFocusedElement also attempts Keyboard.Focus (Microsoft Learn,
+                // FocusManager.SetFocusedElement). Cancel the keyboard half so this case can
+                // keep Keyboard.FocusedElement outside the nested scope as card 342 B-05 requires.
+                editor.PreviewGotKeyboardFocus += (_, e) => e.Handled = true;
+                outside.Focus();
+                Sta.PumpToIdle();
+                Keyboard.FocusedElement.Should().Be(outside);
+
+                FocusManager.SetFocusedElement(scope, editor);
+                Sta.PumpToIdle();
+                Keyboard.FocusedElement.Should().Be(outside,
+                    "B-05 case 1: keyboard focus stayed on the control outside the nested scope");
+                FocusManager.GetFocusedElement(scope).Should().Be(editor);
+
+                editor.Text = "typed";
+                var esc = BubblingKey.Raise(editor, Key.Escape);
+                esc.Handled.Should().BeTrue();
+                editor.Text.Should().Be("keep",
+                    "B-05 case 1: GotFocus armed the session from logical focus; Esc restores");
+            });
+
+    [Fact]
+    public void C1_got_focus_from_a_non_descendant_source_does_not_arm_a_session()
+        => OffscreenHost.Run(
+            _ =>
+            {
+                var editor = new UiTextBox { Name = "Editor", Text = "keep" };
+                AstFieldRevert.SetIsEnabled(editor, true);
+                var sibling = new Button { Name = "Sibling", Content = "Anh em" };
+                var root = new StackPanel();
+                root.Children.Add(editor);
+                root.Children.Add(sibling);
+                return root;
+            },
+            (_, root) =>
+            {
+                var editor = FindNamed<UiTextBox>(root, "Editor");
+                var sibling = FindNamed<Button>(root, "Sibling");
+                editor.RaiseEvent(new RoutedEventArgs(UIElement.GotFocusEvent, sibling));
+                Sta.PumpToIdle();
+
+                editor.Text = "typed";
+                var esc = BubblingKey.Raise(editor, Key.Escape);
+                esc.Handled.Should().BeFalse(
+                    "B-05 case 2: a non-descendant OriginalSource must not arm a session");
+                editor.Text.Should().Be("typed",
+                    "B-05 case 2: Esc must neither restore nor handle when no session is armed");
             });
 
     private sealed class DraftProbe

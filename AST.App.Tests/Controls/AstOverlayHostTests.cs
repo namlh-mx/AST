@@ -8,7 +8,7 @@ using UiTextBox = Wpf.Ui.Controls.TextBox;
 
 namespace AST.App.Tests.Controls;
 
-// B1, B4–B7 need no focus. B2, B3, B8, B9 are FocusManager supporting evidence (card 330).
+// B1, B4–B7 need no focus. B2, B3, B8, B9 are FocusManager supporting evidence (card 330 / 342).
 public class AstOverlayHostTests
 {
     [Fact]
@@ -114,53 +114,152 @@ public class AstOverlayHostTests
             });
 
     [Fact]
-    public void B2_open_focuses_the_first_enabled_textbox_not_a_preceding_button()
+    public void B2_open_focuses_the_marked_eligible_descendant_not_a_preceding_button_or_unmarked_textbox()
         => OffscreenHost.Run(
-            _ => BuildHost(
-                new Button { Content = "Lưu" },
-                new Button { Content = "Đóng" },
-                new UiTextBox { Name = "FirstEditor", Text = "one" }),
-            (window, host) =>
+            window =>
             {
+                var opener = new Button { Name = "Opener", Content = "Thông tin bổ sung" };
+                var unmarked = new UiTextBox { Name = "Unmarked", Text = "one" };
+                var marked = new UiTextBox { Name = "Marked", Text = "two" };
+                AstOverlayHost.SetIsDefaultFocus(marked, true);
+                var host = BuildHost(
+                    new Button { Content = "Lưu" },
+                    unmarked,
+                    marked);
+                var root = new DockPanel();
+                root.Children.Add(opener);
+                root.Children.Add(host);
+                window.Tag = opener;
+                return root;
+            },
+            (window, root) =>
+            {
+                var opener = (Button)window.Tag;
+                var host = Find<AstOverlayHost>(root);
+                var marked = FindNamed<UiTextBox>(host, "Marked");
+                opener.Focus();
+                Sta.PumpToIdle();
                 host.IsOpen = true;
                 Sta.PumpToIdle();
 
-                var editor = Find<UiTextBox>(host);
-                FocusManager.GetFocusedElement(window).Should().Be(editor,
-                    "supporting evidence B2: first enabled revert-enabled editor, not the action buttons");
+                FocusManager.GetFocusedElement(window).Should().Be(marked,
+                    "A8.1: an eligible marker beats a preceding button and an unmarked TextBoxBase");
+            });
+
+[Fact]
+    public void B2_only_an_eligible_marker_wins_over_disabled_or_hidden_markers()
+        => OffscreenHost.Run(
+            window =>
+            {
+                var opener = new Button { Name = "Opener", Content = "Thông tin bổ sung" };
+                var disabled = new UiTextBox { Name = "Disabled", Text = "no" };
+                disabled.IsEnabled = false;
+                AstOverlayHost.SetIsDefaultFocus(disabled, true);
+                var hidden = new UiTextBox { Name = "Hidden", Text = "no" };
+                hidden.Visibility = Visibility.Collapsed;
+                AstOverlayHost.SetIsDefaultFocus(hidden, true);
+                var eligible = new UiTextBox { Name = "Eligible", Text = "yes" };
+                AstOverlayHost.SetIsDefaultFocus(eligible, true);
+                var host = BuildHost(disabled, hidden, eligible);
+                var root = new DockPanel();
+                root.Children.Add(opener);
+                root.Children.Add(host);
+                window.Tag = opener;
+                return root;
+            },
+            (window, root) =>
+            {
+                var opener = (Button)window.Tag;
+                var host = Find<AstOverlayHost>(root);
+                var eligible = FindNamed<UiTextBox>(host, "Eligible");
+                opener.Focus();
+                Sta.PumpToIdle();
+                host.IsOpen = true;
+                Sta.PumpToIdle();
+
+                FocusManager.GetFocusedElement(window).Should().Be(eligible,
+                    "A8.2: a disabled or hidden marker is skipped; the eligible marked control wins");
             });
 
     [Fact]
-    public void B3_tab_cycle_stays_inside_the_open_host()
+    public void B2_zero_marker_fallback_uses_ordinary_traversal_and_lands_on_a_preceding_button()
         => OffscreenHost.Run(
-            _ => BuildHost(
-                new Button { Content = "Lưu" },
-                new UiTextBox { Text = "one" },
-                new UiTextBox { Text = "two" }),
-            (window, host) =>
+            window =>
             {
+                var opener = new Button { Name = "Opener", Content = "Thông tin bổ sung" };
+                var button = new Button { Name = "FirstButton", Content = "Lưu" };
+                var host = BuildHost(
+                    button,
+                    new UiTextBox { Name = "Unmarked", Text = "one" });
+                var root = new DockPanel();
+                root.Children.Add(opener);
+                root.Children.Add(host);
+                window.Tag = opener;
+                return root;
+            },
+            (window, root) =>
+            {
+                var opener = (Button)window.Tag;
+                var host = Find<AstOverlayHost>(root);
+                var button = FindNamed<Button>(host, "FirstButton");
+                opener.Focus();
+                Sta.PumpToIdle();
                 host.IsOpen = true;
                 Sta.PumpToIdle();
-                var start = FocusManager.GetFocusedElement(window) as UIElement;
-                start.Should().NotBeNull();
 
-                IInputElement? current = start;
+                var focused = FocusManager.GetFocusedElement(window);
+                focused.Should().NotBe(opener, "A8.3: fallback must leave the opener");
+                focused.Should().Be(button,
+                    "A8.3: zero-marker fallback is ordinary WPF traversal, not a TextBoxBase preference");
+            });
+
+    [Fact]
+    public void B3_tab_cycle_wraps_inside_the_open_host_and_never_reaches_a_sibling_outside_it()
+        => OffscreenHost.Run(
+            window =>
+            {
+                var first = new Button { Name = "First", Content = "Lưu" };
+                var last = new UiTextBox { Name = "Last", Text = "one" };
+                var host = BuildHost(first, last);
+                var outside = new Button { Name = "Outside", Content = "Ngoài" };
+                var root = new StackPanel();
+                root.Children.Add(host);
+                root.Children.Add(outside);
+                return root;
+            },
+            (window, root) =>
+            {
+                var host = Find<AstOverlayHost>(root);
+                var first = FindNamed<Button>(host, "First");
+                var last = FindNamed<UiTextBox>(host, "Last");
+                var outside = FindNamed<Button>(root, "Outside");
+                host.IsOpen = true;
+                Sta.PumpToIdle();
+
+                last.Focus();
+                Sta.PumpToIdle();
+                last.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
+                Sta.PumpToIdle();
+                FocusManager.GetFocusedElement(window).Should().Be(first,
+                    "B3: Cycle wraps forward from the last descendant to the first");
+
+                first.Focus();
+                Sta.PumpToIdle();
+                first.MoveFocus(new TraversalRequest(FocusNavigationDirection.Previous));
+                Sta.PumpToIdle();
+                FocusManager.GetFocusedElement(window).Should().Be(last,
+                    "B3: Cycle wraps backward from the first descendant to the last");
+
+                var current = first as IInputElement;
                 for (var i = 0; i < 6; i++)
                 {
                     ((UIElement)current!).MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
                     Sta.PumpToIdle();
                     current = FocusManager.GetFocusedElement(window);
+                    current.Should().NotBe(outside, "B3: a sibling outside the host is never reached");
                     current.Should().BeAssignableTo<DependencyObject>();
-                    IsDescendant(host, (DependencyObject)current!).Should().BeTrue(
-                        "B3: MoveFocus(Next) must not land behind the scrim");
+                    IsDescendant(host, (DependencyObject)current!).Should().BeTrue();
                 }
-
-                current = start;
-                start!.MoveFocus(new TraversalRequest(FocusNavigationDirection.Previous));
-                Sta.PumpToIdle();
-                current = FocusManager.GetFocusedElement(window);
-                IsDescendant(host, (DependencyObject)current!).Should().BeTrue(
-                    "B3: MoveFocus(Previous) must not land behind the scrim");
             });
 
     [Fact]
@@ -240,6 +339,20 @@ public class AstOverlayHostTests
         }
 
         throw new InvalidOperationException($"No {typeof(T).Name} under {root.GetType().Name}");
+    }
+
+private static T FindNamed<T>(DependencyObject root, string name) where T : FrameworkElement
+    {
+        if (root is T self && self.Name == name)
+            return self;
+
+        foreach (var node in Walk(root))
+        {
+            if (node is T match && match.Name == name)
+                return match;
+        }
+
+        throw new InvalidOperationException($"No {typeof(T).Name} named {name}");
     }
 
     private static bool IsDescendant(DependencyObject root, DependencyObject candidate)

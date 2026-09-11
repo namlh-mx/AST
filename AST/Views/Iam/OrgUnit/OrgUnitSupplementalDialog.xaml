@@ -111,6 +111,7 @@
                     <ui:TextBox
                         Grid.Row="0"
                         Grid.Column="1"
+                        controls:AstOverlayHost.IsDefaultFocus="True"
                         IsEnabled="{Binding FieldsLocked, Converter={StaticResource InverseBool}}"
                         MaxLength="14"
                         Style="{StaticResource SupplementalFixedTextBox}"
