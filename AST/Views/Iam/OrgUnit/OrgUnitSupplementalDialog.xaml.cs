@@ -2,7 +2,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using AST.Behaviors;
 using AST.Controls;
+using AST.Core.Iam.Repositories;
 using AST.Core.Presentation;
 using Serilog;
 using Wpf.Ui;
@@ -25,6 +27,7 @@ public partial class OrgUnitSupplementalDialog : UserControl
     public event EventHandler? DraftChanged;
 
     private bool _isDirty;
+    private OrgUnitSupplementalDto _baseline = new();
     private bool _allowUnlock = true;
     private System.ComponentModel.PropertyChangedEventHandler? _draftHandler;
 
@@ -32,6 +35,7 @@ public partial class OrgUnitSupplementalDialog : UserControl
     {
         InitializeComponent();
         AttachDraft(Draft);
+        AddHandler(AstFieldRevert.SessionEndingEvent, new RoutedEventHandler(OnRevertSessionEnding));
         Loaded += OnLoaded;
     }
 
@@ -41,6 +45,7 @@ public partial class OrgUnitSupplementalDialog : UserControl
         AttachDraft(seed.Clone());
         Draft.FieldsLocked = lockFields;
         _allowUnlock = allowUnlock;
+        _baseline = Draft.ToDto();
         _isDirty = false;
         if (SaveButton is not null) SaveButton.IsEnabled = false;
         if (EditButton is not null) EditButton.IsEnabled = lockFields && allowUnlock;
@@ -63,15 +68,37 @@ public partial class OrgUnitSupplementalDialog : UserControl
     {
         if (SaveButton is not null) SaveButton.IsEnabled = false;
         if (EditButton is not null) EditButton.IsEnabled = Draft.FieldsLocked && _allowUnlock;
+        AttachFieldRevert();
+    }
+
+    private void AttachFieldRevert()
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(this).OfType<DependencyObject>().SelectMany(WalkLogical))
+        {
+            if (child is TextBox box && !AstFieldRevert.GetIsEnabled(box))
+                AstFieldRevert.SetIsEnabled(box, true);
+        }
+    }
+
+    private static IEnumerable<DependencyObject> WalkLogical(DependencyObject root)
+    {
+        yield return root;
+        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+        {
+            foreach (var nested in WalkLogical(child))
+                yield return nested;
+        }
     }
 
     private void OnDraftChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (Draft.FieldsLocked) return;
-        _isDirty = true;
-        if (SaveButton is not null) SaveButton.IsEnabled = true;
         if (e.PropertyName is nameof(SupplementalDraft.FieldsLocked) or nameof(SupplementalDraft.DistrictEnabled))
             return;
+        if (Draft.FieldsLocked)
+            return;
+
+        _isDirty = Draft.ToDto() != _baseline;
+        if (SaveButton is not null) SaveButton.IsEnabled = _isDirty;
         DraftChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -153,6 +180,7 @@ public partial class OrgUnitSupplementalDialog : UserControl
     private void OnSaveClick(object sender, RoutedEventArgs e)
     {
         Draft.FieldsLocked = true;
+        _baseline = Draft.ToDto();
         _isDirty = false;
         if (SaveButton is not null) SaveButton.IsEnabled = false;
         if (EditButton is not null) EditButton.IsEnabled = _allowUnlock;
@@ -168,4 +196,16 @@ public partial class OrgUnitSupplementalDialog : UserControl
     }
 
     private void OnCloseClick(object sender, RoutedEventArgs e) => CloseRequested?.Invoke(this, EventArgs.Empty);
+
+    private void OnRevertSessionEnding(object sender, RoutedEventArgs e)
+    {
+        if (e.OriginalSource is not TextBox field)
+            return;
+
+        var canonical = SupplementalDraft.CanonicalDisplay(field.Text);
+        if (field.Text == canonical)
+            return;
+
+        field.SetCurrentValue(TextBox.TextProperty, canonical);
+    }
 }

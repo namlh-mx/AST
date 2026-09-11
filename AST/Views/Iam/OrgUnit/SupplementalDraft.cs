@@ -153,6 +153,9 @@ public sealed class SupplementalDraft : INotifyPropertyChanged
     private static string? NullIfBlank(string value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
+    public static string CanonicalDisplay(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value)) return false;

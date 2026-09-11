@@ -138,7 +138,7 @@
         Promoted from OrgUnitDeclarationView and RoleDeclarationView; screens keep StaticResource use.
     -->
     <Style
-        x:Key="EqualActionButton"
+        x:Key="AstActionButton"
         BasedOn="{StaticResource {x:Type ui:Button}}"
         TargetType="ui:Button">
         <Setter Property="Width" Value="110" />
@@ -149,7 +149,7 @@
         Promoted from OrgUnitDeclarationView and RoleDeclarationView; screens keep StaticResource use.
     -->
     <Style
-        x:Key="EqualHistoryButton"
+        x:Key="AstHistoryButton"
         BasedOn="{StaticResource {x:Type ui:Button}}"
         TargetType="ui:Button">
         <Setter Property="Width" Value="128" />

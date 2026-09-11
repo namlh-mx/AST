@@ -152,8 +152,8 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
 
     private void CloseSupplementalOverlayIfOpen()
     {
-        if (SupplementalOverlay.Visibility == Visibility.Visible)
-            SupplementalOverlay.Visibility = Visibility.Collapsed;
+        if (SupplementalOverlay.IsOpen)
+            SupplementalOverlay.IsOpen = false;
     }
 
     protected override void OnLeaving(NavigationContext navigationContext)
@@ -555,7 +555,7 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
             SupplementalHost.CloseRequested += OnSupplementalCloseRequested;
             SupplementalHost.DraftSaved += OnSupplementalDraftSaved;
             SupplementalHost.DraftChanged += OnSupplementalDraftChanged;
-            SupplementalOverlay.Visibility = Visibility.Visible;
+            SupplementalOverlay.IsOpen = true;
         }
         catch (Exception ex)
         {
@@ -594,7 +594,10 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
             {
                 // D4: same single leave question as the card, through the shared base gate.
                 if (!await ConfirmLeaveAsync())
+                {
+                    SupplementalOverlay.RestoreContainedFocus();
                     return;
+                }
 
                 // Card 276 / backlog 3.58: the operator confirmed discarding the overlay draft.
                 // Tell the ViewModel before collapsing so dirty recomputes against the entry baseline
@@ -610,7 +613,7 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
                 Chrome.SupplementalTotalCount = total;
             }
 
-            SupplementalOverlay.Visibility = Visibility.Collapsed;
+            SupplementalOverlay.IsOpen = false;
         }
         catch (Exception ex)
         {

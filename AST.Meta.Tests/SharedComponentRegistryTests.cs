@@ -23,7 +23,7 @@ public class SharedComponentRegistryTests
         @"(?:(?:public|internal|private|protected|sealed|abstract|static|readonly|partial)\s+)*(?:record\s+struct|record\s+class|interface|class|struct|record|enum)\s+(\w+)",
         RegexOptions.Compiled);
 
-    private static readonly Regex XamlKey = new("x:Key=\"((?:Ast|Equal)[A-Za-z0-9]+)\"", RegexOptions.Compiled);
+    private static readonly Regex XamlKey = new("x:Key=\"(Ast[A-Za-z0-9]+)\"", RegexOptions.Compiled);
 
     private static string Registry(string root) =>
         File.ReadAllText(Path.Combine(root, "docs", "shared-components.md"));

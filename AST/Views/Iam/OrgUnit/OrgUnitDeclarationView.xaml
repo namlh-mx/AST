@@ -948,7 +948,7 @@
 
                                         Content="Thêm"
 
-                                        Style="{StaticResource EqualActionButton}">
+                                        Style="{StaticResource AstActionButton}">
 
                                         <ui:Button.Icon>
 
@@ -966,7 +966,7 @@
 
                                         Content="Sửa"
 
-                                        Style="{StaticResource EqualActionButton}">
+                                        Style="{StaticResource AstActionButton}">
 
                                         <ui:Button.Icon>
 
@@ -984,7 +984,7 @@
 
                                         Content="Thay thế"
 
-                                        Style="{StaticResource EqualActionButton}">
+                                        Style="{StaticResource AstActionButton}">
 
                                         <ui:Button.Icon>
 
@@ -1002,7 +1002,7 @@
 
                                         Content="Đóng"
 
-                                        Style="{StaticResource EqualActionButton}">
+                                        Style="{StaticResource AstActionButton}">
 
                                         <ui:Button.Icon>
 
@@ -1020,7 +1020,7 @@
 
                                         Content="Hủy"
 
-                                        Style="{StaticResource EqualActionButton}">
+                                        Style="{StaticResource AstActionButton}">
 
                                         <ui:Button.Icon>
 
@@ -1040,7 +1040,7 @@
 
                                         Content="Lưu"
 
-                                        Style="{StaticResource EqualActionButton}">
+                                        Style="{StaticResource AstActionButton}">
 
                                         <ui:Button.Icon>
 
@@ -1118,7 +1118,7 @@
 
                                         Content="Làm mới"
 
-                                        Style="{StaticResource EqualHistoryButton}"
+                                        Style="{StaticResource AstHistoryButton}"
 
                                         ToolTip="Làm mới">
 
@@ -1136,7 +1136,7 @@
 
                                         Content="Hiện tất cả"
 
-                                        Style="{StaticResource EqualHistoryButton}"
+                                        Style="{StaticResource AstHistoryButton}"
 
                                         ToolTip="Hiện tất cả">
 
@@ -1158,7 +1158,7 @@
 
                                         IsEnabled="{Binding Chrome.CanViewHistory, RelativeSource={RelativeSource AncestorType={x:Type local:OrgUnitDeclarationView}}}"
 
-                                        Style="{StaticResource EqualHistoryButton}"
+                                        Style="{StaticResource AstHistoryButton}"
 
                                         ToolTip="Xem">
 
@@ -1315,15 +1315,15 @@
 
 
 
-        <!--  Supplemental overlay (local chrome — AstDialog has no custom-content builder yet).  -->
+        <!--  Supplemental overlay (AstOverlayHost — AstDialog has no custom-content builder yet).  -->
 
-        <Border
+        <controls:AstOverlayHost
 
             x:Name="SupplementalOverlay"
 
             Background="#80000000"
 
-            Visibility="Collapsed">
+            CloseRequested="OnSupplementalCloseRequested">
 
             <Border
 
@@ -1337,7 +1337,7 @@
 
             </Border>
 
-        </Border>
+        </controls:AstOverlayHost>
 
     </Grid>
 

@@ -11,10 +11,11 @@ namespace AST.Meta.Tests;
 //
 // WHAT THIS GUARD DOES NOT CATCH — declared, so the claim is not read wider than the mechanism:
 //   1. A sentence ASSEMBLED rather than written whole — concatenation, interpolation, resources,
-//      or generated equivalents. The scan matches one quoted token, so a fragment or aliased
-//      constant that never writes the full sentence keeps this guard green while the prose has
-//      no literal at its declaring initializer. That is the same standing limit as
-//      PlatformCodeLiteralAbsenceTests: static inspection cannot bound a DYNAMIC mint site.
+//      or generated equivalents. The scan matches one quoted token, so it cannot find an
+//      additional dynamically assembled equivalent of a sentence that already has its named
+//      full-literal initializer. That initializer remains mandatory: zero full literals fail
+//      this guard. That is the same standing limit as PlatformCodeLiteralAbsenceTests: static
+//      inspection cannot bound a DYNAMIC mint site.
 //   2. A literal outside AST.Shell/ (for example a copy at a Core startup mint site). This
 //      perimeter is AST.Shell/ only; other projects are out of this row.
 //   3. A literal inside a /* block comment */. Only // line comments are stripped, so such a

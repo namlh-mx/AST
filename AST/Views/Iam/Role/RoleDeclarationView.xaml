@@ -178,7 +178,7 @@
                                 Grid.Column="4"
                                 Command="{Binding AddGrantCommand}"
                                 Content="Thêm dòng"
-                                Style="{StaticResource EqualActionButton}" />
+                                Style="{StaticResource AstActionButton}" />
                         </Grid>
                         <DataGrid
                             MaxHeight="120"
@@ -261,27 +261,27 @@
                                 Appearance="Secondary"
                                 Command="{Binding BeginAddCommand}"
                                 Content="Thêm"
-                                Style="{StaticResource EqualActionButton}" />
+                                Style="{StaticResource AstActionButton}" />
                             <ui:Button
                                 Appearance="Secondary"
                                 Command="{Binding BeginEditCommand}"
                                 Content="Sửa"
-                                Style="{StaticResource EqualActionButton}" />
+                                Style="{StaticResource AstActionButton}" />
                             <ui:Button
                                 Appearance="Secondary"
                                 Command="{Binding BeginCloseCommand}"
                                 Content="Đóng"
-                                Style="{StaticResource EqualActionButton}" />
+                                Style="{StaticResource AstActionButton}" />
                             <ui:Button
                                 Appearance="Secondary"
                                 Command="{Binding CancelCommand}"
                                 Content="Hủy"
-                                Style="{StaticResource EqualActionButton}" />
+                                Style="{StaticResource AstActionButton}" />
                             <ui:Button
                                 Appearance="Primary"
                                 Command="{Binding SaveCommand}"
                                 Content="Lưu"
-                                Style="{StaticResource EqualActionButton}" />
+                                Style="{StaticResource AstActionButton}" />
                         </StackPanel>
                     </StackPanel>
                     </StackPanel>
@@ -312,17 +312,17 @@
                                 <ui:Button
                                     Click="OnHistoryRefreshClick"
                                     Content="Làm mới"
-                                    Style="{StaticResource EqualHistoryButton}" />
+                                    Style="{StaticResource AstHistoryButton}" />
                                 <ui:Button
                                     Click="OnHistoryShowAllClick"
                                     Content="Hiện tất cả"
-                                    Style="{StaticResource EqualHistoryButton}" />
+                                    Style="{StaticResource AstHistoryButton}" />
                                 <ui:Button
                                     Margin="0"
                                     Click="OnHistoryViewClick"
                                     Content="Xem"
                                     IsEnabled="{Binding Chrome.CanViewHistory, RelativeSource={RelativeSource AncestorType={x:Type local:RoleDeclarationView}}}"
-                                    Style="{StaticResource EqualHistoryButton}" />
+                                    Style="{StaticResource AstHistoryButton}" />
                             </StackPanel>
                         </Grid>
                         <ui:TextBox
