@@ -34,6 +34,8 @@ public class SharedComponentRegistryTests
     {
         "## ①", "## ②", "## ③", "## ④", "## ⑤", "## ⑥", "## ⑦", "## ⑧", "## ⑨"
     };
+    private const string RegistryTableBeginMarker = "<!-- ast-registry-table:begin -->";
+    private const string RegistryTableEndMarker = "<!-- ast-registry-table:end -->";
 
     private static string Registry(string root) =>
         File.ReadAllText(Path.Combine(root, "docs", "shared-components.md"));
@@ -205,6 +207,30 @@ public class SharedComponentRegistryTests
         }
     }
 
+    [Fact]
+    public void FencedCopyOfMarkerSyntaxIsNotARegistryMarker()
+    {
+        var markdown = string.Join(
+            '\n',
+            RegistryTableBeginMarker,
+            "| Name | Location | Locked |",
+            "|---|---|---|",
+            "| `AstDialog` | `AST.UI/Controls/AstDialog.cs` | yes |",
+            RegistryTableEndMarker,
+            string.Empty,
+            "```markdown",
+            RegistryTableBeginMarker,
+            "| Name | Location | Locked |",
+            "|---|---|---|",
+            "| `FencedCopy` | `AST.UI/Controls/FencedCopy.cs` | yes |",
+            RegistryTableEndMarker,
+            "```");
+
+        var section = RegistryTableSection(markdown);
+        Assert.Contains("`AstDialog`", section, StringComparison.Ordinal);
+        Assert.DoesNotContain("`FencedCopy`", section, StringComparison.Ordinal);
+    }
+
     private static string ControlName(string csPath) =>
         Path.GetFileNameWithoutExtension(csPath).Replace(".xaml", "", StringComparison.Ordinal);
 
@@ -337,4 +363,69 @@ public class SharedComponentRegistryTests
 
     private static IReadOnlyList<string> HeaderCells(string headerLine) =>
         headerLine.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+    // Marker recognition — a marker counts only as a standalone line (the whole line equals the
+    // marker; a trailing CR is stripped) that sits outside a column-0 backtick fence. Opening and
+    // closing fences are the same toggle: any line that StartsWith("```") flips in-fence state.
+    //
+    // WHAT THIS GUARD DOES NOT CATCH — declared, so the claim is not read wider than the mechanism:
+    //   1. A tilde fence (~~~). Those lines are not toggles, so a marker copied inside a tilde fence
+    //      is still counted. Outside the accepted grammar; no mutation claims otherwise.
+    //   2. A backtick fence indented by 1–3 spaces. The opener is not at column 0, so the copy is
+    //      still counted.
+    //   3. An indented code block of four spaces with no fence. There is no fence line to toggle,
+    //      so a copied marker line is still counted.
+    //   4. Any CommonMark fence variant this file does not name — mismatched closer length, fences
+    //      inside lists or quotes, and so on. Not claimed.
+
+    private static string RegistryTableSection(string markdown)
+    {
+        Assert.Equal(1, CountOccurrences(markdown, RegistryTableBeginMarker));
+        Assert.Equal(1, CountOccurrences(markdown, RegistryTableEndMarker));
+        var beginAt = IndexOfStandaloneUnfencedMarker(markdown, RegistryTableBeginMarker);
+        var endAt = IndexOfStandaloneUnfencedMarker(markdown, RegistryTableEndMarker);
+        Assert.True(endAt > beginAt + RegistryTableBeginMarker.Length,
+            "the registry-table end marker must follow the begin marker");
+        return markdown.Substring(
+            beginAt + RegistryTableBeginMarker.Length,
+            endAt - beginAt - RegistryTableBeginMarker.Length);
+    }
+
+    private static int CountOccurrences(string text, string marker) =>
+        StandaloneUnfencedMarkerPositions(text, marker).Count;
+
+    private static int IndexOfStandaloneUnfencedMarker(string text, string marker)
+    {
+        var positions = StandaloneUnfencedMarkerPositions(text, marker);
+        return positions.Count == 0 ? -1 : positions[0];
+    }
+
+    private static List<int> StandaloneUnfencedMarkerPositions(string text, string marker)
+    {
+        var positions = new List<int>();
+        var inFence = false;
+        var offset = 0;
+        while (offset <= text.Length)
+        {
+            var newline = text.IndexOf('\n', offset);
+            var lineEnd = newline < 0 ? text.Length : newline;
+            var line = text[offset..lineEnd];
+            if (line.EndsWith('\r'))
+                line = line[..^1];
+
+            if (IsColumnZeroBacktickFenceLine(line))
+                inFence = !inFence;
+            else if (!inFence && line == marker)
+                positions.Add(offset);
+
+            if (newline < 0)
+                break;
+            offset = newline + 1;
+        }
+
+        return positions;
+    }
+
+    private static bool IsColumnZeroBacktickFenceLine(string line) =>
+        line.StartsWith("```", StringComparison.Ordinal);
 }
