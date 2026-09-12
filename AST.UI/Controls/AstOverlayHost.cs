@@ -90,17 +90,20 @@ public class AstOverlayHost : ContentControl
 
     private void ApplyClosedState(bool restoreOpener = false)
     {
-        // Restore predicate: loaded-focusable-opener.
-        // Restore when the recorded opener is still a loaded, focusable FrameworkElement.
+        // Restore predicate: null-contained-or-detached-focus.
+        // Restore when the recorded opener is still a loaded, focusable FrameworkElement AND
+        // keyboard focus is absent, still inside this host, or no longer attached to a presentation source.
         // WHAT THIS PREDICATE DOES NOT DISTINGUISH — declared so the claim is not read wider than the mechanism:
-        //   1. Why focus left the host. A window-root confirm, a programmatic Focus() on a sibling, and any
-        //      future outside element all look the same once FocusedElement is not a descendant. This gate
-        //      does not inspect FocusedElement at all, so it cannot spare an outside element that the
-        //      operator parked on purpose.
-        //   2. Whether _lastContained is set. That field is assigned on every contained GotFocus and only
-        //      cleared on close, so it is non-null in every real session and cannot be a restore discriminator.
+        //   1. Why an attached outside element holds focus. A sidebar destination the operator just clicked
+        //      and a programmatic Focus() on a sibling look the same; both are spared.
+        //   2. Why focus is absent or detached. A ContentDialog removed from its host, a Focus() that
+        //      failed, and a disconnected test stand-in all restore. The gate cannot tell a dialog teardown
+        //      from any other detach.
+        //   3. WPF-UI's DispatcherPriority.Input previous-focus restore, which is queued during dialog
+        //      removal and has not necessarily run when this method runs.
         var shouldRestore = restoreOpener
-            && _opener is FrameworkElement { IsLoaded: true, Focusable: true };
+            && _opener is FrameworkElement { IsLoaded: true, Focusable: true }
+            && FocusIsAbsentContainedOrDetached();
 
         Visibility = Visibility.Collapsed;
         IsHitTestVisible = false;
@@ -113,6 +116,16 @@ public class AstOverlayHost : ContentControl
             ((UIElement)_opener!).Focus();
 
         _lastContained = null;
+    }
+
+    private bool FocusIsAbsentContainedOrDetached()
+    {
+        var focused = Keyboard.FocusedElement;
+        if (focused is null)
+            return true;
+        if (focused is DependencyObject focusedObj && IsDescendant(focusedObj))
+            return true;
+        return focused is Visual visual && PresentationSource.FromVisual(visual) is null;
     }
 
     private void OnBubblingKeyDown(object sender, KeyEventArgs e)

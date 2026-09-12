@@ -323,23 +323,26 @@ public class AstOverlayHostTests
             });
 
     [Fact]
-    public void Closing_after_window_root_confirm_focus_returns_focus_to_the_opener()
+    public void Closing_after_confirm_stand_in_has_left_the_tree_returns_focus_to_the_opener()
         => OffscreenHost.Run(window =>
             {
                 var opener = new Button { Name = "Opener", Content = "Thông tin bổ sung" };
                 var confirm = new Button { Name = "Confirm", Content = "Rời đi" };
+                var dialogHost = new ContentPresenter { Content = confirm };
                 var host = BuildHost(new UiTextBox { Text = "x" });
                 var root = new DockPanel();
                 root.Children.Add(opener);
-                root.Children.Add(confirm);
+                root.Children.Add(dialogHost);
                 root.Children.Add(host);
-                window.Tag = opener;
+                window.Tag = new object[] { opener, confirm, dialogHost };
                 return root;
             },
             (window, root) =>
             {
-                var opener = (Button)window.Tag;
-                var confirm = FindNamed<Button>(root, "Confirm");
+                var bag = (object[])window.Tag;
+                var opener = (Button)bag[0];
+                var confirm = (Button)bag[1];
+                var dialogHost = (ContentPresenter)bag[2];
                 var host = Find<AstOverlayHost>(root);
                 opener.Focus();
                 Sta.PumpToIdle();
@@ -349,13 +352,56 @@ public class AstOverlayHostTests
                 confirm.Focus();
                 Sta.PumpToIdle();
                 FocusManager.GetFocusedElement(window).Should().Be(confirm,
-                    "precondition: a window-root confirm has taken focus out of the host");
+                    "precondition: the confirm stand-in held focus before teardown");
+
+                dialogHost.Content = null;
+                PresentationSource.FromVisual(confirm).Should().BeNull(
+                    "precondition: the confirm stand-in has left the visual tree, matching ContentDialogHost clearing Content before ShowAsync returns");
 
                 host.IsOpen = false;
                 Sta.PumpToIdle();
 
                 FocusManager.GetFocusedElement(window).Should().Be(opener,
-                    "closing must restore the opener even when a window-root confirm held focus");
+                    "closing must restore the opener after a confirm whose focus element has left the tree");
+            });
+
+    [Fact]
+    public void Closing_does_not_displace_a_loaded_outside_element_that_holds_focus()
+        => OffscreenHost.Run(window =>
+            {
+                var opener = new Button { Name = "Opener", Content = "Thông tin bổ sung" };
+                var outside = new Button { Name = "Outside", Content = "Rời đi" };
+                var host = BuildHost(new UiTextBox { Text = "x" });
+                var root = new DockPanel();
+                root.Children.Add(opener);
+                root.Children.Add(outside);
+                root.Children.Add(host);
+                window.Tag = new object[] { opener, outside };
+                return root;
+            },
+            (window, root) =>
+            {
+                var bag = (object[])window.Tag;
+                var opener = (Button)bag[0];
+                var outside = (Button)bag[1];
+                var host = Find<AstOverlayHost>(root);
+                opener.Focus();
+                Sta.PumpToIdle();
+                host.IsOpen = true;
+                Sta.PumpToIdle();
+
+                outside.Focus();
+                Sta.PumpToIdle();
+                outside.IsLoaded.Should().BeTrue(
+                    "precondition: the outside element remains loaded");
+                FocusManager.GetFocusedElement(window).Should().Be(outside,
+                    "precondition: the operator parked focus on a loaded outside element");
+
+                host.IsOpen = false;
+                Sta.PumpToIdle();
+
+                FocusManager.GetFocusedElement(window).Should().Be(outside,
+                    "a loaded outside element deliberately holding focus must not be displaced");
             });
 
     [Fact]
