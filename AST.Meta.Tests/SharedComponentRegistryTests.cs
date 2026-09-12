@@ -231,6 +231,28 @@ public class SharedComponentRegistryTests
         Assert.DoesNotContain("`FencedCopy`", section, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void IndentedCopyOfMarkerSyntaxIsNotARegistryMarker()
+    {
+        var markdown = string.Join(
+            '\n',
+            RegistryTableBeginMarker,
+            "| Name | Location | Locked |",
+            "|---|---|---|",
+            "| `AstDialog` | `AST.UI/Controls/AstDialog.cs` | yes |",
+            RegistryTableEndMarker,
+            string.Empty,
+            "    " + RegistryTableBeginMarker,
+            "| Name | Location | Locked |",
+            "|---|---|---|",
+            "| `IndentedCopy` | `AST.UI/Controls/IndentedCopy.cs` | yes |",
+            "    " + RegistryTableEndMarker);
+
+        var section = RegistryTableSection(markdown);
+        Assert.Contains("`AstDialog`", section, StringComparison.Ordinal);
+        Assert.DoesNotContain("`IndentedCopy`", section, StringComparison.Ordinal);
+    }
+
     private static string ControlName(string csPath) =>
         Path.GetFileNameWithoutExtension(csPath).Replace(".xaml", "", StringComparison.Ordinal);
 
@@ -368,13 +390,14 @@ public class SharedComponentRegistryTests
     // marker; a trailing CR is stripped) that sits outside a column-0 backtick fence. Opening and
     // closing fences are the same toggle: any line that StartsWith("```") flips in-fence state.
     //
-    // WHAT THIS GUARD DOES NOT CATCH — declared, so the claim is not read wider than the mechanism:
+    // DECLARED PERIMETER — so the claim is not read wider than the mechanism:
     //   1. A tilde fence (~~~). Those lines are not toggles, so a marker copied inside a tilde fence
     //      is still counted. Outside the accepted grammar; no mutation claims otherwise.
     //   2. A backtick fence indented by 1–3 spaces. The opener is not at column 0, so the copy is
     //      still counted.
-    //   3. An indented code block of four spaces with no fence. There is no fence line to toggle,
-    //      so a copied marker line is still counted.
+    //   3. An indented code block of four spaces with no fence. The copied marker is skipped by the
+    //      whole-line-equals-marker rule, not by a fence toggle: four leading spaces make the line
+    //      unequal to the marker, and there is no fence line to flip.
     //   4. Any CommonMark fence variant this file does not name — mismatched closer length, fences
     //      inside lists or quotes, and so on. Not claimed.
 
