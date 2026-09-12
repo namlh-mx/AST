@@ -58,6 +58,11 @@ public class AstOverlayHost : ContentControl
 
     public void CloseWithoutRestoringOpener()
     {
+        // One-shot opener-restore suppression. The flag is stack-scoped to this call.
+        // IsOpen's PropertyChangedCallback runs on SetValue before this method returns, so
+        // ApplyClosedState reads the suppression while the flag is still false.
+        // finally resets the flag even when IsOpen was already false and the callback does
+        // not run; a leftover false would suppress the next ordinary close.
         _restoreOpenerOnThisClose = false;
         try
         {
@@ -118,7 +123,9 @@ public class AstOverlayHost : ContentControl
         //   4. Overlay close versus navigation close. The same absent or detached focus state is what
         //      both gestures present; this predicate cannot give opposite restore answers. The caller
         //      must say whether this close restores the opener (`IsOpen = false`) or not
-        //      (`CloseWithoutRestoringOpener`).
+        //      (`CloseWithoutRestoringOpener`). That suppression is stack-scoped to the call, relies on
+        //      the IsOpen DP callback running synchronously on SetValue, and is reset in finally even
+        //      when IsOpen was already false and the callback does not run.
         var shouldRestore = restoreOpener
             && _opener is FrameworkElement { IsLoaded: true, Focusable: true }
             && FocusIsAbsentContainedOrDetached();

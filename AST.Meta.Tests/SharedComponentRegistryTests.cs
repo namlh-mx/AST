@@ -27,6 +27,13 @@ public class SharedComponentRegistryTests
     private static readonly Regex RegistryRow = new(
         @"^\|\s*`(?<name>[^`]+)`\s*\|\s*(?:`(?<path>[^`]+)`|(?<plain>[^|]+?))\s*\|(?<rest>.*)$",
         RegexOptions.Compiled | RegexOptions.Multiline);
+    private static readonly Regex TableSeparatorRow = new(
+        @"^\|(?:\s*:?-+:?\s*\|)+\s*$",
+        RegexOptions.Compiled);
+    private static readonly string[] PublicSectionPrefixes =
+    {
+        "## ①", "## ②", "## ③", "## ④", "## ⑤", "## ⑥", "## ⑦", "## ⑧", "## ⑨"
+    };
 
     private static string Registry(string root) =>
         File.ReadAllText(Path.Combine(root, "docs", "shared-components.md"));
@@ -182,6 +189,22 @@ public class SharedComponentRegistryTests
             CountRows(rows, "AstOverlayHost", "Controls.xaml", "yes"));
     }
 
+    [Fact]
+    public void RegistrySectionTablesKeepPublicHeaders()
+    {
+        var headers = SectionTableHeaders(Registry(MetaTest.RepoRoot()));
+        Assert.Equal(9, headers.Count);
+        var fourColumn = new[] { "Component", "Home", "Purpose", "Customization boundary" };
+        var tokenColumn = new[] { "Token", "Kind", "Note" };
+        for (var i = 0; i < headers.Count; i++)
+        {
+            var expected = i == 2 ? tokenColumn : fourColumn;
+            Assert.True(
+                headers[i].SequenceEqual(expected),
+                $"section {i + 1} header is [{string.Join(" | ", headers[i])}], expected [{string.Join(" | ", expected)}]; a renamed column is a structural change");
+        }
+    }
+
     private static string ControlName(string csPath) =>
         Path.GetFileNameWithoutExtension(csPath).Replace(".xaml", "", StringComparison.Ordinal);
 
@@ -284,4 +307,34 @@ public class SharedComponentRegistryTests
         var rel = Path.GetRelativePath(root, path);
         return rel.StartsWith($"AST.Meta.Tests{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
     }
+
+    private static IReadOnlyList<IReadOnlyList<string>> SectionTableHeaders(string markdown)
+    {
+        var lines = markdown.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var headers = new List<IReadOnlyList<string>>();
+        var expected = 0;
+        for (var i = 0; i < lines.Length && expected < PublicSectionPrefixes.Length; i++)
+        {
+            if (!lines[i].StartsWith(PublicSectionPrefixes[expected], StringComparison.Ordinal))
+                continue;
+
+            for (var j = i + 1; j < lines.Length; j++)
+            {
+                if (expected + 1 < PublicSectionPrefixes.Length
+                    && lines[j].StartsWith(PublicSectionPrefixes[expected + 1], StringComparison.Ordinal))
+                    break;
+                if (!TableSeparatorRow.IsMatch(lines[j]) || j == 0 || !lines[j - 1].StartsWith('|'))
+                    continue;
+                headers.Add(HeaderCells(lines[j - 1]));
+                break;
+            }
+
+            expected++;
+        }
+
+        return headers;
+    }
+
+    private static IReadOnlyList<string> HeaderCells(string headerLine) =>
+        headerLine.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 }

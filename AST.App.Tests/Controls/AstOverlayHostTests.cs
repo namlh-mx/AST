@@ -409,6 +409,38 @@ public class AstOverlayHostTests
             });
 
     [Fact]
+    public void CloseWithoutRestoringOpener_when_already_closed_does_not_suppress_the_next_ordinary_close()
+        => OffscreenHost.Run(window =>
+            {
+                var opener = new Button { Name = "Opener", Content = "Thông tin bổ sung" };
+                var host = BuildHost(new UiTextBox { Text = "x" });
+                var root = new DockPanel();
+                root.Children.Add(opener);
+                root.Children.Add(host);
+                window.Tag = opener;
+                return root;
+            },
+            (window, root) =>
+            {
+                var opener = (Button)window.Tag;
+                var host = Find<AstOverlayHost>(root);
+
+                host.IsOpen.Should().BeFalse("precondition: the host starts closed");
+                host.CloseWithoutRestoringOpener();
+
+                opener.Focus();
+                Sta.PumpToIdle();
+                host.IsOpen = true;
+                Sta.PumpToIdle();
+
+                host.IsOpen = false;
+                Sta.PumpToIdle();
+
+                FocusManager.GetFocusedElement(window).Should().Be(opener,
+                    "a one-shot suppression on an already-closed host must not leak into the next ordinary close");
+            });
+
+    [Fact]
     public void Closing_does_not_displace_a_loaded_outside_element_that_holds_focus()
         => OffscreenHost.Run(window =>
             {
