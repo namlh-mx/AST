@@ -150,10 +150,15 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
         !string.IsNullOrEmpty(haystack)
         && haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);
 
-    private void CloseSupplementalOverlayIfOpen()
+    private void CloseSupplementalOverlayIfOpen(bool restoreOpener = true)
     {
-        if (SupplementalOverlay.IsOpen)
+        if (!SupplementalOverlay.IsOpen)
+            return;
+
+        if (restoreOpener)
             SupplementalOverlay.IsOpen = false;
+        else
+            SupplementalOverlay.CloseWithoutRestoringOpener();
     }
 
     protected override void OnLeaving(NavigationContext navigationContext)
@@ -161,7 +166,7 @@ public partial class OrgUnitDeclarationView : DeclarationFormView
         // FR13: navigate-away means the whole edit session is cancelled, including any still-open
         // Supplemental dialog and its unsaved draft — it must not survive to the next visit. By the
         // time this runs, ConfirmNavigationRequest (base class) has already resolved "yes, leave."
-        CloseSupplementalOverlayIfOpen();
+        CloseSupplementalOverlayIfOpen(restoreOpener: false);
         SupplementalHost.CloseRequested -= OnSupplementalCloseRequested;
         SupplementalHost.DraftSaved -= OnSupplementalDraftSaved;
         SupplementalHost.DraftChanged -= OnSupplementalDraftChanged;

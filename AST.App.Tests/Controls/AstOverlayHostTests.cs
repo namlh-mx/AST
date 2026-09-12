@@ -366,6 +366,49 @@ public class AstOverlayHostTests
             });
 
     [Fact]
+    public void Closing_after_confirm_stand_in_has_left_the_tree_does_not_restore_when_the_caller_suppresses_restore()
+        => OffscreenHost.Run(window =>
+            {
+                var opener = new Button { Name = "Opener", Content = "Thông tin bổ sung" };
+                var confirm = new Button { Name = "Confirm", Content = "Rời đi" };
+                var dialogHost = new ContentPresenter { Content = confirm };
+                var host = BuildHost(new UiTextBox { Text = "x" });
+                var root = new DockPanel();
+                root.Children.Add(opener);
+                root.Children.Add(dialogHost);
+                root.Children.Add(host);
+                window.Tag = new object[] { opener, confirm, dialogHost };
+                return root;
+            },
+            (window, root) =>
+            {
+                var bag = (object[])window.Tag;
+                var opener = (Button)bag[0];
+                var confirm = (Button)bag[1];
+                var dialogHost = (ContentPresenter)bag[2];
+                var host = Find<AstOverlayHost>(root);
+                opener.Focus();
+                Sta.PumpToIdle();
+                host.IsOpen = true;
+                Sta.PumpToIdle();
+
+                confirm.Focus();
+                Sta.PumpToIdle();
+                FocusManager.GetFocusedElement(window).Should().Be(confirm,
+                    "precondition: the confirm stand-in held focus before teardown");
+
+                dialogHost.Content = null;
+                PresentationSource.FromVisual(confirm).Should().BeNull(
+                    "precondition: the confirm stand-in has left the visual tree, matching ContentDialogHost clearing Content before ShowAsync returns");
+
+                host.CloseWithoutRestoringOpener();
+                Sta.PumpToIdle();
+
+                FocusManager.GetFocusedElement(window).Should().NotBe(opener,
+                    "navigation close must not reclaim the opener after a confirm whose focus element has left the tree");
+            });
+
+    [Fact]
     public void Closing_does_not_displace_a_loaded_outside_element_that_holds_focus()
         => OffscreenHost.Run(window =>
             {

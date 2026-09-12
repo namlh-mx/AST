@@ -39,6 +39,7 @@ public class AstOverlayHost : ContentControl
 
     private IInputElement? _opener;
     private IInputElement? _lastContained;
+    private bool _restoreOpenerOnThisClose = true;
 
     public AstOverlayHost()
     {
@@ -55,6 +56,19 @@ public class AstOverlayHost : ContentControl
         set => SetValue(IsOpenProperty, value);
     }
 
+    public void CloseWithoutRestoringOpener()
+    {
+        _restoreOpenerOnThisClose = false;
+        try
+        {
+            IsOpen = false;
+        }
+        finally
+        {
+            _restoreOpenerOnThisClose = true;
+        }
+    }
+
     public void RestoreContainedFocus()
     {
         if (_lastContained is FrameworkElement { IsLoaded: true, Focusable: true } target)
@@ -69,7 +83,7 @@ public class AstOverlayHost : ContentControl
         if ((bool)e.NewValue)
             host.ApplyOpenState();
         else
-            host.ApplyClosedState(restoreOpener: true);
+            host.ApplyClosedState(restoreOpener: host._restoreOpenerOnThisClose);
     }
 
     private void ApplyOpenState()
@@ -101,6 +115,10 @@ public class AstOverlayHost : ContentControl
         //      from any other detach.
         //   3. WPF-UI's DispatcherPriority.Input previous-focus restore, which is queued during dialog
         //      removal and has not necessarily run when this method runs.
+        //   4. Overlay close versus navigation close. The same absent or detached focus state is what
+        //      both gestures present; this predicate cannot give opposite restore answers. The caller
+        //      must say whether this close restores the opener (`IsOpen = false`) or not
+        //      (`CloseWithoutRestoringOpener`).
         var shouldRestore = restoreOpener
             && _opener is FrameworkElement { IsLoaded: true, Focusable: true }
             && FocusIsAbsentContainedOrDetached();
