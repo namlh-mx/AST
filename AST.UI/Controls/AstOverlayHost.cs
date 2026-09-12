@@ -90,10 +90,17 @@ public class AstOverlayHost : ContentControl
 
     private void ApplyClosedState(bool restoreOpener = false)
     {
+        // Restore predicate: loaded-focusable-opener.
+        // Restore when the recorded opener is still a loaded, focusable FrameworkElement.
+        // WHAT THIS PREDICATE DOES NOT DISTINGUISH — declared so the claim is not read wider than the mechanism:
+        //   1. Why focus left the host. A window-root confirm, a programmatic Focus() on a sibling, and any
+        //      future outside element all look the same once FocusedElement is not a descendant. This gate
+        //      does not inspect FocusedElement at all, so it cannot spare an outside element that the
+        //      operator parked on purpose.
+        //   2. Whether _lastContained is set. That field is assigned on every contained GotFocus and only
+        //      cleared on close, so it is non-null in every real session and cannot be a restore discriminator.
         var shouldRestore = restoreOpener
-            && _opener is FrameworkElement { IsLoaded: true, Focusable: true }
-            && (Keyboard.FocusedElement is null
-                || Keyboard.FocusedElement is DependencyObject focused && IsDescendant(focused));
+            && _opener is FrameworkElement { IsLoaded: true, Focusable: true };
 
         Visibility = Visibility.Collapsed;
         IsHitTestVisible = false;

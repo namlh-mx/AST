@@ -323,6 +323,42 @@ public class AstOverlayHostTests
             });
 
     [Fact]
+    public void Closing_after_window_root_confirm_focus_returns_focus_to_the_opener()
+        => OffscreenHost.Run(window =>
+            {
+                var opener = new Button { Name = "Opener", Content = "Thông tin bổ sung" };
+                var confirm = new Button { Name = "Confirm", Content = "Rời đi" };
+                var host = BuildHost(new UiTextBox { Text = "x" });
+                var root = new DockPanel();
+                root.Children.Add(opener);
+                root.Children.Add(confirm);
+                root.Children.Add(host);
+                window.Tag = opener;
+                return root;
+            },
+            (window, root) =>
+            {
+                var opener = (Button)window.Tag;
+                var confirm = FindNamed<Button>(root, "Confirm");
+                var host = Find<AstOverlayHost>(root);
+                opener.Focus();
+                Sta.PumpToIdle();
+                host.IsOpen = true;
+                Sta.PumpToIdle();
+
+                confirm.Focus();
+                Sta.PumpToIdle();
+                FocusManager.GetFocusedElement(window).Should().Be(confirm,
+                    "precondition: a window-root confirm has taken focus out of the host");
+
+                host.IsOpen = false;
+                Sta.PumpToIdle();
+
+                FocusManager.GetFocusedElement(window).Should().Be(opener,
+                    "closing must restore the opener even when a window-root confirm held focus");
+            });
+
+    [Fact]
     public void B10_styled_host_without_local_background_resolves_the_style_owned_non_transparent_scrim()
         => OffscreenHost.Run(
             window =>

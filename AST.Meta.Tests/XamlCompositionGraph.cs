@@ -171,7 +171,8 @@ internal sealed class XamlCompositionGraph
                 element, doc.AssemblyName, out var usageValue, out var usageError);
             if (usageError is not null)
             {
-                closed = FailClosed(doc.RelativePath, LineOf(element), usageError, chain);
+                closed = FailClosed(
+                    doc.RelativePath, LineOf(element), usageError, chain, MarkerGrammarRemediation);
                 return;
             }
 
@@ -191,7 +192,8 @@ internal sealed class XamlCompositionGraph
                     resolved!.Root, resolved.AssemblyName, out var rootValue, out var rootError);
                 if (rootError is not null)
                 {
-                    closed = FailClosed(resolved.RelativePath, LineOf(resolved.Root), rootError, chain);
+                    closed = FailClosed(
+                        resolved.RelativePath, LineOf(resolved.Root), rootError, chain, MarkerGrammarRemediation);
                     return;
                 }
 
@@ -506,13 +508,18 @@ internal sealed class XamlCompositionGraph
 
     private static string FormatSite(string file, int line, string type) => $"{file}:{line}/{type}";
 
+    private const string ContentGrammarRemediation =
+        "The consumer needs a statically provable XAML target or a newly reviewed extension of this model.";
+
+    private const string MarkerGrammarRemediation =
+        "The consumer needs a Boolean True or False IsDefaultFocus value; the XAML target is already present.";
+
     private static string FailClosed(
         string file,
         int line,
         string reason,
         IReadOnlyList<string> chain,
-        string remediation =
-            "The consumer needs a statically provable XAML target or a newly reviewed extension of this model.") =>
+        string remediation = ContentGrammarRemediation) =>
         $"{file}:{line}: {reason}. {remediation} chain: {string.Join(" -> ", chain)}";
 
     private sealed record ProjectInfo(string Directory, string AssemblyName);

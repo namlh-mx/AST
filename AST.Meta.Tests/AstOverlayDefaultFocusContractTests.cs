@@ -259,6 +259,26 @@ public class AstOverlayDefaultFocusContractTests
         failure.Should().NotContain("true IsDefaultFocus marker");
     }
 
+    [Fact]
+    public void Unclassifiable_usage_marker_fails_closed_for_marker_grammar_not_content_target()
+    {
+        using var repo = FixtureRepo.InvalidUsageMarker();
+        var failure = Single(repo).ContractFailure;
+        failure.Should().Contain("IsDefaultFocus value 'maybe' cannot be classified as Boolean");
+        failure.Should().Contain("Boolean True or False IsDefaultFocus value");
+        failure.Should().NotContain("statically provable XAML target");
+    }
+
+    [Fact]
+    public void Unclassifiable_resolved_root_marker_fails_closed_for_marker_grammar_not_content_target()
+    {
+        using var repo = FixtureRepo.InvalidResolvedRootMarker();
+        var failure = Single(repo).ContractFailure;
+        failure.Should().Contain("IsDefaultFocus value 'maybe' cannot be classified as Boolean");
+        failure.Should().Contain("Boolean True or False IsDefaultFocus value");
+        failure.Should().NotContain("statically provable XAML target");
+    }
+
     private static void AssertEveryHostSatisfiesContract(IReadOnlyList<OverlayHostScan> scans)
     {
         scans.Should().NotBeEmpty();
@@ -424,6 +444,17 @@ internal sealed class FixtureRepo : IDisposable
         Host("        <local:Dialog />", style: "{DynamicResource AstOverlayHost}"),
         Dialog(marker: true));
 
+    public static FixtureRepo InvalidUsageMarker() => Write(
+        Host("        <local:Dialog controls:AstOverlayHost.IsDefaultFocus=\"maybe\" />"),
+        Dialog(marker: false));
+
+    public static FixtureRepo InvalidResolvedRootMarker() => Write(
+        Host("        <local:Dialog />"),
+        File("AST.Prod/Dialog.xaml", UserControl(
+            "AST.Prod.Dialog",
+            "        <Button />",
+            rootMarkerLiteral: "maybe")));
+
     public void Dispose()
     {
         try
@@ -486,9 +517,14 @@ internal sealed class FixtureRepo : IDisposable
         """;
     }
 
-    private static string UserControl(string xClass, string content, bool rootMarker = false)
+    private static string UserControl(
+        string xClass,
+        string content,
+        bool rootMarker = false,
+        string? rootMarkerLiteral = null)
     {
-        var marker = rootMarker ? " controls:AstOverlayHost.IsDefaultFocus=\"True\"" : "";
+        var markerValue = rootMarkerLiteral ?? (rootMarker ? "True" : null);
+        var marker = markerValue is null ? "" : $" controls:AstOverlayHost.IsDefaultFocus=\"{markerValue}\"";
         return $"""
         <UserControl x:Class="{xClass}"{marker}
                      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
