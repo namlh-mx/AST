@@ -22,7 +22,7 @@ correction, a day of entries — a routine risk rather than an exceptional one.
 
 AI coding agents changed what someone in my position can build. So I built this, for myself, for my
 colleagues across the organisation I work in, and for people doing the same job elsewhere in our
-industry. It is not a commercial product and it is not for sale.
+industry. I personally fund its development. It is not a commercial product and it is not for sale.
 
 That background explains the parts of AST that look unusually careful for a small project. Nothing
 valid is ever deleted, only superseded. Every parameter carries the period it is effective for, and
@@ -43,28 +43,52 @@ application itself, `docs/design-effective-period.md` is the place to start.
 
 ---
 
-## Status — v0.1.0-alpha
+## Status — active development; latest release v0.1.0-alpha
 
-AST is currently under active development and runs daily in an internal test environment alongside real banking-operations workflows. This allows the maintainer to validate requirements, identify practical issues, and continuously improve the application. The longer-term goal is to deploy it for real operational use by business units across the organization. What works today is the foundation and the identity
+AST is being built and tested in an internal environment to validate banking-operations
+requirements. **It is not in production use.** Operational deployment across business units is a
+longer-term goal. The description below covers the current source on `main`; the
+[alpha release notes](https://github.com/namlh-mx/AST/releases/tag/v0.1.0-alpha) describe that
+specific, earlier build.
+
+What works today is the foundation and the identity
 layer: declaring the database connection, admin authentication, the configuration station with its
 signed config files and audit chain, a startup sequence that verifies the database schema version
 and blocks on a mismatch, and the screens for declaring organisational units and roles. Underneath
 those sits the part most of the work went into — an effective-period engine with the full
 eight-case algebra for editing a period, strict temporal foreign keys, soft delete, and a composite
-write path with named locks.
+write path with named locks. Version lifecycle status is persisted and enforced in the database;
+it is no longer a planned-only feature.
 
 **What is not built yet.** The sidebar shows five accounting groups — transaction accounting,
 internal accounting, treasury and cash-vault, management reporting, inspection and supervision.
 Those are navigation scaffolding: every leaf opens a placeholder today, and the dashboard is a
-stub. They are the roadmap, in that order. Ahead of them come two pieces that are designed but not
-built: the operation-history model and version lifecycle status.
+stub. They are the roadmap, in that order. Ahead of them comes the designed-but-unbuilt
+operation-history model. See the [maintenance record and roadmap](docs/maintenance-and-roadmap.md).
 
-**Cadence.** I use this application in my own work, so faults surface in real use rather than in
-testing. I review and fix on a weekly cycle.
+**Cadence.** I review feedback from internal testing and fix faults on a weekly cycle.
 
 **Who builds it.** One person. I am not a developer — I direct AI coding agents and review what
 they produce. There is no team behind this and no company. That is worth knowing before you depend
 on it.
+
+### Internal testing and community reach
+
+Workplace information-security requirements constrain work-support applications to the internal
+network, without a direct connection to the public Internet. AST's current evaluation follows
+that model. The people testing it are banking operations staff who use the application directly,
+without GitHub accounts or a software-development workflow.
+
+Stars, forks and GitHub release downloads therefore give only a limited picture of this testing
+activity. Wider outreach to the banking community has not started. The public record includes
+[issue #7](https://github.com/namlh-mx/AST/issues/7), filed by the maintainer on behalf of two office
+testers, and the fixes described there. This is evidence of internal feedback, not a claim of
+broad deployment or measured productivity gains.
+
+The source and design documents are public so that other practitioners and developers can
+evaluate and reuse the foundation. Public development material uses code and synthetic examples;
+customer data and confidential workplace information do not belong in GitHub reports. See the
+[evaluation guide](docs/evaluation-guide.md) for a synthetic example and a feedback checklist.
 
 ---
 
@@ -103,11 +127,13 @@ sprint calendar.
   that reach an operator now show settled Vietnamese sentences through a single
   shared describer — eight platform sites no longer forward raw error text, and
   ten catalogued codes each have a dedicated operator sentence.
+- **2026-09-07.** [Issue #3](https://github.com/namlh-mx/AST/issues/3) closed after the
+  org-unit replacement/history work; [issue #4](https://github.com/namlh-mx/AST/issues/4)
+  closed after fixes to Save-button state and date-field interactions.
+- **2026-09-09.** [Issue #7](https://github.com/namlh-mx/AST/issues/7) closed after fixes
+  to parent-unit display and an Add action racing with a pending card load.
 ### In progress (maintenance and finish work)
 - Weekly review of faults that surface in daily test use of the shipped screens.
-- Remaining verification on org-unit history labelling (public issue #3, half still
-  open): the English gap message is addressed; the `org_code` replacement /
-  “replaced” history scenario is not yet reproduced.
 ### Next
 - Finish operator-facing clarity and history/lifecycle presentation on screens
   that already exist.
@@ -148,8 +174,8 @@ graph TD
 | `AST.Shell` | Sidebar navigation and the declaration view models. |
 | `AST` | The WPF host, the composition root, and the views. |
 
-Eight test projects sit alongside them, including `AST.Meta.Tests` — guards that fail the build
-when a boundary rule is broken, rather than leaving it to a reviewer to notice.
+Seven test projects sit alongside them, including `AST.Meta.Tests` — tests that detect broken
+boundary rules rather than leaving them to a reviewer to notice.
 
 ---
 
@@ -177,8 +203,11 @@ This is the part worth reading even if you never run the application. Full detai
 
 ## Running it
 
-**Prerequisites:** .NET 10 SDK · Docker (or your own MySQL 9.7) · the `mysql` client, unless you
-use the Docker-only variant of step 2 below.
+**Prerequisites:** Windows for the WPF application · .NET 10 SDK · Docker (or your own MySQL 9.7) ·
+the `mysql` client, unless you use the Docker-only variant of step 2 below.
+
+These are developer setup steps for a disposable environment. Banking staff evaluating an
+internally prepared build can start with the [evaluation guide](docs/evaluation-guide.md).
 
 ```bash
 # 1. Start MySQL (creates ast_db and ast_test)
@@ -219,10 +248,22 @@ mocked database cannot tell you whether a recursive CTE resolves a subtree corre
 named lock actually serialises two writers, and those are the things most likely to be wrong.
 
 They **drop every table on each run**, so point them at `ast_test` (the default in
-`mysql.secrets.sample.json`), never at a database holding data you care about. Without a reachable
-database the integration tests skip rather than fail.
+`mysql.secrets.sample.json`), never at a database holding data you care about. With no test
+database connection configured, the IAM integration tests skip. If a connection is configured but the
+database is unreachable, they fail instead of skipping.
 
 The build runs with `TreatWarningsAsErrors`, so a warning is already a build failure.
+
+The alpha release records results for that build. CodeQL checks cover static analysis; they do
+not establish that the full test suite passed. See [verification evidence and reporting](docs/maintenance-and-roadmap.md#verification-evidence)
+for the distinction and for recording a new run without treating skipped tests as coverage.
+
+## Contributing and reporting problems
+
+Banking practitioners can contribute reproducible feedback, synthetic examples and clearer
+wording; coding experience is not required. Reports in Vietnamese or English are welcome.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for feedback and pull-request guidance. Suspected
+vulnerabilities should go through the private channel in [SECURITY.md](SECURITY.md).
 
 ---
 

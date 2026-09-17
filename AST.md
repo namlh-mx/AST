@@ -22,9 +22,14 @@ Four user groups drive authorisation and screen design: **operations staff / con
 - Tests: **xUnit v3** + **FluentAssertions**, with integration tests on a real MySQL instance.
 
 ## Deployment model — the constraints that shape the design
-Most of what looks unusual in this codebase follows from this section.
+Most of what looks unusual in this codebase follows from this section. These are design targets
+and environment constraints, not a record of production deployment or measured user counts.
+Current implementation and testing status are recorded in [README.md](README.md).
 
-- **~30 concurrent users, realtime data.**
+- **Target: ~30 concurrent users, realtime data.**
+- **Internal-network operation.** Workplace security requirements do not permit work-support
+  applications to connect directly to the public Internet. Public source development and
+  feedback reporting are separate from the internal application environment.
 - **Runs from a network share.** Users open the application directly from the share; nothing is
   installed on a workstation and nothing is copied down.
 - **On release the application notifies open clients and closes itself** after an
@@ -35,7 +40,9 @@ Most of what looks unusual in this codebase follows from this section.
   mismatch — it must never migrate, create or drop anything itself.
 - **A development machine deliberately shares one database between the application and the
   integration tests, which drop every table on each run.** That is safe only because it never
-  holds real data. A release machine has its own database that tests never touch.
+  holds real data. This describes a disposable maintainer development arrangement; the public
+  setup provides separate `ast_db` and `ast_test` databases. A release machine has its own
+  database that tests never touch.
 - Upgrades stay strictly inside the scope being handled — never disturb what already works.
 
 ## Mandatory data principles
