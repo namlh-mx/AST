@@ -334,40 +334,28 @@ hex in views.
 
 ## Observing a UI claim — the cheapest instrument that can decide
 
-A claim about what a screen shows is settled by the cheapest instrument that can decide it. Work
-down this list and stop at the first step that decides. Skipping a step needs a stated reason why
-that step cannot decide the question — never a preference.
+Work down this list; stop at the first step that decides. Skipping a step needs a stated reason it
+cannot decide the question, never a preference.
 
-1. **Structure, or a value a ViewModel holds** — the symbol graph and an ordinary test. No image.
+1. **Structure, or a value a ViewModel holds** — the symbol graph and an ordinary test.
 2. **Whether a binding failed** — capture `PresentationTraceSources.DataBindingSource` around a
-   hosted body (`PresentationTraceSources.Refresh()`, a `TraceListener`, `Switch.Level = Warning`).
-   No registry key is needed on .NET 10, measured 2026-09-20 against the `ManagedTracing`
-   precondition the API page still prints. One captured failure was two lines, about 90 tokens.
-   Silence costs nothing and proves nothing beyond the bindings the test actually exercised, so a
-   test that asserts "no errors" carries a known-bad control in the same capture lifetime; without
-   it, a dead listener reads as a clean screen.
-3. **A distance in pixels** — measure ink, below. Numeric, no image.
-4. **What it looks like** — render the element off-screen (`RenderTargetBitmap`) and read the PNG,
-   cropped to the region in dispute, at 96 DPI. Measured 2026-09-20: a 540×210 crop costs 160
-   visual tokens and carries Vietnamese diacritics, fill colours and the enabled/disabled
-   distinction; the same content at twice the DPI costs 585 and decided nothing further. Raising
-   the resolution or widening the crop needs a stated reason.
-5. **Whole-screen composition** — the same render at screen size, once; about 1,200 visual tokens
-   at 1280×720.
-6. **Application-level resource placement, the brand accent, window chrome** — only the running
-   application decides these, on a run the requester grants. `OffscreenHost` carries the dictionary merge on the
-   window as well as the application, so it cannot tell an effective retint from an ineffective
-   one.
-7. **The acceptance names F5, or the answer depends on the requester's monitor** — ask the
-   requester. No instrument replaces that.
+   hosted body (`Refresh()`, a `TraceListener`, `Switch.Level = Warning`); no registry key needed.
+   Silence proves nothing beyond the bindings the test exercised, so carry a known-bad control in
+   the same capture lifetime; a dead listener reads as a clean screen.
+3. **A distance in pixels** — measure ink, below.
+4. **What it looks like** — render the element off-screen, cropped to the region in dispute, at
+   96 DPI, and read the PNG. A 540×210 crop costs 160 visual tokens and carries diacritics, fill
+   colours and the enabled/disabled distinction; twice the DPI costs 585 and decides no more.
+5. **Whole-screen composition** — the same render at screen size, once; about 1,200 tokens.
+6. **Application-level resource placement, brand accent, window chrome** — only the running
+   application decides these, on a run the requester grants; `OffscreenHost` carries the merge on the window too, so
+   it cannot tell an effective retint from an ineffective one.
+7. **The acceptance names F5, or the answer needs the requester's monitor** — ask the requester.
 
-Image cost is `⌈width/28⌉ × ⌈height/28⌉` visual tokens, so the crop is the whole saving: the region
-in dispute instead of the screen costs about an eighth. Render a synthetic fixture, never a screen
-carrying real records, and write every image outside the repository — `TestResults/` is not ignored
-and gets deleted to keep the tree clean.
-
-A gesture, key or navigation sequence a hosted test cannot reproduce needs a UI-automation driver
-and a stable `AutomationId`; that is its own task, not a step here.
+Image cost is `⌈width/28⌉ × ⌈height/28⌉` visual tokens, so the crop is the saving. Render synthetic
+fixtures, never real records, and write images outside the repository. A gesture or navigation
+sequence a hosted test cannot reproduce needs a UI-automation driver and a stable `AutomationId` —
+its own task, not a step here.
 
 ## Pixel-level defects — measure ink in a screenshot
 Settle a one- or two-pixel alignment defect by measuring ink in a screenshot, not layout coordinates.
