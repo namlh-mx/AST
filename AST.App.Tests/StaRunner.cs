@@ -1,6 +1,9 @@
 using System.Runtime.ExceptionServices;
 using System.Windows.Threading;
 
+// Intermittent failures in this suite also occurred on documentation-only changes; the cause
+// remains unconfirmed; shared-STA/Application ordering and batch contention were considered as
+// hypotheses and neither was established.
 namespace AST.App.Tests;
 
 // Runs a test body on a dedicated STA thread. Constructing a WPF FrameworkElement (StackPanel, Border, …)
