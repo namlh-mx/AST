@@ -10,6 +10,7 @@
 - The root admin is managed via a **list of usernames in a config file** (break-glass), independent of the DB.
 - MySQL is **Community** (not Enterprise), and **enabling KDS on the domain controller is difficult**.
 - The host registers module list, descriptors and navigation at one composition point.
+- The service already normalises independently and must keep doing so: UI input rules are for the operator's benefit, server normalisation for the system's, and the second may never be delegated to the first (role-code whitespace: backlog 3.2).
 
 ---
 

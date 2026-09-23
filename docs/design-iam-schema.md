@@ -8,6 +8,7 @@
 - **Q1 — `org_unit.parent_id` IS a STRICT temporal-FK edge.** ✅ The requester settled: a child org unit's effective period **must** be continuously covered by the parent's period end-to-end; declaring a child beyond the parent's period → **BLOCKED**. This edge is registered in the temporal-FK edge registry (multi-level, consistent with D8 "multi-level check").
 - **Q2 — `sid` is placed on the IDENTITY table `user` (header), not on the version.** ✅ Settled for a technical reason: `sid` is a **stable, unchanging** identifier of a person; "capture on first login" = a single write into an already-existing record; if it were on the version, the capture operation would be an UPDATE of a business column → **violating hard invariant #1** (append-only). The header satisfies both spec ① and the append-only rule.
 - **Q3 — the shared scope-level enum keeps a short name (no leading "Data").** ✅
+- **Supplemental string columns** (requester 2026-09-07): `NULL`, empty and whitespace-only all mean not declared; text is trimmed at both ends. The rule lives on `OrgUnitSupplementalDto` in the core (backlog 3.62).
 
 ---
 
