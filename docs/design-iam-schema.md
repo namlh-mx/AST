@@ -310,7 +310,7 @@ CREATE TABLE `audit_log` (
   occurred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   username    VARCHAR(100) NULL,            -- who triggered the event (if any)
   event_type  VARCHAR(50)  NOT NULL,        -- login | break-glass | signature-fail | permission-change | ...
-  target      VARCHAR(150) NULL,            -- every role-declaration event, Save and Close/Cancel alike, targets the IDENTITY: role:{roleId}. An audit row is NEVER rewritten; the older shapes (role_version:{versionId}, role_permission:{grantId}) exist in no database this column meets, because AST was never released with them, so no reader carries a branch for them. Reinstate that branch only if a database written by, or imported from, a build older than 697cc26 ever appears
+  target      VARCHAR(150) NULL,            -- every role-declaration event, Save and Close/Cancel alike, targets the IDENTITY: role:{roleId}. An audit row is NEVER rewritten; the older shapes (role_version:{versionId}, role_permission:{grantId}) exist in no database this column meets, because AST was never released with them, so no reader carries a branch for them. Reinstate that branch only if a database written by, or imported from, a build older than 2026-08-15 ever appears
   detail      JSON NULL,                    -- detailed payload (before/after at minimum); every row a role-declaration gesture writes carries that gesture's operationId for grouping — Save and Close/Cancel alike
   PRIMARY KEY (id),
   KEY idx_audit_time (occurred_at),
