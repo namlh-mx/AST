@@ -298,7 +298,7 @@ public class AstOrgUnitPickerLayoutTests
         closedText.Should().Be(expected,
             "closed selection must consume ItemTemplate / SelectionBoxItemTemplate pipeline");
         popupText.Should().Be(expected,
-            "popup row must continue to honor the same ItemTemplate");
+            "generated ComboBoxItem must render ItemTemplate after the control prepares the container");
         chevronWidth.Should().BeApproximately(28.0, 0.001,
             "custom-template probe must not widen or drop the fixed chevron column");
     });
@@ -768,6 +768,12 @@ public class AstOrgUnitPickerLayoutTests
             Width = outerWidthDip,
         };
 
+        var layoutRoot = new Grid();
+        layoutRoot.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layoutRoot.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(picker, 0);
+        layoutRoot.Children.Add(picker);
+
         var window = new Window
         {
             WindowStyle = WindowStyle.None,
@@ -779,7 +785,7 @@ public class AstOrgUnitPickerLayoutTests
             Width = 900,
             Height = 400,
             Resources = resources,
-            Content = picker,
+            Content = layoutRoot,
         };
         try
         {
@@ -816,17 +822,33 @@ public class AstOrgUnitPickerLayoutTests
                 ?? throw new InvalidOperationException(
                     $"Closed TextBlock missing under ContentSite. Visual tree: {DescribeVisualTree(contentSite)}");
 
-            comboBox.IsDropDownOpen = true;
+            // Host a container the ComboBox's own generator produces and prepares. Opening the
+            // dropdown takes Mouse.Capture and can close on LostMouseCapture (dotnet/wpf
+            // ComboBox.cs); a Popup HWND is also non-deterministic off-screen. Generation /
+            // PrepareItemContainer observes container style + ItemTemplate without that path.
+            // PrepareItemContainer must run after the container is in the visual tree
+            // (IItemContainerGenerator.PrepareItemContainer, windowsdesktop-10.0).
+            var generator = (IItemContainerGenerator)comboBox.ItemContainerGenerator;
+            ComboBoxItem rowContainer;
+            using (generator.StartAt(
+                       generator.GeneratorPositionFromIndex(0),
+                       GeneratorDirection.Forward,
+                       allowStartAtRealizedItem: true))
+            {
+                rowContainer = generator.GenerateNext() as ComboBoxItem
+                    ?? throw new InvalidOperationException(
+                        "ComboBox ItemContainerGenerator.GenerateNext returned no ComboBoxItem for index 0.");
+            }
+
+            Grid.SetRow(rowContainer, 1);
+            layoutRoot.Children.Add(rowContainer);
+            generator.PrepareItemContainer(rowContainer);
             window.UpdateLayout();
             Sta.PumpToIdle();
 
-            var popup = (Popup)comboBox.Template.FindName("PART_Popup", comboBox)!;
-            popup.IsOpen.Should().BeTrue("popup must open so the row renderer is measurable");
-            var popupRoot = popup.Child
-                ?? throw new InvalidOperationException("PART_Popup.Child missing after open");
-            var popupBlock = FindDescendant<TextBlock>(popupRoot)
+            var popupBlock = FindDescendant<TextBlock>(rowContainer)
                 ?? throw new InvalidOperationException(
-                    $"Popup TextBlock missing. Visual tree: {DescribeVisualTree(popupRoot)}");
+                    $"ItemTemplate TextBlock missing on generated ComboBoxItem. Visual tree: {DescribeVisualTree(rowContainer)}");
 
             var rootGrid = VisualTreeHelper.GetChild(comboBox, 0) as Grid
                 ?? throw new InvalidOperationException("ComboBox template root Grid missing for chevron-column measure");
