@@ -212,7 +212,7 @@ internal static class MergedScope
     // ⚠️ CORRECTED 2026-08-20: this comment used to say "Prism never starts, so this is the library
     // acting on its own." Both halves were wrong. WPF's Application constructor queues the callback
     // that starts Prism, and Prism DID run here until the host stopped pumping. What is true is
-    // narrower: AST's own brand Apply (AST/App.xaml.cs:183) lives in OnInitialized, which Prism reaches
+    // narrower: AST's own brand Apply (AST/App.xaml.cs) lives in OnInitialized, which Prism reaches
     // only after InitializeModules, and that step throws first - so these 21 keys are not written by
     // AST's call. Since 2026-08-20 the host pulls the trigger itself, by name, in CaptureSnapshot.
     //
@@ -411,7 +411,7 @@ internal static class MergedScope
 
         // AFTER the warm-up, deliberately -- and this asserts the injected-key CONTRACT, not production
         // state (125 F-15). The host triggers ApplySystemAccent(); the shipping app instead calls
-        // ApplicationAccentColorManager.Apply(#AE1C3E) in OnInitialized (AST/App.xaml.cs:183), which this
+        // ApplicationAccentColorManager.Apply(#AE1C3E) in OnInitialized (AST/App.xaml.cs), which this
         // host never reaches. Both routes write the SAME 21 key names, which is what is asserted here.
         // ⚠️ THE VALUES BEHIND THOSE KEYS ARE NOT PRODUCTION'S, and no guard may assert on them until the
         // two routes are measured for value equivalence. This dictionary carries the system accent.

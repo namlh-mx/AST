@@ -38,6 +38,13 @@ namespace AST.AppScope.Tests;
 // invisible), that a THIRD vendor's dictionary does not collide with either side (Other is outside
 // this contract), or anything about the Dark theme - the merge here is Theme="Light", as App.xaml
 // ships it.
+//
+// WHY a retint can be present here and still ineffective where it is consumed: {StaticResource} is
+// resolved once, when the dictionary containing the reference is realized, and it searches only what
+// is already merged at that moment. A WPF-UI key that WPF-UI itself consumes via {StaticResource}
+// inside its own dictionary therefore binds to WPF-UI's value; an AST override merged later is
+// present in the merged scope - so this guard sees it - and never reaches that consumer. Only F5
+// detects it. Same resolution rule that answered row 0.9.
 public class WpfUiCollisionTests
 {
     // Measured 2026-08-19 against WPF-UI 4.3 through the real App.xaml merge, and RE-MEASURED

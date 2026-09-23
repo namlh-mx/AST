@@ -94,8 +94,9 @@ public interface IOrgUnitDeclarationService
     //   - the successor declares its OWN parent (requester, 2026-09-04). This does not relax parent
     //     immutability: a unit's parent is still fixed for that unit's whole life; a replacement declares a
     //     DIFFERENT unit,
-    //   - a root org unit is replaceable by a BREAK-GLASS administrator only, on either side -- predecessor
-    //     or successor -- and that write records a second audit row, exactly as Add/Edit/Close do,
+    //   - a root is never replaceable, by any actor including a break-glass administrator; the refusal
+    //     is unconditional on either side and is OrgUnit.RootNotReplaceable. Re-declaring a root goes
+    //     Đóng → Thêm (docs/design-iam-foundation.md §(5)),
     //   - v1 covers an EMPTY predecessor only -- no child org unit and no user. That is a CLOSED scope
     //     (requester, 2026-08-22), not a deferral,
     //   - the whole gesture is ONE transaction, and inside it every active predecessor row is DEACTIVATED
