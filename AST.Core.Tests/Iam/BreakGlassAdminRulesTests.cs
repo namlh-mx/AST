@@ -9,8 +9,8 @@ public class BreakGlassAdminRulesTests
     [Fact]
     public void NormalizeDistinct_strips_domain_and_dedupes()
         => Assert.Equal(
-            new[] { "namlehoai4", "boss2" },
-            BreakGlassAdminRules.NormalizeDistinct(new[] { "CORP\\namlehoai4", "NAMLEHOAI4", "boss2@corp.local" }));
+            new[] { "user01", "user02" },
+            BreakGlassAdminRules.NormalizeDistinct(new[] { "EXAMPLE\\user01", "USER01", "user02@example.local" }));
 
     [Fact]
     public void NormalizeDistinct_drops_blank_and_whitespace_entries()

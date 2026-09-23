@@ -25,7 +25,7 @@ public class FileConfigAuditLogTests : IDisposable
         _sig = new EcdsaConfigSignature(_pub);
     }
 
-    private FileConfigAuditLog Log(string? user = "corp\\namlehoai4") =>
+    private FileConfigAuditLog Log(string? user = "example\\user01") =>
         new(_sig, _paths, new FixedUser(user), new FixedClock(), _pub);
 
     [Fact]
@@ -34,11 +34,11 @@ public class FileConfigAuditLogTests : IDisposable
         var log = Log();
         Assert.False(log.Append(new ConfigAuditEvent("FileB", "Create", null, "Success", null), _priv, Pass).IsError);
         Assert.False(log.Append(new ConfigAuditEvent("FileB", "Update",
-            new ConfigAuditDiff(new[] { "boss2" }, Array.Empty<string>()), "Success", null), _priv, Pass).IsError);
+            new ConfigAuditDiff(new[] { "user02" }, Array.Empty<string>()), "Success", null), _priv, Pass).IsError);
 
         var records = log.Read().Value;
         Assert.Equal(2, records.Count);
-        Assert.Equal("namlehoai4", records[0].Content.Actor.User); // normalized
+        Assert.Equal("user01", records[0].Content.Actor.User); // normalized
         Assert.NotNull(records[1].TipSig);
 
         var integrity = log.VerifyIntegrity().Value;
@@ -119,7 +119,7 @@ public class FileConfigAuditLogTests : IDisposable
     public void Malformed_tipSig_fails_verification_without_throwing()
     {
         var content = new ConfigAuditContent(1, "2026-07-12T00:00:00Z",
-            new ConfigAuditActor("namlehoai4", "PC01"), "FileB", "Update", null, "Success", null, "abc", ConfigAuditChain.GenesisPrevHash);
+            new ConfigAuditActor("user01", "PC01"), "FileB", "Update", null, "Success", null, "abc", ConfigAuditChain.GenesisPrevHash);
         var rec = new ConfigAuditRecord(content, ConfigAuditChain.ComputeHash(content), "!!not-base64!!");
         Directory.CreateDirectory(_paths.AuditDir);
         File.WriteAllText(_paths.AuditFile, System.Text.Json.JsonSerializer.Serialize(rec) + "\n");

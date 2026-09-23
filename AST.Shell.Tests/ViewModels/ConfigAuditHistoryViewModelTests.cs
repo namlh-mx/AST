@@ -43,7 +43,7 @@ public class ConfigAuditHistoryViewModelTests
             ReadResult = new[]
             {
                 Record(1, "FileB", "Create", null, null),
-                Record(2, "FileB", "Update", new ConfigAuditDiff(new[] { "boss2" }, Array.Empty<string>()), "sig2"),
+                Record(2, "FileB", "Update", new ConfigAuditDiff(new[] { "user02" }, Array.Empty<string>()), "sig2"),
             },
         };
         var vm = Vm(log);
@@ -56,7 +56,7 @@ public class ConfigAuditHistoryViewModelTests
         Assert.Equal("—", vm.Rows[0].User);
         Assert.False(vm.Rows[0].Signed);
         Assert.Equal("Thêm", vm.Rows[1].Operation); // diff row, one per added user
-        Assert.Equal("boss2", vm.Rows[1].User);
+        Assert.Equal("user02", vm.Rows[1].User);
         Assert.True(vm.Rows[1].Signed);
     }
 
@@ -89,7 +89,7 @@ public class ConfigAuditHistoryViewModelTests
             ReadResult = new[]
             {
                 Record(1, "FileA", "Create", null, null),
-                Record(2, "FileB", "Update", new ConfigAuditDiff(new[] { "boss2" }, Array.Empty<string>()), "sig2"),
+                Record(2, "FileB", "Update", new ConfigAuditDiff(new[] { "user02" }, Array.Empty<string>()), "sig2"),
                 Record(3, "FileA", "SignatureVerifyFailed", null, null),
             },
         };
@@ -101,7 +101,7 @@ public class ConfigAuditHistoryViewModelTests
         Assert.Equal("Tạo", vm.Rows[0].Operation);
         Assert.Equal("Người cứu hộ", vm.Rows[1].Target);
         Assert.Equal("Thêm", vm.Rows[1].Operation); // File B update with an added user
-        Assert.Equal("boss2", vm.Rows[1].User);
+        Assert.Equal("user02", vm.Rows[1].User);
         Assert.Equal("Lỗi xác minh chữ ký", vm.Rows[2].Operation);
     }
 

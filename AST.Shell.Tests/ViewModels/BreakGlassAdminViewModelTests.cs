@@ -130,7 +130,7 @@ public class BreakGlassAdminViewModelTests
     {
         var vm = Vm();
 
-        vm.NewAdmin = "CORP\\newguy";
+        vm.NewAdmin = "EXAMPLE\\newguy";
         vm.AddCommand.Execute();
         vm.NewAdmin = "NEWGUY"; // same identity after normalization
         vm.AddCommand.Execute();
