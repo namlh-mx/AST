@@ -10,8 +10,8 @@ the IAM table shapes (`design-iam-schema.md`), or the business-transaction / adj
 which does not exist yet and is deliberately not designed here.
 
 Implementation sequencing and the production writer inventory are historical leads: re-derive them
-at the implementation SHA (backlog 3.89). Rulings and prerequisites for that slice: § Remaining
-slice. Undecided items: backlog 3.96.
+at the implementation SHA (backlog 3.89). Rulings and prerequisites for that slice, and the
+undecided items: § Remaining slice.
 
 ## 1. Schema
 
@@ -251,7 +251,7 @@ still passes `ScopeLevel.Global`. A repository test alone proves neither.
 carries a mutable `org_unit_id`, so a user who moves from unit A to unit B has history rows belonging
 to both. Whether an A-scoped viewer then sees nothing, only the A-period rows, or the whole identity
 including B-period actors and notes is a confidentiality choice about people. It becomes a blocking
-question the moment a user history screen is requested (backlog 3.96).
+question the moment a user history screen is requested (§ Remaining slice).
 
 ### 3.4 The grid carries the minimum a person needs to find a row
 
@@ -379,6 +379,14 @@ without its `operation` row.
 Authority for the unshipped slice (backlog 3.89). Writer inventory and expand / dual-write /
 contract / switch-reads / remove sequencing are historical leads; re-derive them at the
 implementation SHA.
+
+**Undecided until the slice that needs it is scheduled.** Business-transaction tables do not
+exist, and a completed transaction is never edited in place (requester 2026-08-18). The
+"adjusted" label and traceability links are transaction-slice design and do not go on
+`operation` (OP3). Tamper evidence (hash chain / signed checkpoints) was asked and not
+answered. Gapless business document numbers are a business-layer mechanism; `operation.id` is
+outside that scope. User history isolation is a requester confidentiality choice that blocks
+when that screen is requested. Each is decided when its slice is scheduled.
 
 **There is no backfill step, and that is a ruling, not an omission.** The requester, acting as DBA
 (2026-08-18): the application has not been released, no database holds real data, and schema work
