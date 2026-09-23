@@ -20,7 +20,7 @@ Decisions closed through an interview with the requester (non-technical, Vietnam
 
 ## Scope of this round (design only — confirm nothing outside this scope is touched)
 - **Only create/edit design documents.** NO code, NO migrations, NO UI.
-- Assemblies expected to be touched at the LATER IMPLEMENTATION STEP (not this round): the shared kernel (adding Foundation-Layer contracts), a new module `AST.Modules.IAM` (new), a config file next to the Shell. **Not** touching the Shell app itself (thanks to the directory-scanning module catalog).
+- Assemblies expected to be touched at the LATER IMPLEMENTATION STEP (not this round): the shared kernel (adding Foundation-Layer contracts), a new module `AST.Modules.IAM` (new), a config file next to the Shell. The host registers module list, descriptors and navigation at one composition point.
 
 ---
 
@@ -131,7 +131,7 @@ Day-to-day UI (menu, dashboard, reports) displays **BusinessCode + DisplayName**
 
 ## Acceptance criteria (for this design — the basis for independent grading)
 - Sufficient definitions: the IAM tables + standard soft-delete/effective-period columns; the authorization-service contract (2 levels) + the 4-level data-scope value; the function-registry contract (metadata sufficient to feed authorization + menu + dashboard); the base repository enforcing 3 conditions; the menu-contribution mechanism via shared-kernel group codes; the DB-connection mechanism + the 2 config files (A/B) + username break-glass.
-- No conflict with `rule-soft-delete` (every IAM table applies soft delete + effective period; no hard delete; edit = a new record) and `rule-module-boundary` (IAM is 1 assembly; communication only via the shared kernel; entities stay internal, only interfaces+DTOs are exposed; adding a module never touches the Shell).
+- No conflict with `rule-soft-delete` (every IAM table applies soft delete + effective period; no hard delete; edit = a new record) and `rule-module-boundary` (IAM is 1 assembly; communication only via the shared kernel; entities stay internal, only interfaces+DTOs are exposed; modules register at the host's single composition point).
 - Every decision must trace back to a requester answer; no "assumed on our own" item.
 
 ## Next steps (handoff — NOT performed within this design round)
