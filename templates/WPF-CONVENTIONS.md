@@ -339,20 +339,23 @@ cannot decide the question, never a preference.
 
 1. **Structure, or a value a ViewModel holds** — the symbol graph and an ordinary test.
 2. **Whether a binding failed** — capture `PresentationTraceSources.DataBindingSource` around a
-   hosted body (`Refresh()`, a `TraceListener`, `Switch.Level = Warning`); no registry key needed.
-   Silence proves nothing beyond the bindings the test exercised, so carry a known-bad control in
-   the same capture lifetime; a dead listener reads as a clean screen.
+   hosted body (`Refresh()`, a `TraceListener`, `Switch.Level = Warning`); on .NET 10 no registry
+   key is needed. Silence proves nothing beyond the bindings the test exercised, so carry a
+   known-bad control in the same capture lifetime; a dead listener reads as a clean screen.
 3. **A distance in pixels** — measure ink, below.
-4. **What it looks like** — render the element off-screen, cropped to the region in dispute, at
-   96 DPI, and read the PNG. A 540×210 crop costs 160 visual tokens and carries diacritics, fill
-   colours and the enabled/disabled distinction; twice the DPI costs 585 and decides no more.
-5. **Whole-screen composition** — the same render at screen size, once; about 1,200 tokens.
-6. **Application-level resource placement, brand accent, window chrome** — only the running
-   application decides these, on a run the requester grants; `OffscreenHost` carries the merge on the window too, so
-   it cannot tell an effective retint from an ineffective one.
+4. **What it looks like** — render the element off-screen, cropped to the region in dispute, and
+   read the PNG. Start at 96 DPI: a 540×210 crop costs 160 visual tokens and carried diacritics,
+   fill colours and the enabled/disabled distinction on the sample that set this rule, where twice
+   the DPI cost 585 and added nothing. Raise the resolution when the read cannot decide.
+5. **Whole-screen composition** — the same render at the screen's own size, once; 1,196 tokens at
+   1280×720, 2,691 at 1920×1080.
+6. **Application-level resource placement, brand accent, window chrome** — of the instruments here
+   only the running application decides these, on a run the requester grants; `OffscreenHost` carries the merge on the
+   window too, so it cannot tell an effective retint from an ineffective one.
 7. **The acceptance names F5, or the answer needs the requester's monitor** — ask the requester.
 
-Image cost is `⌈width/28⌉ × ⌈height/28⌉` visual tokens, so the crop is the saving. Render synthetic
+An image costs `⌈width/28⌉ × ⌈height/28⌉` visual tokens of the agent's own input on the current
+model family, counted after any resize it applies, so the crop is the saving. Render synthetic
 fixtures, never real records, and write images outside the repository. A gesture or navigation
 sequence a hosted test cannot reproduce needs a UI-automation driver and a stable `AutomationId` —
 its own task, not a step here.
