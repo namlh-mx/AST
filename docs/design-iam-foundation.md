@@ -2,6 +2,28 @@
 
 > **Status:** APPROVED. Every IAM table follows the **header+version temporal effective-period model** (identity card + version table, resolved by date, 8-case algebra, strict temporal-FK); technical source of truth: **`docs/design-effective-period.md`**. §③ (schema) and §④ (base repository) below keep their intent; the **concrete schema follows header+version** (`docs/design-iam-schema.md`). Data technology: **Dapper + MySqlConnector** (closed).
 
+## Agent rules
+
+### Modules, repositories, DTOs, shared contracts
+
+- Modules talk only through navigation, events or a SharedKernel contract.
+- Never reference another module's internal types.
+- Entities stay in the data layer; consumers get repository interfaces and DTOs.
+- Before changing a shared table, column, interface or DTO: find references, stop if the blast radius escapes the request.
+
+### Data-layer tests
+
+- Real MySQL. Never a database mock, never Testcontainers.
+- Every block or error branch is tested with its expected error code or type.
+- FluentAssertions for new or changed assertions.
+
+### Platform, config, startup, secrets
+
+- The edge turns unexpected startup failure into a clear Vietnamese outcome plus a technical log. Never crash, never continue silently.
+- Secrets never reach logs.
+- Security-config reads distinguish missing, transient failure and validation failure. Never overwrite corrupt data.
+- Logs go to a machine-local path, never the network-share base directory.
+
 ## Closed decisions
 - Log in with a **Windows/domain (AD) account** — no password, no login screen.
 - Org units form a **multi-level parent–child tree**.
@@ -65,7 +87,7 @@ Which entities carry an effective period at all is decided in `design-temporalit
 ## (6) Menu contribution (a module contributes a leaf into a shared group)
 - **Menu group codes** (e.g. `Config.Security`, `Config.Params`) are defined in the **shared kernel** — **owned by no module**.
 - Each module declares: `{ leaf (= function_key) + parent group code + required permission + order }`. The Shell gathers **all** declarations, builds the **Configuration** menu tree, shows/hides a leaf per the authorization service.
-- ⇒ Module B's leaf can sit under a group that module A also contributes a leaf to, **because both only reference the shared-kernel group code, with no cross-module reference**. Adding/removing a leaf = edited within that same module, without touching the Shell/other modules.
+- ⇒ Module B's leaf can sit under a group that module A also contributes a leaf to, **because both only reference the shared-kernel group code, with no cross-module reference** (per `docs/design-iam-foundation.md` Agent rules). Adding/removing a leaf = edited within that same module, without touching the Shell/other modules.
 
 ## (7) Function identity (function registry) — feeds authorization + menu + dashboard
 Each module registers **once** per function: `{ FunctionKey, BusinessCode, DisplayName, MenuGroupCode, NavigationTarget, RequiredPermission, (icon, order) }`. One declaration serves authorization, menu, and the dashboard: the top five most-used functions, counted by `FunctionKey`, reopened via `NavigationTarget`. Day-to-day UI displays **BusinessCode + DisplayName**; `function_key` is only used internally. (The "function-usage log" table is journal data — deferred, built alongside the dashboard.) Settled menu model: `docs/sidebar.md`. Catalog sync: `docs/design-function-catalog-sync.md`.
@@ -92,7 +114,7 @@ These items fill operational gaps without reopening decisions D1–D13 of `docs/
 - **Business/security audit** (login, break-glass, signature failures, permission changes) → a DB table `audit_log`, **append-only** (`ast_app` has no DELETE ⇒ self-protecting against deletion; centralized lookup).
 - **Technical logging** (exceptions/traces) → **Serilog** (Apache-2.0 license) writing to a local file `%LOCALAPPDATA%\AST\logs\` on each machine; technical logs must NOT be written to the share (avoids contention/lock-ups when 30 users write concurrently).
 
-**(8.5) Testing (B5).** **xUnit**; FluentAssertions 7 for new or changed assertions. **FluentAssertions ≥ v8 is BANNED** (commercial license). The effective-period engine must have: unit tests covering all **8 algebra cases** (injecting a fake business-date-provider abstraction) + an integration test against local MySQL for the named lock/recursive CTE.
+**(8.5) Testing (B5).** **xUnit**; FluentAssertions 7 for new or changed assertions (`docs/design-iam-foundation.md` Agent rules). **FluentAssertions ≥ v8 is BANNED** (commercial license). The effective-period engine must have: unit tests covering all **8 algebra cases** (injecting a fake business-date-provider abstraction) + an integration test against local MySQL for the named lock/recursive CTE.
 
 **(8.6) Transient-connection retry (C4).** One shared policy at the data layer in the shared kernel: timeout + a **short backoff retry** for transient errors (MySqlConnector can classify the exception type); a prolonged failure → raises a **"DB connection status"** signal (admin dashboard, per `AST.md`). Modules must NOT write their own retry logic. **Write safety:** only retry when it's certain the command has NOT yet reached the DB (e.g. an error right when opening the connection); a write cut off mid-flight must **NOT be retried blindly** — report the error so the business flow can check (to avoid a duplicate write).
 

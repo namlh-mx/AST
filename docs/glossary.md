@@ -61,7 +61,7 @@
 | VN | EN | Note |
 |---|---|---|
 | Tầng nền | SharedKernel | project `AST.Core` |
-| ranh giới module | module boundary | skill `rule-module-boundary` |
+| ranh giới module | module boundary | module boundary recall in `docs/design-iam-foundation.md` Agent rules |
 | kho dữ liệu nền (ép 3 điều kiện) | base repository | the standard scope-filter builder, `AST.Core/Data/` |
 | tiêm phụ thuộc | dependency injection (DI) | Prism.DryIoc |
 | khóa chống ghi đồng thời | named lock | MySQL `GET_LOCK` |

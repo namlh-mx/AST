@@ -2,12 +2,27 @@
 
 > **TECHNICAL source of truth** for every entity/parameter with an effective period in project AST.
 > **BUSINESS** source of truth: `docs/effective-period-requirements.md` (do not edit here — always consult the original).
-> High-level principle: skill `rule-soft-delete`. Module boundary: skill `rule-module-boundary`.
+> Agent rules: the Agent rules section below. Module boundaries: `docs/design-iam-foundation.md` Agent rules.
 > Other documents point to this file and never copy its content. Applies project-wide.
 
 ---
 
 # PART I — SHORT RULES (mandatory reading, every agent)
+
+## Agent rules
+
+- Effective periods belong to Declared entities only; `docs/design-temporality-classes.md` decides the class.
+- Versions carry closed `[F,T]` dates. `9999-12-31` is the open end.
+- A usable-at-D read filters `isactive = 1` and the period together.
+- Name each temporal gate's read shape: `as-of(D)` resolves the version usable at D; `overlap(write-period)` finds active versions intersecting the proposed closed period; `existence-any` asks whether any exists without resolving one; `ordered-pick` orders after its temporal predicate.
+- Never use unscoped `isactive = 1 LIMIT 1` where several active versions are legal.
+- Edit creates a version. Never overwrite one, never hard-delete valid data.
+- Reference the identity, not a version, except in frozen history.
+- A STRICT temporal FK needs continuous parent coverage.
+- Take the business date once, from the injected provider.
+- Take the 8-case algebra from the canonical doc.
+- A temporal edit covers the 8 algebra cases and both temporal-FK outcomes.
+- A usable-at-D query tests inactive-in-period and active-out-of-period separately.
 
 ## Decision log — CLOSED (D1–D13 — do not reopen)
 - **D1 — Model:** uni-temporal (one axis = effective period) + **already-processed transactions are immutable**. NOT bitemporal.

@@ -4,6 +4,12 @@ Project-specific structure only. For generic WPF rules, follow the skills this f
 points to — do NOT restate them here. The stack is **WPF-UI (Fluent) + Prism** (NOT
 CommunityToolkit.Mvvm — do not introduce `[ObservableProperty]`/`RelayCommand`).
 
+## Agent rules
+
+- Views in `AST/Views/<Domain>/`; ViewModels in the matching Shell domain folder, unless they need Prism.Wpf directly.
+- WPF-UI owns shell chrome; Prism owns business-content navigation.
+- Reuse the project resource graph. Never duplicate app-wide resource wiring.
+
 ## Where things live
 - Views: `AST/Views/<Domain>/<Name>View.xaml` (+ `.xaml.cs`). A View is a `UserControl`.
   `<Domain>` is one of three buckets — pick by what the screen's ViewModel actually depends
@@ -13,7 +19,7 @@ CommunityToolkit.Mvvm — do not introduce `[ObservableProperty]`/`RelayCommand`
      prefix — for a screen whose VM depends on that module's repositories/services.
   2. **`Platform`** — for a screen whose VM depends only on platform/infrastructure
      services (config security, connection/secrets provider, admin session, audit log —
-     the platform layer's charter) and NOT on any `AST.Modules.*` business module.
+     `docs/design-iam-foundation.md` Agent rules) and NOT on any `AST.Modules.*` business module.
      Example: `Platform/AdminAuthView`, `Platform/ConnectionDeclarationView`,
      `Platform/ConfigurationStationView` (the hub screen that only routes to the two
      preceding ones — still `Platform`, it is not generic shell chrome, it IS that domain's
@@ -100,7 +106,7 @@ divider line. A screen wraps its body in **`controls:AstScreen`** instead of han
 sidebar toggle centre), the header row, the status-band row, then the body row at `Margin="0,6,0,0"`.
 It composes `AstScreenHeader` and `AstStatusBand`.
 `BackCommand` is a dumb passthrough — it carries NO navigation authority; the view still owns Prism
-`RequestNavigate`.
+`RequestNavigate` (`templates/WPF-CONVENTIONS.md` Agent rules).
 
 ### Shell title-bar band + "AST" as the Home affordance (`MainWindow` only, chrome)
 `MainWindow` Row0 is an explicit ~64px band; `ui:TitleBar VerticalAlignment="Top"` keeps the OS caption
@@ -321,7 +327,7 @@ hex in views.
   code-behind click handler to hand-wire. The view exposes a `DelegateCommand` set **before**
   `InitializeComponent` (so the header's binding reads it on first layout) that `RequestNavigate`s to the
   parent view; the header never navigates itself (`AST.UI/Controls/AstScreenHeader.xaml.cs`) — the consuming
-  view keeps navigation authority. The Prism `ConfirmNavigationRequest` leave-confirm still fires (it
+  view keeps navigation authority (`templates/WPF-CONVENTIONS.md` Agent rules). The Prism `ConfirmNavigationRequest` leave-confirm still fires (it
   is triggered by navigating away, not by the header click). **Unlike** the shell "AST" home text, the
   screen header is **NOT** highlighted — it just carries the hand cursor. Sidebar-leaf screens have no
   parent, so their header has no `BackCommand` and stays a plain (non-clickable) label.

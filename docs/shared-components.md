@@ -9,6 +9,12 @@ LOCKED invariant already lives in a skill/canonical doc, the boundary column POI
 Binding on every contributor. `AST.Meta.Tests` guards it both ways: nothing shared
 is unregistered, and no entry dangles. Adding/removing a shared component updates this file in the same commit.
 
+## Agent rules
+
+- Read the registry before creating or changing a control, style, token, converter, service, base or contract.
+- Reuse what fits.
+- Register in the same commit a component becomes shared; update the registry in the same commit as a removal or rename.
+
 ## ① UI custom control / attached property (`AST.UI/Controls/`)
 | Component | Home | Purpose | Customization boundary |
 |---|---|---|---|

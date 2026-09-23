@@ -48,7 +48,7 @@ transaction-slice design and is deliberately not settled here; the row above say
 
 This document only rules those three shapes **out of the effective-period model**; it does not
 define their write operations or their UI. Each keeps the shape its own home already gives it
-(`design-iam-schema.md` §2 for the infra tables, `rule-platform-infra` for the platform surfaces).
+(`design-iam-schema.md` §2 for the infra tables and the Platform recall in `docs/design-iam-foundation.md` Agent rules for platform surfaces).
 Do not read §3's Writes/UI rows as applying to them.
 
 ## 3. The two classes
@@ -58,17 +58,17 @@ Do not read §3's Writes/UI rows as applying to them.
 | Meaning | only the present value matters | people declare it with a validity period |
 | Schema | one table, `isactive`, **no period columns** | identity table + `_version` table (`design-effective-period.md` §1) |
 | Writes | insert / soft-delete | Upsert + Close + Cancel + `operation_kind` |
-| Read | latest active row | resolve-at-D, plus the `as-of` / `overlap` / `existence-any` / `ordered-pick` shapes named in `rule-effective-period` |
+| Read | latest active row | resolve-at-D, plus the `as-of` / `overlap` / `existence-any` / `ordered-pick` shapes in `docs/design-effective-period.md` Agent rules |
 | As a temporal-FK parent | **cannot be one** | STRICT coverage check (`design-effective-period.md` §5) |
 | UI | ordinary edit form | declaration screen: period, history, Close, Cancel |
-| Rules that apply | no hard delete, `isactive`, audit (`rule-soft-delete` §1) | the above **plus** the whole of `rule-effective-period` and D1–D13 |
+| Rules that apply | no hard delete, `isactive`, audit | the above **plus** the Temporal data recall in `docs/design-effective-period.md` Agent rules and D1–D13 |
 
 **The table above describes a DB table.** A parameter that deliberately lives OUTSIDE the database —
 connection and config files — is Current *in policy* (present value only, no periods, never a
-temporal-FK parent), but its storage, signature and audit follow `rule-platform-infra`, not
+temporal-FK parent), but its storage, signature and audit follow the Platform recall in `docs/design-iam-foundation.md` Agent rules, not
 `rule-soft-delete`'s column standard: there is no `isactive` column to set. Membership test: if the
 parameter is not a row in the application database, take the policy from this class and the
-mechanics from `rule-platform-infra`.
+mechanics from the Platform recall in `docs/design-iam-foundation.md` Agent rules.
 
 There is no third class.
 
