@@ -2,7 +2,7 @@
 
 > Purpose: keep the Vietnamese terms (docs/business) and the English terms (code/identifiers) from drifting apart in meaning.
 > Convention: code/identifiers use the EN column; Vietnamese documents use the VN column, with the EN term in parentheses when needed.
-> When a new term appears → add it here in the same commit.
+> When a new term appears → add it here in the same commit. Convention only; it binds nobody.
 
 ## Effective period (temporal)
 | VN | EN (used in code/identifiers) | Note |

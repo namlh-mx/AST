@@ -36,7 +36,7 @@ public enum IntegrityViolationKind
 }
 
 // `Table`/`IdentityId` anchor the violation to the exact identity record; `Detail` is a human-readable
-// description (Vietnamese, for the future admin screen -- app strings are Vietnamese).
+// description (Vietnamese, for the future admin screen -- the interface and operator messages are Vietnamese).
 public sealed record IntegrityViolation(
     IntegrityViolationKind Kind,
     string Table,
