@@ -282,7 +282,7 @@ public class AstOrgUnitPickerLayoutTests
     });
 
     // F-302-01 future-consumer half: custom ItemTemplate must reach BOTH popup row and closed box.
-    // Assurance Advisor's probe cleared DisplayMemberPath and assigned a CUSTOM: prefix template; closed still
+    // Advisor's probe cleared DisplayMemberPath and assigned a CUSTOM: prefix template; closed still
     // painted the record. Shape reused here.
     [Fact]
     public void Editable_closed_selection_and_popup_row_both_honor_custom_ItemTemplate() => Sta.RunOnSharedStaThread(() =>
@@ -670,7 +670,7 @@ public class AstOrgUnitPickerLayoutTests
             $"no glyph-above-fill ink inside {boxName} at dpi={dpi:F0}; fill={fillDarkness} peak={peakDarkness}");
 
         // Threshold inside the measured 1%–20% of peak-above-fill contrast (F-309-02). Floor at 1 so a
-        // low-contrast first row still registers; the old max(8, 35%) skipped Assurance Advisor's 25% counterexample.
+        // low-contrast first row still registers; the old max(8, 35%) skipped Advisor's 25% counterexample.
         var contrast = peakDarkness - fillDarkness;
         var threshold = fillDarkness + Math.Max(1, (int)Math.Ceiling(contrast * 0.10));
         for (var y = top; y < bottom; y++)

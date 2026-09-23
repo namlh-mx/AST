@@ -77,7 +77,7 @@ public sealed class PeriodEditor : IPeriodEditor
         // remnants and newPeriod itself). Reading `untouched` alone reported a gap the plan's own remnant
         // was about to fill: cutting a version that ABUTTED its neighbour yields a remnant landing exactly
         // in the reported "gap". For org-unit that is not a spurious warning, it is a refusal to write a
-        // legal edit (GapIsBlocking). See spec 2026-08-22-orgunit-edit-close-code-reuse-shaping section 18.1.
+        // legal edit (GapIsBlocking). See docs/design-effective-period.md §4a.
         //
         // The scope stays deliberately narrow -- only the two boundaries this edit touches, never the whole
         // timeline. VersionedRepository.ComputeGapWarnings walks the WHOLE remaining coverage, which is

@@ -157,10 +157,10 @@ public sealed class VersionLifecycleStatusMigrationTests : IAsyncLifetime
     // constraint and holds -128..127. The backfill keys on `= 1`, so a stray 2 would land as 'normal'
     // and lose its meaning permanently once the column is dropped. Phase 1 gates that before anything
     // is added or destroyed.
-    // ⚠ One row per TABLE (AI Agent AST-CONSULT-144/F-06). Phase 1 writes THREE separate constraints, one
+    // ⚠ One row per TABLE (Advisor AST-CONSULT-144/F-06). Phase 1 writes THREE separate constraints, one
     // per table, and this control originally covered org_unit_version alone -- the gate was claimed for
     // three tables while covering one.
-    // MEASURED per table, ALL THREE (AI Agent AST-CONSULT-147/F-04 asked for this; two of the three had
+    // MEASURED per table, ALL THREE (Advisor AST-CONSULT-147/F-04 asked for this; two of the three had
     // been inference): removing chk_ouv_/chk_rv_/chk_rpv_legacy_cancelled_domain and its phase-4 DROP
     // reddens exactly that table's row and leaves the other two GREEN.
     // The assertion on the constraint NAME is a second, narrower claim: that THIS table's own gate is
@@ -193,7 +193,7 @@ public sealed class VersionLifecycleStatusMigrationTests : IAsyncLifetime
         thrown.Number.Should().Be(
             3819, $"{constraintName} must refuse the row before any column is added or dropped");
         // ⚠ This asserts on the server's HUMAN-READABLE message, which MySqlConnector surfaces verbatim
-        // and does not document as a contract -- unlike Number/SqlState (AI Agent AST-CONSULT-147/F-02).
+        // and does not document as a contract -- unlike Number/SqlState (Advisor AST-CONSULT-147/F-02).
         // Kept, with the dependency stated rather than hidden: there is no structured field carrying the
         // violated constraint's NAME, so dropping this assertion means dropping the claim, not moving it.
         // The name is a format PARAMETER of ER_CHECK_CONSTRAINT_VIOLATED, so it survives a translated
@@ -203,7 +203,7 @@ public sealed class VersionLifecycleStatusMigrationTests : IAsyncLifetime
         thrown.Message.Should().Contain(
             constraintName, "this row's whole claim is that THIS table's own gate fired, not a sibling's");
 
-        // ⚠ The reason names COLUMNS, not tables, and the distinction is load-bearing (AI Agent
+        // ⚠ The reason names COLUMNS, not tables, and the distinction is load-bearing (Advisor
         // AST-CONSULT-147/F-03). On the role_permission_version row the first two tables ALREADY carry
         // their phase-1 CHECK by the time this runs, so "all three tables are untouched" -- the wording
         // this replaces -- was false while the assertion itself was true. A reason wider than what its
@@ -212,7 +212,7 @@ public sealed class VersionLifecycleStatusMigrationTests : IAsyncLifetime
             3, "the abort preserves every table's legacy `cancelled` column: nothing is DROPped before "
              + "phase 4, whichever table's gate fires");
 
-        // ⭐ The ORDERING claim itself (AI Agent AST-CONSULT-144/F-07). The `cancelled` count above proves
+        // ⭐ The ORDERING claim itself (Advisor AST-CONSULT-144/F-07). The `cancelled` count above proves
         // only that nothing was DESTROYED -- it does not prove phase 1 ran BEFORE phase 2, because phase 4
         // holds every DROP either way. MEASURED -- move the three legacy CHECKs below phase 2's ADD COLUMN
         // statements and the abort, the 3819, the constraint name, all three `cancelled` columns and the
@@ -296,7 +296,7 @@ public sealed class VersionLifecycleStatusMigrationTests : IAsyncLifetime
     // `replaced_by_org_unit_id`, and the fk_ouv_replaced_by constraint. 0 means phase 2 never ran.
     // One scalar rather than five assertions on purpose -- the claim under test is "phase 2 did not
     // start", and any single artifact appearing falsifies it.
-    // ⚠ DECLARES, not "creates" (AI Agent AST-CONSULT-147/F-05). InnoDB also auto-creates a supporting
+    // ⚠ DECLARES, not "creates" (Advisor AST-CONSULT-147/F-05). InnoDB also auto-creates a supporting
     // index for the FK -- VERIFIED by SHOW CREATE TABLE on MySQL 9.7.1: `KEY fk_ouv_replaced_by
     // (replaced_by_org_unit_id)`, which no existing index left-prefixes. It is deliberately NOT counted
     // and the zero result is still sound, because that index cannot exist without the counted
@@ -378,10 +378,10 @@ public sealed class VersionLifecycleStatusMigrationTests : IAsyncLifetime
     // above it cannot read. V010 declares the column COLLATE utf8mb4_0900_as_cs to close that.
     // ⚠ All three tokens below are ACCEPTED without the COLLATE clause -- that is what makes this a
     // control rather than a restatement of T8's out-of-domain case.
-    // ⚠ One set of tokens per TABLE (AI Agent AST-CONSULT-144/F-05). V010 writes COLLATE utf8mb4_0900_as_cs
+    // ⚠ One set of tokens per TABLE (Advisor AST-CONSULT-144/F-05). V010 writes COLLATE utf8mb4_0900_as_cs
     // three times, once per table, and this control originally covered org_unit_version alone -- so the
     // collation claim held for one table while being stated for three.
-    // MEASURED per table, ALL THREE (AI Agent AST-CONSULT-147/F-04 asked for this; the previous wording
+    // MEASURED per table, ALL THREE (Advisor AST-CONSULT-147/F-04 asked for this; the previous wording
     // reported two tables that had never been run): stripping COLLATE from org_unit_version,
     // role_version or role_permission_version reddens exactly that table's 3 rows and leaves the
     // other 6 GREEN.

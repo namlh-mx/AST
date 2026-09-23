@@ -1,9 +1,6 @@
 # Shell sidebar (settled model)
 
-The shell sidebar is the app's main navigation menu. This documents the **as-built** model
-(structure settled 2026-07-11; behaviour/highlight refined by F5 on 2026-07-12). Earlier requirement drafts
-proposed 3 levels, auto-hover/pin behaviour, and custom chevron/dot indicators — those are **superseded** by
-the decisions below.
+The shell sidebar is the app's main navigation menu. This documents the **as-built** model.
 
 ## 1. Structure — 2 levels, data-driven
 
@@ -22,11 +19,10 @@ the decisions below.
 - **Built once, lazily, at first read** (`MainWindowViewModel.MainMenu`/`FooterMenu`) — not eagerly in the
   ViewModel's constructor. The ctor runs during Prism `CreateShell()`, before `InitializeModules()` loads
   business modules; building there would freeze whatever functions were registered at that early moment and
-  permanently hide anything a module registers afterward (the 2026-08-07 bug this note documents). The first
+  permanently hide anything a module registers afterward. The first
   read happens in `MainWindow.xaml.cs`'s `OnLoaded`, which fires after modules have loaded and the app's own
   startup registration has run. Never rebuilt after that first read — a later `IFunctionRegistry.Register`
-  call is a logged no-op for the sidebar this session (see `IFunctionRegistry`'s `docs/shared-components.md`
-  entry for the registry-side half of this invariant).
+  call is a logged no-op for the sidebar this session.
 - **Sidebar filtering by permission was considered and explicitly rejected** — every read/write on every
   declared screen already fails closed via `IAuthorizationService` at the data layer, so hiding a menu item
   buys no additional security; worse, it would make the "Cấu hình" footer entry (the rescuer's only path to
@@ -51,7 +47,7 @@ the decisions below.
   mode. Collapsed-rail group access is **Approach A**: clicking an L1 group icon **auto-opens the pane and
   expands that group**; the pane then **auto-collapses** after the user opens a screen (leaf click) or clicks
   outside the sidebar (a `PreviewMouseDown` on the window). A **manual** toggle-open is sticky (does not
-  auto-collapse). (Locked 2026-07-11; the old "built-in flyout" note was a wrong assumption, corrected here.)
+  auto-collapse). (Locked.)
 - **Accordion (single-expand)**: expanding one L1 group collapses the others; collapsing the pane collapses
   all groups. Driven from `MainWindow` code-behind by observing the built-in `NavigationViewItem.IsExpanded`
   / `NavigationView.IsPaneOpen` DPs (via `DependencyPropertyDescriptor`) — no template changes.
@@ -75,7 +71,7 @@ the decisions below.
 
 ## 4. Related screens
 
-- **Landing screen**: `DashboardView` (placeholder cards "Chức năng chờ triển khai").
+- **Landing screen**: `DashboardView` (placeholder cards "Chức năng tạm đóng hoặc chờ triển khai.").
 - **Leaf target (placeholder)**: `ComingSoonView`, showing the clicked leaf's title.
 - **Configuration Station**: `ConfigurationStationView` (footer *Cấu hình* leaf) — a 3-tab shell screen (WPF-UI
   themed `TabControl`: *Cấu hình hệ thống* / *Tham số nghiệp vụ* / *Quản lý phiên bản*, latter two placeholder).

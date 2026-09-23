@@ -9,9 +9,6 @@ invariants that keep them truthful, the per-object history read model, and the r
 the IAM table shapes (`design-iam-schema.md`), or the business-transaction / adjustment schema —
 which does not exist yet and is deliberately not designed here.
 
-Decision and its reasoning: `decision-log.md`, the rows dated 2026-08-18. This document is the
-design, not the argument.
-
 ## 0. The problem in one paragraph
 
 State changes today that record **no actor**: a Cancel (`VersionedRepository.CancelVersionCoreAsync`),
@@ -53,8 +50,7 @@ Both are FKs to `operation(id)`. The identity (header) tables get **no** column:
 inside the same transaction as its first version row, and that row carries the provenance.
 
 **No tombstone rows are introduced.** A Close/Cancel/Delete keeps its current physical shape; it
-additionally stamps `superseded_by_operation_id`. This is where this design deliberately diverges from
-the advisory that proposed appending terminal revisions.
+additionally stamps `superseded_by_operation_id`.
 
 ### 1.3 Two vocabularies, never unified
 
@@ -62,13 +58,12 @@ the advisory that proposed appending terminal revisions.
 - `{table}.operation_kind` (existing, `VersionOperationKind`) — what happened to **that row**:
   `Add`, `Edit`, `Close`, `Cancel`, `Replace`.
 
-⚠️ **Both lists gained `Replace` on 2026-09-04, and for different reasons.** The per-row value shipped
-2026-08-24 with V010 and is written by the org-unit replacement gesture (Thay thế) — the successor's
-first version carries it. The **gesture-level** value is a **requester ruling of 2026-09-04**: Thay thế
-gets its own header kind rather than reusing `Save`, so the header reads *"Thay thế"* instead of being
-indistinguishable from an ordinary Sửa. Nothing in the shipped replacement implementation depends on the
-header value — neither `operation` nor its columns exist yet — it is recorded here so this slice does not
-have to guess.
+⚠️ **Both lists carry `Replace`, for different reasons.** The per-row value (V010) is written by the
+org-unit replacement gesture (Thay thế) — the successor's first version carries it. The **gesture-level**
+value is a **requester ruling of 2026-09-04**: Thay thế gets its own header kind rather than reusing
+`Save`, so the header reads *"Thay thế"* instead of being indistinguishable from an ordinary Sửa. Nothing
+in the shipped replacement implementation depends on the header value — neither `operation` nor its
+columns exist yet.
 
 One Save can write an `Edit` role row, a `Cancel` grant row and two `Add` grant rows. A scalar header
 field cannot carry that, and must not try to. Collapsing the two vocabularies re-creates exactly the
@@ -124,11 +119,8 @@ registered there.
 on `id` alone, so a second statement would silently overwrite the first gesture's provenance. Each flip
 site (§4.1) therefore gains `AND superseded_by_operation_id IS NULL` to its `WHERE`, and validates the
 affected-row count: zero rows affected means the row was already superseded, which is a **clear
-failure**, never a silent no-op.
-⚠ **The counts in this section were written when every site lived in `VersionedRepository.cs`, and they
-no longer are the whole set.** §4.1 now also carries `MarkVersionInactiveForReplaceAsync` in
-`OrgUnitRepository.cs` — an **eighth** flip site outside that file. Take §4.1's table as authoritative and
-these numbers as historical; recount there, never here. (Found by review 240, `F-240-08`.)
+failure**, never a silent no-op. §4.1's tables are the authoritative site list, engine and
+org-unit-local alike.
 *Falsified by:* a per-site test over **every** write site listed in §4.1, engine and org-unit-local alike; a double-supersession test in
 which the second attempt affects zero rows and leaves the first operation id intact; an integrity query
 asserting no row has `isactive = 0` with `superseded_by_operation_id IS NULL`.
@@ -267,15 +259,12 @@ The query above filters by **identity only**. `OrgUnitRepository.GetHistoryInSco
 `DataScope` and applies an undated history-scope predicate server-side. Rewriting the read without
 that predicate would delete the capability.
 
-**Correcting an over-claim made on 2026-08-18** (this document's first version, and the decision-log
-row that accepted it): the danger is *not* that a scoped actor would start seeing another subtree's
-history. **Org-unit reads are deliberately Global** — a recorded product decision (`decision-log.md`
-2026-08-04: the org catalogue is reference data for ~30 in-house users of one organisation, and the
-root probe is a system-wide question), and `LoadHistoryCoreAsync` passes
-`new DataScope(ScopeLevel.Global, …)` on purpose, with that decision cited at the call site. No live
-actor is protected by the predicate on the history path today. That decision even anticipated this
-exact failure: *"without this row someone would later clean up that comment and silently change
-security behaviour."* This design must not be that someone.
+The danger is *not* that a scoped actor would start seeing another subtree's history. **Org-unit reads
+are deliberately Global** — a product decision of 2026-08-04: the org catalogue is reference data for
+~30 in-house users of one organisation, and the root probe is a system-wide question.
+`LoadHistoryCoreAsync` passes `new DataScope(ScopeLevel.Global, …)` on purpose, with that decision cited
+at the call site; cleaning up that call site silently changes security behaviour. No live actor is
+protected by the predicate on the history path today.
 
 **Where losing the predicate would really bite:** `IsWithinScopeAsync` — the **write-path** gate —
 shares the same SQL clause, deliberately factored so the two cannot diverge. A history rewrite that
@@ -310,7 +299,7 @@ silently changing policy. A repository test alone proves neither.
 
 ### 3.4 The grid carries the minimum a person needs to find a row
 
-Requester ruling, 2026-09-07, given while settling backlog 3.72.
+Requester ruling, 2026-09-07.
 
 A per-object history grid exists so a person can **look a row up or search for it**. It is not the
 place to read an object's full profile. When the legal name of a related object is wanted, the
@@ -330,15 +319,12 @@ a temporal or authorization claim depends on.
 
 ## 4. Write path
 
-### 4.1 The ten engine sites, and what each must stamp
+### 4.1 The write sites, and what each must stamp
 
-All in `AST.Infrastructure/VersionedRepository.cs`.
-
-⚠️ **Ten is no longer the whole inventory.** The org-unit replacement gesture (Thay thế, shipped
-2026-09-04) adds **two org-unit-local state-changing UPDATEs** that are *not* in this file and therefore
-not in the table below — `MarkVersionInactiveForReplaceAsync` and `StampVersionReplacedAsync`, both in
-`AST.Modules.IAM/Data/Repositories/OrgUnitRepository.cs`. They live there and not in the shared base
-because `replaced_by_org_unit_id` is org-unit-only: `chk_rv_status` and `chk_rpv_status` do not admit
+Two tables: the org-unit replacement gesture's (Thay thế) **two org-unit-local state-changing UPDATEs**
+in `AST.Modules.IAM/Data/Repositories/OrgUnitRepository.cs`, then the ten engine sites in
+`AST.Infrastructure/VersionedRepository.cs`. The org-unit sites live outside the shared base because
+`replaced_by_org_unit_id` is org-unit-only: `chk_rv_status` and `chk_rpv_status` do not admit
 `'replaced'` at all.
 
 | Site (method) | What it does today | Must stamp |
@@ -367,10 +353,7 @@ unrecorded, the operation-history slice would leave replaced rows inactive with 
 
 **Trap — `InsertRemnantOnTableAsync` builds its copy list from `INFORMATION_SCHEMA`**, excluding a
 hard-coded set (`id`, `effective_from`, `effective_to`, `isactive`, `recorded_at`, `recorded_by`,
-`reason`, `status`, `replaced_by_org_unit_id`) and removing `operation_kind`. ⚠️ Verified against the code
-2026-08-24: the exclusion set reads `'status', 'replaced_by_org_unit_id'` since V010 — it said `'cancelled'`
-until then, and this doc still said so, which is exactly the drift a copied SQL snippet propagates.
-Both new columns MUST be added to that exclusion
+`reason`, `status`, `replaced_by_org_unit_id`) and removing `operation_kind`. Both new columns MUST be added to that exclusion
 set, and `created_by_operation_id` set explicitly. Left alone, the generic copy carries the *source
 row's* provenance into a row the current gesture created — a silent lie, green tests, and the worst
 possible failure mode for a provenance mechanism.
@@ -378,7 +361,7 @@ possible failure mode for a provenance mechanism.
 ### 4.2 How the id reaches the engine
 
 The id is threaded, never ambient, never re-derived. It travels in the **operation context** already
-required by the 2026-08-11 decision (): a value carrying the captured
+required by the requester decision of 2026-08-11: a value carrying the captured
 `OperationDate`, the actor, and the operation id, replacing today's separately-passed
 `(operationDate, recordedBy)` pair on repository writers.
 
@@ -432,12 +415,11 @@ performs a **separate repository transaction per function** inside a loop. So:
 
 Eight business write sites are removed: `RoleDeclarationService` ×5 (role save, grant revoke, grant
 add, role close, cascaded child) and `OrgUnitDeclarationService` ×3 (add, close/cancel, and
-**`orgunit-replace`**, added 2026-09-04 by the replacement gesture). What remains is login, break-glass
+**`orgunit-replace`**, written by the replacement gesture). What remains is login, break-glass
 and signature-fail.
 
-⚠️ **Amendment — requester ruling 2026-09-06:** `orgunit-root-replace-breakglass` is removed because
-its producer became unreachable when root Replace became an unconditional refusal; this supersedes this
-section's earlier **STAYS** claim. It is not removed by OP7. OP7 still retires the *business* writers, not
+⚠️ **Requester ruling 2026-09-06:** `orgunit-root-replace-breakglass` is removed because root Replace
+is an unconditional refusal, so the event has no producer. It is not removed by OP7. OP7 still retires the *business* writers, not
 the security ones, so `orgunit-root-add-breakglass` / `-edit-` / `-close-` stay as the records that those
 normally-forbidden operations were permitted.
 
@@ -460,7 +442,7 @@ Expand → migrate → contract; every intermediate revision keeps the suite gre
 5. **Remove** — the eight business `audit_log` writers and their now-duplicated tests.
 
 **There is no backfill step, and that is a ruling, not an omission.** The requester, acting as DBA
-(2026-08-18, restating a decision from earlier sessions): the application has not been released, no
+(2026-08-18): the application has not been released, no
 database holds real data, and schema work may reset data freely while the app is being built. So the
 contract step needs no legacy provenance and invents no legacy chronology — a backfill would have had
 to give every legacy `operation` an `occurred_at`, and letting that column default would have collapsed
@@ -488,7 +470,7 @@ Every production path that must supply an operation context (verified at `b57e7e
 | Caller | Path |
 |---|---|
 | `RoleDeclarationService` | `SaveRoleDeclarationAsync` (role upsert, grant revoke, grant cancel, grant upsert); `CloseRoleDeclarationAsync` (close/cancel + cascade) |
-| `OrgUnitDeclarationService` | `AddOrgUnitDeclarationAsync`; `CloseOrgUnitDeclarationAsync` (close/cancel); `EditOrgUnitDeclarationAsync` (Edit — moved behind the service 2026-08-21, backlog 0.7); **`ReplaceOrgUnitDeclarationAsync`** (Thay thế, 2026-09-04 — mints the successor identity, writes its first version through `UpsertAsync`, and runs the two org-unit-local UPDATEs of §4.1; the **mark** is the flip site that must stamp `superseded_by_operation_id`, the stamp must not) |
+| `OrgUnitDeclarationService` | `AddOrgUnitDeclarationAsync`; `CloseOrgUnitDeclarationAsync` (close/cancel); `EditOrgUnitDeclarationAsync` (Edit); **`ReplaceOrgUnitDeclarationAsync`** (Thay thế — mints the successor identity, writes its first version through `UpsertAsync`, and runs the two org-unit-local UPDATEs of §4.1; the **mark** is the flip site that must stamp `superseded_by_operation_id`, the stamp must not) |
 | `FunctionCatalogSyncService` | `UpsertAsync` (metadata sync) and `CreateAsync` (new key), both directly on the repository |
 | `UserRepository.UpsertAsync` | no production caller today; still takes the parameter, so one cannot appear silently |
 

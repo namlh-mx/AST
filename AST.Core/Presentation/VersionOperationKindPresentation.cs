@@ -8,7 +8,7 @@ namespace AST.Core.Presentation;
 // `Replace` → "Thay thế" is the requester's own wording for the gesture, settled 2026-09-04 and pinned
 // by name in VersionOperationKindPresentationTests. ⚠ This list is the WHOLE of VersionOperationKind and
 // must stay that way — the four-value version of this sentence outlived the fifth arm from 2026-08-24
-// (`8198a67`) to 2026-09-05 (F-244-03, Assurance Advisor review round 6).
+// (`8198a67`) to 2026-09-05 (F-244-03, Advisor review round 6).
 [SharedComponent]
 public static class VersionOperationKindPresentation
 {

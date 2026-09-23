@@ -113,7 +113,7 @@ public abstract class VersionedRepository<TVersion> : IVersionedWriteTarget wher
     // way: `Replace` was added 2026-09-04 and reaches this very path today — OrgUnitDeclarationService
     // passes it to OrgUnitRepository.UpsertAsync, which overrides RecordsOperationKind to true, and
     // InsertNewAsync persists it verbatim. A guard or CHECK built from a shorter list would refuse or
-    // miss a replacement successor (F-244-03, Assurance Advisor review round 5).
+    // miss a replacement successor (F-244-03, Advisor review round 5).
     protected virtual bool RecordsOperationKind => false;
 
     // Opt-in (spec §16.1 capability 2 / §15.2 D-7 — P11 "aggregate auto-cut"): dependents this entity

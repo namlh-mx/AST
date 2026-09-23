@@ -307,7 +307,7 @@ public class PeriodEditorTests
         Assert.Equal(ErrorType.Validation, result.FirstError.Type);
     }
 
-    // Spec 2026-08-22-orgunit-edit-close-code-reuse-shaping.md section 18.1. C abuts B. Shrinking C
+    // docs/design-effective-period.md §4a. C abuts B. Shrinking C
     // produces a tail remnant [2024-01-01, 2025-12-31] that fills the whole span between the new period
     // and B, so the resulting coverage has NO hole and there must be no warning. Reading `untouched`
     // alone reports one, and org-unit turns that into a refusal to write a legal edit (GapIsBlocking).
@@ -332,7 +332,7 @@ public class PeriodEditorTests
         result.Value.Warnings.Should().BeEmpty();
     }
 
-    // Spec 2026-08-22-orgunit-edit-close-code-reuse-shaping.md section 18.1, MIRROR of the tail case.
+    // docs/design-effective-period.md §4a, MIRROR of the tail case.
     // A is untouched and ends the day before C starts. Shrinking C from the front produces a head
     // remnant [2020-07-01, 2022-12-31] that fills the whole span between A and the new period, so the
     // resulting coverage has NO hole. Reading `untouched` alone sees only A and reports the span the
@@ -405,7 +405,7 @@ public class PeriodEditorTests
     // This is the control that separates the right fix from "suppress the warning whenever any overlap
     // exists" -- a strictly worse defect, because that one hides real holes.
     // Covers ONE orientation only -- real gap BEFORE, overlap-cut AFTER. Its mirror is
-    // RealGapOnTheAfterSide_WithAHeadRemnantOnTheBefore (Assurance Advisor 153/F-01).
+    // RealGapOnTheAfterSide_WithAHeadRemnantOnTheBefore (Advisor 153/F-01).
     [Fact]
     public void RealGapOnOneSide_WithAnOverlapCutOnTheOther_WarnsExactlyTheRealGap()
     {
@@ -520,7 +520,7 @@ public class PeriodEditorTests
         result.Value.Warnings.Should().BeEmpty();
     }
 
-    // Assurance Advisor AST-CONSULT-153 F-01. The MIRROR of RealGapOnOneSide_WithAnOverlapCutOnTheOther, and the
+    // Advisor AST-CONSULT-153 F-01. The MIRROR of RealGapOnOneSide_WithAnOverlapCutOnTheOther, and the
     // control that closes the last suppression hole. Here the overlap-cut is on the BEFORE side (C is
     // shrunk from the front, leaving a head remnant that abuts the new period) and the REAL gap is on
     // the AFTER side: nothing fills [2026-01-01, 2026-06-30] between the new period and `next`.

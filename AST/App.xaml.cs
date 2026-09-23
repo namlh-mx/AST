@@ -268,8 +268,8 @@ public partial class App : PrismApplication
         {
             await AstDialog.NoticeAsync(
                 dialogs,
-                // Wording settled by the requester. Applied by the Main Agent rather than the
-                // Executor Agent: this file is the composition root, which is excluded from
+                // Wording settled by the requester. Applied by the Lead rather than the
+                // Executor: this file is the composition root, which is excluded from
                 // delegation regardless of how small the edit is.
                 "Ứng dụng tự động đóng do phát sinh yêu cầu xử lý về kỹ thuật. Người dùng mở lại ứng dụng sau.",
                 StatusSeverity.Error);

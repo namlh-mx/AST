@@ -76,7 +76,7 @@ public interface IOrgUnitDeclarationService
     //   - the caller does not supply VersionOperationKind: it is Edit by construction.
     Task<ErrorOr<UpsertResult>> EditOrgUnitDeclarationAsync(EditOrgUnitDeclarationRequest request);
 
-    // Fifth gesture: replace one org unit WHOLLY with a
+    // Fifth gesture (docs/design-iam-foundation.md §(9)): replace one org unit WHOLLY with a
     // corrected declaration. This is NOT a Close and NOT an Edit -- a Close says the unit existed and now
     // ends; an Edit may not touch the parent, which is UNEXPRESSIBLE in EditOrgUnitDeclarationRequest. A
     // replacement says the record was never right, and declares a new identity in its place.

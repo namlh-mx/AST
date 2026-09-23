@@ -2,7 +2,7 @@
 
 > Purpose: keep the Vietnamese terms (docs/business) and the English terms (code/identifiers) from drifting apart in meaning.
 > Convention: code/identifiers use the EN column; Vietnamese documents use the VN column, with the EN term in parentheses when needed.
-> When a new term appears → add it here.
+> When a new term appears → add it here in the same commit.
 
 ## Effective period (temporal)
 | VN | EN (used in code/identifiers) | Note |
@@ -33,14 +33,14 @@
 | VN | EN | Note |
 |---|---|---|
 | đơn vị | org unit | table `org_unit`, parent-child tree |
-| mã đơn vị | org code | `org_unit_version.org_code`, business code (P6); app: 4-8 chars, letters+digits, ALL CAPS. ⚠ **Not a natural key** since 2026-09-04: [[thay thế (đơn vị)]] can give a corrected declaration a different code, so one real-world unit can span two codes across two identities. P6 is uniqueness over ACTIVE rows in a period, not identity |
+| mã đơn vị | org code | `org_unit_version.org_code`, business code (P6); app: 4-8 chars, letters+digits, ALL CAPS. ⚠ **Not a natural key**: [[thay thế (đơn vị)]] can give a corrected declaration a different code, so one real-world unit can span two codes across two identities. P6 is uniqueness over ACTIVE rows in a period, not identity |
 | tên đầy đủ (đơn vị) | full name (VN) | `org_unit_version.org_name_full_vn`, legal profile name |
 | tên viết tắt (đơn vị) | short name (VN) | `org_unit_version.org_name_short_vn`, internal-management name |
-| thông tin bổ sung (đơn vị) | supplemental fields | optional org-unit columns (`org_business_number`, address, EN names, phone/fax/email, reserves) — catalog in declaration-screens spec §2.4 |
-| bị hủy (kế hoạch tương lai) | cancelled (plan) | `org_unit_version.status = 'cancelled'` + `isactive = 0` (was a `cancelled` column until V010): a future version closed before it took effect (distinct from a naturally-ended/superseded version) |
+| thông tin bổ sung (đơn vị) | supplemental fields | optional org-unit columns (`org_business_number`, address, EN names, phone/fax/email, reserves) — DDL in `docs/design-iam-schema.md` §1.1 |
+| bị hủy (kế hoạch tương lai) | cancelled (plan) | `org_unit_version.status = 'cancelled'` + `isactive = 0`: a future version closed before it took effect (distinct from a naturally-ended/superseded version) |
 | bị thay thế | replaced | `org_unit_version.status = 'replaced'` + `isactive = 0` + a non-null `replaced_by_org_unit_id`: a version whose record was never right, marked when the whole org unit was replaced by a corrected declaration. Told apart from a naturally-ended version only by that durable marker. Org-unit only in v1 — `chk_rv_status`/`chk_rpv_status` do not admit the value at all |
 | đóng (đơn vị) | close / retire (an org unit) | the gesture that ends an OPERATING unit: *it existed, and now it ends*. Last effective day ≥ `today - 1`. Leaves the rows `normal`; the history stays true |
-| thay thế (đơn vị) | replace (an org unit) | the gesture that replaces ONE unit wholly with a corrected declaration: *the record was never right*. The only route that can change an org unit's PARENT, and the intended only route for its effective period and its org code. As shipped 2026-09-04 the Sửa form still enables the period and the code; a follow-up locks them out and was deliberately blocked on this gesture existing. Predecessor must be empty. |
+| thay thế (đơn vị) | replace (an org unit) | the gesture that replaces ONE unit wholly with a corrected declaration: *the record was never right*. The only route that can change an org unit's PARENT or its org code; Sửa's period rule is not yet enforced by the code. Predecessor must be empty. Design: `docs/design-iam-foundation.md` §(9) |
 | dữ liệu lịch sử bất biến | immutable history | data the app already recorded is not changed by anything that happens afterwards. The mechanism is the *đóng băng / freeze* row above — a recorded transaction points at a version row, which is never hard-deleted and whose business columns never change; it does not re-resolve the org unit at read time |
 | vai trò | role | `role` |
 | mã vai trò | role code | `role_version.role_code`, business code / natural key (P6) |
@@ -71,7 +71,7 @@
 | Đn (mốc quyết định) | Dn | decision-log anchor, e.g. D1..D13, D13a, D13b |
 | người yêu cầu | requester | the project's non-technical business stakeholder; source of truth for business decisions |
 
-## Operations / deployment (2026-07-03 addendum — see `docs/archive/2026-07-03-addendum-proposals.md`)
+## Operations / deployment
 | VN | EN | Note |
 |---|---|---|
 | phiên bản schema | schema version | table `schema_version`, checked by the app at startup |

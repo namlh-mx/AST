@@ -2260,7 +2260,7 @@ public class OrgUnitDeclarationViewModelTests
         Assert.Equal(string.Empty, vm.OrgNameFullVn);
         Assert.Equal(string.Empty, vm.OrgNameShortVn);
 
-        // F-327-01 (Assurance Advisor, second read of card 325): keeping the form is only half the outcome. A
+        // F-327-01 (Advisor, second read of card 325): keeping the form is only half the outcome. A
         // superseded arm that merely returned would preserve every value asserted above and still
         // drop the save's own effects, so pin them too: the write DID succeed and the operator must
         // be told, and the tree and history must reload behind the new form.
@@ -3864,7 +3864,7 @@ public class OrgUnitDeclarationViewModelTests
             "2026", "/", "no confirm on this screen carries a date");
     }
 
-    // The Research Advisor: the test above asserts the dialog APPEARS and says the right thing, and stays green even
+    // The Advisor: the test above asserts the dialog APPEARS and says the right thing, and stays green even
     // if the answer is thrown away - a confirm nobody can decline is decoration. The cancel branch has had
     // this twin since it was written (Save_Close_Pending_AbortConfirmation_...); the retire branch, whose
     // confirm is new, shipped without one.

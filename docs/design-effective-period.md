@@ -3,8 +3,7 @@
 > **TECHNICAL source of truth** for every entity/parameter with an effective period in project AST.
 > **BUSINESS** source of truth: `docs/effective-period-requirements.md` (do not edit here — always consult the original).
 > High-level principle: skill `rule-soft-delete`. Module boundary: skill `rule-module-boundary`.
-> **Anti-drift:** every other doc/skill/memory must only POINT to this file, never copy its content.
-> Status: APPROVED 2026-07-02 (brainstorming session, not yet coded). Applies project-wide.
+> Other documents point to this file and never copy its content. Applies project-wide.
 
 ---
 
@@ -22,7 +21,7 @@
 - **D9 — Missing coverage at business-run time:** **STOP + report clearly** ("Parameter 'X' has no effective value on date dd/mm/yyyy"). ABSOLUTELY no falling back to a default/other period.
 - **D10 — Declaration rights:** declaration screens (org unit/role/user/permission/parameter) are **admin-only**; regular users only perform operational tasks.
 - **D11 — Data technology:** **Dapper + MySqlConnector** (no EF Core); charset `utf8mb4_0900_ai_ci`; migrations = **numbered SQL scripts**. Data access is hidden behind a shared-kernel interface (`AST.Core/Data/`) ⇒ the ORM choice is not hard-locked.
-- **D12 — Anti-drift:** one canonical document (this file) + decision log + self-loading skill; everywhere else only POINTS to it.
+- **D12 — Anti-drift:** one canonical document (this file) with its decision log; everywhere else only POINTS to it.
 - **D13 — DI (Prism.DryIoc):** (a) force all data access through the base repository (the filter cannot be bypassed); (b) inject a clock / business-date-provider abstraction (`AST.Core/Time/`) for a consistent, testable notion of "today".
 
 ## Hard invariants (violating one = a bug; review blocks it)
@@ -142,31 +141,23 @@ Two rules follow, and both are load-bearing:
    is out of scope, deliberately: widening this to the whole coverage would let one old hole refuse
    every later edit of that identity forever.
 
-   ⚠️ **How reachable such a hole is was OVER-STATED when this section was written, and the correction
-   is measured (2026-08-26).** The original sentence read *"a Cancel or a Delete can leave one without
-   blocking"*. Half of that is false:
+   How reachable such a hole is:
    - **Cancel does NOT open a hole — it HEALS.** `VersionedRepository.CancelVersionCoreAsync` finds the
      version whose `EffectiveTo` is the day before the cancelled one's `EffectiveFrom` and **extends it
      to cover the cancelled range**. With no adjacent predecessor it drops the version, which shortens
      the timeline rather than perforating it. Cancel cannot create the first hole.
    - **Delete CAN, and does not block on it.** `VersionedRepository.DeleteVersionAsync` removes an
      interior version, computes the gap warnings and **returns them**; its only guards are
-     `BaseVersionRequired` and the reverse temporal-FK check.
-   - ⚠️ **But `DeleteVersionAsync` has NO production caller** (`find_referencing_symbols`, 2026-08-26:
-     all five references are tests, one of which uses it precisely to *manufacture* a hole for a
-     fixture). **So today no screen or service can perforate an org unit's timeline.** The engine
-     tolerates the shape; nothing in the running system produces it.
+     `BaseVersionRequired` and the reverse temporal-FK check. It has **no production caller**; tests
+     use it, one of them to manufacture a hole for a fixture.
 
-   The design decision stands unchanged — a whole-coverage scan would still be the wrong scope for the
-   Add/Edit question — but it rests on **bounding the blast radius of a shape the engine permits**, not
-   on a hole that operators actually create today.
+   The nearest-neighbour scope therefore bounds the blast radius of a shape the engine permits; a
+   whole-coverage scan would still be the wrong scope for the Add/Edit question.
 
-   ⚠️ **Two restatements of this rule are WRONG, in opposite directions, and both were written and
-   corrected on 2026-08-26.** It is neither *"a hole the edit does not touch is not reported"* (too
-   wide) nor *"suppression needs a remnant this plan generates"* (too narrow). What stands between the
-   hole and `newPeriod` may be a generated remnant **or** an ordinary untouched version — the rule asks
-   only which period is *nearest*, never *what kind* it is. Three worked cases, all traced against
-   `PeriodEditor.PlanUpsert`:
+   The rule asks only which period is *nearest*, never *what kind* it is: what stands between the hole
+   and `newPeriod` may be a generated remnant **or** an ordinary untouched version. It is neither
+   *"a hole the edit does not touch is not reported"* (too wide) nor *"suppression needs a remnant this
+   plan generates"* (too narrow). Three worked cases, all traced against `PeriodEditor.PlanUpsert`:
 
    | Fixture | Edit | Outcome |
    |---|---|---|
@@ -180,8 +171,7 @@ refusal; role, user, function and role-permission leave it false and only warn.
 
 ⚠️ Do **not** reuse `ComputeGapWarnings` for the Add/Edit question. It is correct for its own
 question — whole-coverage, after a coverage REDUCTION, never blocking — and merging the two is a
-regression, not a tidy-up. Rationale + the measurement: spec
-`2026-08-22-orgunit-edit-close-code-reuse-shaping.md` §18.1, §19.5.
+regression, not a tidy-up.
 
 ## 5. Temporal referential integrity (D8 — STRICT level)
 - **Coverage check:** saving a child `[F,T]` → every parent (per the relevant relationship) must **continuously cover the entire `[F,T]`** with valid active versions (may be covered by **multiple parent periods** as long as there is no gap). Missing/gapped → **BLOCKED**: "Parent parameter '…' has no declared effective period for the range [d1–d2]."
@@ -195,14 +185,14 @@ A standard scope-filter builder (`AST.Core/Data/`) produces a SQL fragment that 
 ## 7. Concurrent-write protection (addition #4)
 Wrap the sequence (overlap check → cut/split per §4 → insert) in **1 transaction** + a MySQL **named lock** (`GET_LOCK('astep:<table>:<identity>', timeout)`), since `SELECT...FOR UPDATE` cannot lock a brand-new row that doesn't exist yet. When checking temporal-FK, **lock both the child identity and the related parent identity(ies)**, in a **fixed order** (e.g. sorted by table name then id) to avoid deadlock. Isolation level `READ COMMITTED`.
 
-**A header and its first version commit or roll back together** (amendment 2026-08-16, decision-log). An identity must NOT be minted on a separate connection ahead of the transaction that writes its first version — that ordering is what leaves a zero-version header behind when the write fails, and best-effort compensation cannot close it. To make minting-inside-the-transaction legal, one narrow carve-out to the paragraph above: **an identity created inside the transaction takes no named lock of its own**, because no other session can name it — nothing committed references it — until commit, so the lock would protect nothing. The carve-out is bounded by two conditions that stay absolute:
+**A header and its first version commit or roll back together.** An identity must NOT be minted on a separate connection ahead of the transaction that writes its first version — that ordering is what leaves a zero-version header behind when the write fails, and best-effort compensation cannot close it. To make minting-inside-the-transaction legal, one narrow carve-out to the paragraph above: **an identity created inside the transaction takes no named lock of its own**, because no other session can name it — nothing committed references it — until commit, so the lock would protect nothing. The carve-out is bounded by two conditions that stay absolute:
 - every **pre-existing** identity the write touches — child *or* parent, including one reached by re-attaching to an existing header — is still locked **up front, in the fixed order above**; and
 - **no `GET_LOCK` is ever taken after the transaction has opened** (that, not the missing key, is what would reintroduce deadlock).
 
-A rolled-back insert still consumes its `AUTO_INCREMENT` value, so **gaps in identity ids are expected and are not a defect**. As of 2026-08-17 **every production mint path follows this rule** — `role`, `role_permission`, `function` and `org_unit` (backlog 0.4b closed; `user` has no production mint path yet). The remaining callers of the own-connection mint are integration-test fixtures. What keeps it that way is mechanical, not this paragraph: `AST.Meta.Tests/RoleWritePathAbsenceTests` and `OrgUnitWritePathAbsenceTests` fail if a migrated write path reaches back for the pre-transaction mint or a compensating delete.
+A rolled-back insert still consumes its `AUTO_INCREMENT` value, so **gaps in identity ids are expected and are not a defect**. **Every production mint path follows this rule** — `role`, `role_permission`, `function` and `org_unit`; `user` has no production mint path yet. The remaining callers of the own-connection mint are integration-test fixtures. The guards: `AST.Meta.Tests/RoleWritePathAbsenceTests` and `OrgUnitWritePathAbsenceTests` fail if a migrated write path reaches back for the pre-transaction mint or a compensating delete.
 
 ## 8. The effective-period engine — contract in the shared kernel (registered via DI)
-Detailed signatures are closed at the detailing step; the required catalog:
+Signatures live in the code; the required catalog:
 - The period-editing engine (`AST.Core/EffectivePeriod/`) — the 8-case algebra + remnants + gap warnings (§4).
 - The period resolver (`AST.Core/EffectivePeriod/`) — (identity, D) → version; missing coverage → "none" (§3).
 - The temporal-FK validator (`AST.Core/EffectivePeriod/`) — coverage check, reverse-FK, multi-level (§5).
@@ -211,27 +201,15 @@ Detailed signatures are closed at the detailing step; the required catalog:
 - A standard base "versioned repository" for modules to inherit (the filter cannot be bypassed).
 - (Reused by IAM) an authorization service + a data-scope value (`AST.Core/Iam/`) (4 levels, resolved by today), a function registry + a function descriptor (`AST.Core/Iam/`), menu-group code constants (`AST.Core/Iam/`).
 
-## 9. Seven additions from standard-model research (already merged)
+## 9. Deletion and impact
 1. **Minimal audit** (`recorded_at/by`, `reason`) on every version; the recording direction is append-only, never backdated.
-2. **The `9999-12-31` boundary** treated as "infinity" (§4).
-3. **A unified business-date source** via the clock / business-date-provider abstraction (§3).
-4. **Lock both parent and child** when checking temporal-FK (§7).
-5. **Deletion semantics:** distinguish deleting **1 period** vs **retiring the whole entity** (closing every active period / `isactive=0`, never a physical delete); **the original version must always exist**; reverse-FK blocks if dependent children remain.
-6. **Two "not in use" concepts:** `isactive=0` ≠ "outside the period"; reading must satisfy **both simultaneously** (hard invariant #2).
-7. **An "impact report" hook:** the shared kernel leaves room to later answer "who has referenced/frozen this version" for a business module (so editing the past can list what's affected).
+2. **Deletion semantics:** distinguish deleting **1 period** vs **retiring the whole entity** (closing every active period / `isactive=0`, never a physical delete); **the original version must always exist**; reverse-FK blocks if dependent children remain.
+3. **An "impact report" hook:** the shared kernel leaves room to later answer "who has referenced/frozen this version" for a business module (so editing the past can list what's affected).
 
-## 10. Reference basis (standard models consulted)
-The model = Fowler's *Temporal Object/Property/Snapshot/Audit Log*; a temporal-FK **points to the object, not the version**, gapless coverage = *temporal referential integrity*; no-overlap = `WITHOUT OVERLAPS`, cut/split = `PORTION OF` (SQL:2011). Fowler recommends **avoiding bitemporal**, favoring *append + track history* ⇒ this confirms the D1/D2 choice.
-- https://martinfowler.com/eaaDev/timeNarrative.html
-- https://www.sciencedirect.com/topics/computer-science/temporal-foreign-key
-
-## 11. Points to verify when coding
-Recursive CTE on MySQL 9.7 + the `cte_max_recursion_depth` setting; the named-lock call bound to the correct session through the MySqlConnector pool + a fixed parent-child lock order; the `9999-12-31` boundary; the .NET 10 API for reading the logged-in Windows identity; idempotent Prism module registration + its module initialization-mode setting; tests injecting the business-date-provider abstraction to build all 8 algebra cases + verify temporal-FK coverage.
-
-## 12. Safety net — data-integrity checks (C1, approved 2026-07-03)
+## 12. Safety net — data-integrity checks
 D6 (no period overlap) and D8 (strict temporal-FK) can only be enforced at the **app layer** (MySQL cannot enforce these constraints) → if the app has a bug, data can become corrupted **silently** until a business error exposes it. An integrity-check query set detects this early:
 - Two `isactive=1` versions of the same identity **overlapping in period** (violates D6 / §4).
 - A parent with **gapped coverage** over a child's period (violates D8 / §5).
 - An **orphaned** child record (parent identity does not exist).
 
-Packaged as an admin **"Data Integrity Check"** screen (run ad hoc/on schedule) **and** run inside integration tests. **Does NOT replace** app-layer enforcement — it is only an early-detection safety net. (Source: `docs/archive/2026-07-03-addendum-proposals.md §C1`.)
+Packaged as an admin **"Data Integrity Check"** screen (run ad hoc/on schedule) **and** run inside integration tests. **Does NOT replace** app-layer enforcement — it is only an early-detection safety net.

@@ -22,9 +22,9 @@ public enum IntegrityViolationKind
     // can give a corrected declaration a different code, so one real-world unit can span two codes across
     // two identities and a lineage must never be reconstructed by code. What this kind reports is P6 --
     // two ACTIVE identities sharing a key over an overlapping period -- which is true of all five and says
-    // nothing about identity. Requester authorized the SharedKernel rename 2026-09-04; second reader Assurance Advisor.
+    // nothing about identity. Requester authorized the SharedKernel rename 2026-09-04; second reader Advisor.
     //
-    // ⭐ THE PROJECTION SET IS SIX PRODUCERS, NOT FIVE. Corrected 2026-09-05 after Assurance Advisor withheld
+    // ⭐ THE PROJECTION SET IS SIX PRODUCERS, NOT FIVE. Corrected 2026-09-05 after the Advisor withheld
     // second-reader approval (F-240-07, review round 4): the rename's measurement named only the five-key
     // array driving FindDuplicateActiveKeysAsync. FindDuplicateAdminFlagRolesAsync (N-14: at most one
     // role_version with is_admin_role = 1 active on any day) emits this SAME kind from OUTSIDE that array,
@@ -36,7 +36,7 @@ public enum IntegrityViolationKind
 }
 
 // `Table`/`IdentityId` anchor the violation to the exact identity record; `Detail` is a human-readable
-// description (Vietnamese, for the future admin screen -- reports/screens for the requester use Vietnamese).
+// description (Vietnamese, for the future admin screen -- app strings are Vietnamese).
 public sealed record IntegrityViolation(
     IntegrityViolationKind Kind,
     string Table,

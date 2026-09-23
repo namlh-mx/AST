@@ -736,7 +736,7 @@ public class RoleDeclarationViewModelTests
         h.Vm.BeginEditCommand.CanExecute().Should().BeFalse();
     }
 
-    // ---- B8/B9/B10 (Assurance Advisor review, HIGH): the fail-CLOSED gate must be independent of Severity ----
+    // ---- B8/B9/B10 (Advisor review, HIGH): the fail-CLOSED gate must be independent of Severity ----
     //
     // CanEdit/CanSave depend only on Mode/Status today. FinishSaveSuccessAsync (:683-694) deliberately
     // downgrades a post-write reload's Error banner to Warning (locked precedent), and

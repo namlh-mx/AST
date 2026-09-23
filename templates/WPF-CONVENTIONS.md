@@ -12,7 +12,7 @@ CommunityToolkit.Mvvm — do not introduce `[ObservableProperty]`/`RelayCommand`
      `AST.Modules.IAM`) — matches the module's own name, PascalCase, no `AST.Modules.`
      prefix — for a screen whose VM depends on that module's repositories/services.
   2. **`Platform`** — for a screen whose VM depends only on platform/infrastructure
-     services (config-security §⑤, connection/secrets provider, admin session, audit log —
+     services (config security, connection/secrets provider, admin session, audit log —
      the platform layer's charter) and NOT on any `AST.Modules.*` business module.
      Example: `Platform/AdminAuthView`, `Platform/ConnectionDeclarationView`,
      `Platform/ConfigurationStationView` (the hub screen that only routes to the two
@@ -27,16 +27,10 @@ CommunityToolkit.Mvvm — do not introduce `[ObservableProperty]`/`RelayCommand`
   navigation calls, which `AST.Shell` cannot reference — plain `net10.0`, no WPF) lives in
   the exe's own `AST/ViewModels/<Domain>/<Name>ViewModel.cs` instead — today's one instance
   is `ConfigurationStationViewModel`.
-- **Decided 2026-07-25** (retrofitted onto every existing screen as of 2026-07-31 — the `Iam`
-  and `Platform` buckets are both fully populated now; a NEW screen still follows this convention
-  from the start): this subfolder convention exists because `AST/Views/` and
-  `AST.Shell/ViewModels/` are NOT split into per-module assemblies (see the note in
-  `rule-module-boundary` §1d) — without a domain subfolder, screens from every business area
-  AND every platform-infrastructure area land in the same two flat folders with no
-  visual/discoverability boundary as the app grows. `AdminAuthView`/`AdminAuthViewModel`,
-  `ConnectionDeclarationView`/`ConnectionDeclarationViewModel`,
-  `ConfigurationStationView`/`ConfigurationStationViewModel`, `BreakGlassAdminViewModel`,
-  `ConfigAuditHistoryViewModel` moved into `Platform/` 2026-07-31.
+- The subfolder convention exists because `AST/Views/` and `AST.Shell/ViewModels/` are NOT split into
+  per-module assemblies: without a domain subfolder, screens from every business area and every
+  platform-infrastructure area land in the same two flat folders with no discoverability boundary as the
+  app grows. Every existing screen follows it; a new screen follows it from the start.
 - Converters: `AST.UI/Converters/`. Behaviors: `AST/Behaviors/`.
 - Design-system brushes / typography: `AST.UI/Resources/DesignSystem/WpfUiOverrides.xaml` —
   reuse these keys via `{DynamicResource ...}`, do NOT hard-code colors. Common keys:
@@ -93,7 +87,7 @@ right below. **`Spacing.Between`** (`AST.UI/Controls/Spacing.cs`) is the token-d
 uneven (hand-set each child's `Margin` there instead, as the Connection card stacks do today).
 
 Retrofit onto these components is incremental, not a one-shot migration — new/rebuilt screens use them; each
-existing screen's retrofit is its own task with its own F5 (tracked in).
+existing screen's retrofit is its own task with its own F5.
 
 ### Screen header + status band alignment — owned by `AstScreen`
 Every screen's header and status band occupy the top band and line up with the shell sidebar's user-area, so
@@ -113,17 +107,17 @@ instead of hand-building the recipe:
 row, then the body row at `Margin="0,6,0,0"` (content top sits just below the user-area↔menu divider line, not
 overlapping it). It composes `AstScreenHeader` (see below) and `AstStatusBand` (see "Status band" below).
 `BackCommand` is a dumb passthrough — it carries NO navigation authority; the view still owns Prism
-`RequestNavigate` (§1c intact).
+`RequestNavigate`.
 Reference: `ConnectionDeclarationView` (adopted). `AdminAuthView` still hand-builds an equivalent frame
 (`AstScreenHeader` + `AstStatusBand` composed directly, not wrapped in `AstScreen`) — retrofit deferred, same
-visual result either way; tracked in.
+visual result either way.
 
-### Shell title-bar band + "AST" as the Home affordance (`MainWindow` only, chrome §1c)
+### Shell title-bar band + "AST" as the Home affordance (`MainWindow` only, chrome)
 `MainWindow` Row0 is an explicit ~64px band; `ui:TitleBar VerticalAlignment="Top"` keeps the OS caption
 buttons at the natural ~32px top strip. The **"AST" title text** (in `TitleBar.Header`, left) IS the Home
 affordance — there is **no separate Home button**: clicking it navigates the content region to Dashboard,
-and it turns **bold + brand red** (`#89002a`) while Dashboard is the shown screen. This is chrome only
-(`rule-module-boundary §1c`): the click drives content navigation through the shell's own `NavigateCommand`
+and it turns **bold + brand red** (`#89002a`) while Dashboard is the shown screen. This is chrome only;
+the click drives content navigation through the shell's own `NavigateCommand`
 (the same one the sidebar leaves use) and the shell owns the active-highlight state (exactly one of
 {AST, a sidebar path} reads as active) — it is never shell navigation authority. `SetAstActive` in
 code-behind toggles the bold+red. `FontSize` / `Margin` / `VerticalAlignment` on the AST `TextBlock` are
@@ -233,7 +227,7 @@ for a WPF-UI control MUST derive from the default:
   entirely; proving a transient needs a delayed fake plus a hosted test, or an F5 gate stated as
   outstanding.
 
-## AutomationId for FlaUI-readiness (new screens only — decided 2026-07-29)
+## AutomationId for FlaUI-readiness (new screens only)
 
 Every **newly-built** View/CustomControl sets `AutomationProperties.AutomationId` on its
 interactable elements, so a future FlaUI automated-UI-test gate can find them. This is
@@ -360,7 +354,7 @@ hex in views.
   code-behind click handler to hand-wire. The view exposes a `DelegateCommand` set **before**
   `InitializeComponent` (so the header's binding reads it on first layout) that `RequestNavigate`s to the
   parent view; the header never navigates itself (`AST.UI/Controls/AstScreenHeader.xaml.cs`) — the consuming
-  view keeps navigation authority (§1c). The Prism `ConfirmNavigationRequest` leave-confirm still fires (it
+  view keeps navigation authority. The Prism `ConfirmNavigationRequest` leave-confirm still fires (it
   is triggered by navigating away, not by the header click). **Unlike** the shell "AST" home text, the
   screen header is **NOT** highlighted — it just carries the hand cursor. Sidebar-leaf screens have no
   parent, so their header has no `BackCommand` and stays a plain (non-clickable) label. Reference:
@@ -369,3 +363,11 @@ hex in views.
 ### Header / status / content
 - Screen anatomy standard + header/status-band alignment + no-scroll star layout: sections above in this
   file. Reference: `MainWindow` + `AdminAuthView` + `ConnectionDeclarationView` on **main**.
+
+## Pixel-level defects — measure ink in a screenshot
+Settle a one- or two-pixel alignment defect by measuring ink in a screenshot, not layout coordinates.
+- Capture at physical pixels: call `SetProcessDPIAware()` before capturing.
+- Measure each field's first ink row relative to its own box's top border, and include a reference field.
+- Detect ink as deviation from the local background, not a fixed threshold.
+- Report the first ink row, not the centroid.
+- Confirm which SHA the running binary was built from.

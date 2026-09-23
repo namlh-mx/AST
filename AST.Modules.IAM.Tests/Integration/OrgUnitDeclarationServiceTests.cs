@@ -1057,7 +1057,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
         result.FirstError.Type.Should().Be(ErrorType.NotFound);
     }
 
-    // The Assurance Advisor found a real gap under a wrong conclusion: the test above seeds a ROOT, so it is
+    // The Advisor found a real gap under a wrong conclusion: the test above seeds a ROOT, so it is
     // answered by the PRE-LOCK check and never enters the composite. The service also carries a SECOND
     // stale-version check, on the locked period read, for the row that vanishes between the two - and
     // nothing exercised it. This is its fixture: a NON-root, so the root gate cannot shadow the answer.
@@ -1339,7 +1339,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
                 org, versionId, parent, stored, storedEnd, "X3ORG", "Đơn vị", "X3ORG", "kết thúc", null));
 
         result.IsError.Should().BeTrue();
-        // The Research Advisor: a NotBe after a Be on the same value proves nothing, so it is gone. The claim lives in
+        // The Advisor: a NotBe after a Be on the same value proves nothing, so it is gone. The claim lives in
         // the fixture instead - EndsOn == storedEnd is the exact input the layers below refuse in their own
         // terms. MEASURED 2026-09-03 by neutralising clause 3: this fixture then returns
         // VersionClose.CloseDateEqualsVersionEnd, still a code about a window the operator never typed.

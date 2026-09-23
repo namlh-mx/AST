@@ -4,9 +4,8 @@
 works once a parameter has an effective period. This one decides *whether it has one at all*, and
 is the single home for the answer per entity.
 
-Approved 2026-08-11 (`decision-log.md`). Supersedes nothing; it fills a gap — until now no document
-said which parameters are temporal, so the safest-looking default was to give every parameter the
-heaviest model and then work around it.
+Approved 2026-08-11. Without it the safest-looking default is to give every parameter the heaviest
+model and then work around it.
 
 ---
 
@@ -42,8 +41,7 @@ classified:
 Run this gate first. Without it a future-dated **command** is indistinguishable from a future-dated
 **declaration**, and a ledger looks like a parameter that merely happens to never change.
 
-**The Ledger classification attaches at COMPLETION** (requester ruling 2026-08-18, recorded in
-`decision-log.md`). A completed transaction is never edited or deleted in place — a state change on it,
+**The Ledger classification attaches at COMPLETION** (requester ruling 2026-08-18). A completed transaction is never edited or deleted in place — a state change on it,
 including a privileged flip of a reversal back to a normal transaction, is recorded as a new row, never
 as an edit of the old one. How a **not-yet-completed** transaction is edited or deleted is
 transaction-slice design and is deliberately not settled here; the row above says nothing about it.
@@ -130,7 +128,7 @@ commit.
   not generalise it to a neighbouring row because it "sounds stricter and therefore safer" — `user`
   and `user lock` deliberately keep advance declaration, and `org unit` deliberately keeps backdating.
 - **`user` is Declared but the code does not yet offer Close.** `IUserRepository` exposes upsert and
-  SID writes only, and `user_version` has neither `cancelled` nor `operation_kind`. A permanently
+  SID writes only, and `user_version` has neither `status` nor `operation_kind`. A permanently
   departed user therefore keeps resolving in authorization. This is latent only because no
   user-declaration screen exists; it becomes reachable the moment one does, so Close must ship in
   the same slice as that screen, not after it.
