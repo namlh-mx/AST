@@ -41,48 +41,7 @@ Every entity with an effective period = **2 tables**:
 - **Identity table** `<name>`: contains only the **durable identifier** (`id` PK, never changes for the entity's lifetime; contains NO column that changes over time).
 - **Version table** `<name>_version`: `id` (version PK), `<name>_id` (FK → identity), the **business columns**, the effective period + audit fields.
 
-**Standard columns of the version table:**
-| Column | Type | Note |
-|---|---|---|
-| `id` | BIGINT UNSIGNED PK AI | version id (used for **freezing**) |
-| `<name>_id` | BIGINT UNSIGNED FK | points to the identity (the **live** link points here) |
-| `effective_from` | DATE NOT NULL | F, inclusive |
-| `effective_to` | DATE NOT NULL | T, inclusive; open period = `9999-12-31` |
-| `isactive` | TINYINT(1) NOT NULL DEFAULT 1 | 1 = currently recognized, 0 = superseded/cancelled (audit) |
-| `recorded_at` | DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP | the moment it was RECORDED (append-only, never backdated) |
-| `recorded_by` | VARCHAR(100) NOT NULL | acting username |
-| `reason` | VARCHAR(255) NULL | label/reason (distinguishes an ordinary edit from a correction) |
-
-Required constraints/indexes: `CHECK(effective_from <= effective_to)`; `KEY (<name>_id, isactive, effective_from, effective_to)` (serves both overlap checking and date-based resolution).
-
-**Sample DDL (illustrative pattern — generic `code`/`name`; the real per-entity column sets live in `docs/design-iam-schema.md`):**
-```sql
-CREATE TABLE org_unit (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  PRIMARY KEY (id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
-CREATE TABLE org_unit_version (
-  id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  org_unit_id    BIGINT UNSIGNED NOT NULL,
-  code           VARCHAR(50)  NOT NULL,         -- the entity's natural code (illustrative)
-  name           VARCHAR(255) NOT NULL,         -- the entity's display name (illustrative)
-  parent_id      BIGINT UNSIGNED NULL,          -- FK → org_unit(id) (parent identity), resolved by date
-  effective_from DATE NOT NULL,
-  effective_to   DATE NOT NULL DEFAULT '9999-12-31',
-  isactive       TINYINT(1) NOT NULL DEFAULT 1,
-  recorded_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  recorded_by    VARCHAR(100) NOT NULL,
-  reason         VARCHAR(255) NULL,
-  PRIMARY KEY (id),
-  KEY idx_org_unit_version_res  (org_unit_id, isactive, effective_from, effective_to),
-  KEY idx_org_unit_version_code (code, isactive, effective_from, effective_to),
-  CONSTRAINT fk_ouv_ou     FOREIGN KEY (org_unit_id) REFERENCES org_unit(id),
-  CONSTRAINT fk_ouv_parent FOREIGN KEY (parent_id)   REFERENCES org_unit(id),
-  CONSTRAINT chk_ouv_period CHECK (effective_from <= effective_to)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-```
-> This block shows only the effective-period *pattern* (identity + version + `[from,to]` + `isactive`) — the columns are generic placeholders. The 5 concrete IAM tables (`org_unit`, `role`, `user`, `function`, `role_permission`) — including org_unit's real `org_code`/`org_name_full_vn`/`org_name_short_vn` + supplemental set — are detailed in **`docs/design-iam-schema.md`** §1.1 (full DDL + engine-contract signatures + temporal-FK edges).
+Required on every version table: `effective_from`/`effective_to` (both ends inclusive; open period = `9999-12-31`), `isactive`, audit columns; `CHECK(effective_from <= effective_to)`; `KEY (<name>_id, isactive, effective_from, effective_to)`. Concrete types, collations, indexes and FKs: **`docs/design-iam-schema.md`**.
 
 ## 2. Identity & references (D3 — solving "references never break")
 - **Live link** (currently being declared/looked up): the FK column points to **`<parent>_id` (identity)**; when the value is needed, **resolve by date** → version. The DB enforces a real FK to the identity table ⇒ the target always exists.
@@ -141,23 +100,17 @@ Two rules follow, and both are load-bearing:
    is out of scope, deliberately: widening this to the whole coverage would let one old hole refuse
    every later edit of that identity forever.
 
-   How reachable such a hole is:
-   - **Cancel does NOT open a hole — it HEALS.** `VersionedRepository.CancelVersionCoreAsync` finds the
-     version whose `EffectiveTo` is the day before the cancelled one's `EffectiveFrom` and **extends it
-     to cover the cancelled range**. With no adjacent predecessor it drops the version, which shortens
-     the timeline rather than perforating it. Cancel cannot create the first hole.
-   - **Delete CAN, and does not block on it.** `VersionedRepository.DeleteVersionAsync` removes an
-     interior version, computes the gap warnings and **returns them**; its only guards are
-     `BaseVersionRequired` and the reverse temporal-FK check. It has **no production caller**; tests
-     use it, one of them to manufacture a hole for a fixture.
+   **Cancel does NOT open a hole — it HEALS.** `VersionedRepository.CancelVersionCoreAsync` finds the
+   version whose `EffectiveTo` is the day before the cancelled one's `EffectiveFrom` and **extends it
+   to cover the cancelled range**. With no adjacent predecessor it drops the version, which shortens
+   the timeline rather than perforating it. Cancel cannot create the first hole.
+   **Delete CAN, and does not block on it.** `VersionedRepository.DeleteVersionAsync` removes an
+   interior version, computes the gap warnings and **returns them**; its only guards are
+   `BaseVersionRequired` and the reverse temporal-FK check. It has **no production caller**; tests
+   use it, one of them to manufacture a hole for a fixture.
 
-   The nearest-neighbour scope therefore bounds the blast radius of a shape the engine permits; a
-   whole-coverage scan would still be the wrong scope for the Add/Edit question.
-
-   The rule asks only which period is *nearest*, never *what kind* it is: what stands between the hole
-   and `newPeriod` may be a generated remnant **or** an ordinary untouched version. It is neither
-   *"a hole the edit does not touch is not reported"* (too wide) nor *"suppression needs a remnant this
-   plan generates"* (too narrow). Three worked cases, all traced against `PeriodEditor.PlanUpsert`:
+   The rule asks only which period is *nearest*, never *what kind* it is. Discriminating cases, traced
+   against `PeriodEditor.PlanUpsert`:
 
    | Fixture | Edit | Outcome |
    |---|---|---|

@@ -30,35 +30,26 @@ The shell sidebar is the app's main navigation menu. This documents the **as-bui
   reopen this.
 - **Footer** (pinned to the pane bottom): two leaves — **Trợ giúp** (→ `HelpView`) above **Cấu hình**
   (→ `ConfigurationStationView`). Cấu hình is no longer an expandable group: it opens the Configuration
-  Station screen, whose *Cấu hình hệ thống* tab hosts a set of Execute-gated cards (§4 "Related screens"
-  enumerates them and each one's specific gate) rather than a fixed count named here, so a future card
-  doesn't require updating two spots.
+  Station screen, whose *Cấu hình hệ thống* tab hosts Execute-gated cards rather than a fixed count named here.
 
 ## 2. Behaviour — built-in WPF-UI only
 
 - Rendered by the WPF-UI `NavigationView` as **chrome only**. Content navigation is 100% Prism
   `IRegionManager.RequestNavigate` on `ContentRegion` (rule-module-boundary §1c); no
   `TargetPageType`/`INavigationService`.
-- **Default collapsed** (`IsPaneOpen=false`, `CompactPaneLength=48`, `OpenPaneLength=260`). The built-in
-  toggle is hidden (`IsPaneToggleVisible=False`); a **custom borderless pane-toggle** in the pane header
-  drives `IsPaneOpen` from code-behind. Its glyph is left-aligned onto the menu-icon line (~19px, mirroring
-  the nav items' 40px icon column) so the collapsed toggle lines up with the icons below it.
-- **No native flyout (verified against WPF-UI 4.3 source)** — `NavigationView` has no popup/flyout in any
-  mode. Collapsed-rail group access is **Approach A**: clicking an L1 group icon **auto-opens the pane and
+- **Default collapsed** (`IsPaneOpen=false`). The built-in toggle is hidden; a custom pane-toggle in the
+  pane header drives `IsPaneOpen` from code-behind.
+- **No native flyout.** Collapsed-rail group access: clicking an L1 group icon **auto-opens the pane and
   expands that group**; the pane then **auto-collapses** after the user opens a screen (leaf click) or clicks
-  outside the sidebar (a `PreviewMouseDown` on the window). A **manual** toggle-open is sticky (does not
-  auto-collapse). (Locked.)
+  outside the sidebar. A **manual** toggle-open is sticky (does not auto-collapse). (Locked.)
 - **Accordion (single-expand)**: expanding one L1 group collapses the others; collapsing the pane collapses
   all groups. Driven from `MainWindow` code-behind by observing the built-in `NavigationViewItem.IsExpanded`
-  / `NavigationView.IsPaneOpen` DPs (via `DependencyPropertyDescriptor`) — no template changes.
+  / `NavigationView.IsPaneOpen` DPs — no template changes.
 - **Built-in visual cues only** — the parent chevron and child indent are WPF-UI's own; no custom
   chevron/dot templates, no auto-hover/pin. ("Built-in only, no hand-rolled template", locked 2026-07-10.)
-- **Interactive-state colours** map to the brand palette (`Palette.xaml`) by overriding WPF-UI's `NavigationViewItem*`
-  theme brushes in `Resources/DesignSystem/WpfUiOverrides.xaml`: hover bg `#f6e9eb`, pressed bg `#f0d9dc`,
-  selected bg `#ffe9ea` (the active-leaf pink — painted by the stock template's `IsActive` trigger, see §4),
-  resting foreground `#1a1c1c`, hover/pressed foreground `#89002a`. **Leaf (child-item) hover foreground** is
-  driven from code-behind (`MouseEnter`/`MouseLeave` brand-red the label + icon): WPF-UI 4.3's child-item
-  template only changes Background on hover, unlike the L1 template which also reddens the text.
+- Interactive-state colours map to the brand palette in `Resources/DesignSystem/WpfUiOverrides.xaml`. Leaf
+  hover foreground is driven from code-behind: WPF-UI 4.3's child-item template only changes Background on
+  hover.
 
 ## 3. Rendering seam (View layer)
 
@@ -73,25 +64,19 @@ The shell sidebar is the app's main navigation menu. This documents the **as-bui
 
 - **Landing screen**: `DashboardView` (placeholder cards "Chức năng tạm đóng hoặc chờ triển khai.").
 - **Leaf target (placeholder)**: `ComingSoonView`, showing the clicked leaf's title.
-- **Configuration Station**: `ConfigurationStationView` (footer *Cấu hình* leaf) — a 3-tab shell screen (WPF-UI
-  themed `TabControl`: *Cấu hình hệ thống* / *Tham số nghiệp vụ* / *Quản lý phiên bản*, latter two placeholder).
+- **Configuration Station**: `ConfigurationStationView` (footer *Cấu hình* leaf) — a 3-tab shell screen
+  (*Cấu hình hệ thống* / *Tham số nghiệp vụ* / *Quản lý phiên bản*, latter two placeholder).
   Its *Cấu hình hệ thống* Execute buttons Prism-navigate the ContentRegion to `AdminAuthView` /
-  `ConnectionDeclarationView`; the DB button is gated by admin authentication. A third card now routes to
-  `OrgUnitDeclarationView`, and its gate is `role_permission` on `Iam.OrgUnit.Declare` (not `IAdminSession`).
-- **User area**: pane-header placeholder — a `PersonCircle24` icon + "Người dùng" label, laid out on the
-  **same 40px-icon-column geometry as the menu items** (icon centred at ~19px, label starting at 40px) so it
-  lines up with the list; the label is shown only while the pane is open (a real account panel is plugged in
-  later).
+  `ConnectionDeclarationView`; the DB button is gated by admin authentication. A third card routes to
+  `OrgUnitDeclarationView`, gated by `role_permission` on `Iam.OrgUnit.Declare` (not `IAdminSession`).
+- **User area**: pane-header placeholder — a `PersonCircle24` icon + "Người dùng" label; the label is shown
+  only while the pane is open.
 - **Home affordance**: Home is **not** a sidebar item and there is **no separate Home button**. The **"AST"
   title text** in the title-bar band IS the Home affordance: clicking it navigates to `DashboardView` via the
-  same `NavigateCommand`, and it turns **bold + brand red** (`#89002a`) while Dashboard is the shown screen
-  (startup + on click), reverting when a sidebar item takes over.
-- **Active highlight (one target tracks the SHOWN screen)**: the active leaf renders its icon **Filled** +
-  brand foreground `#89002a` + a pink background — the pink is painted by the stock template's `IsActive`
-  trigger (`NavigationViewItem.IsActive=true`, **not** a local `Background`, so the hover wash still wins);
-  its **parent L1 group icon co-highlights** (Filled + brand). A **group's own `IsActive` is never set** —
-  a group is marked by its icon alone, so WPF-UI's chevron-collapse write is erased on sight. Fill follows
-  the shown screen only: **browsing a group header does NOT fill it** (browse ≠ active).
+  same `NavigateCommand`, and it turns **bold + brand red** while Dashboard is the shown screen.
+- **Active highlight (one target tracks the SHOWN screen)**: the active leaf and its parent L1 group icon
+  co-highlight. A **group's own `IsActive` is never set**. Fill follows the shown screen only: **browsing a
+  group header does NOT fill it**.
   - **The highlight is driven by the navigation RESULT, never by the click.** The ViewModel subscribes to the
     content region's `Navigated` + `NavigationFailed` and resolves which leaf corresponds to the shown view;
     the View then repaints **every** item absolutely. There is deliberately **no revert path**: a cancelled or
@@ -104,7 +89,7 @@ The shell sidebar is the app's main navigation menu. This documents the **as-bui
   - **A leaf may own views that are not leaves.** Screens reachable only through Trạm cấu hình stay resolved
     to the `Cấu hình` hub, which therefore stays lit while one of them is shown. Ownership is a fallback and
     can never override a real leaf.
-  - Painting is `MainWindow` code-behind (WPF-UI has no reliable selected-foreground in this chrome-only
-    setup); which leaf to paint is decided in `MainWindowViewModel`, which holds no WPF types.
+  - Painting is `MainWindow` code-behind; which leaf to paint is decided in `MainWindowViewModel`, which holds
+    no WPF types.
 - **Connection status**: a single dot at the bottom-left of the status bar (no clock); per-screen status
   lives on each screen, not a global banner.

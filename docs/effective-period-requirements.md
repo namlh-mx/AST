@@ -6,31 +6,7 @@
 
 ## 0. Which parameters this document governs
 
-**This document governs Declared parameters only.** Which
-parameters those are is decided by `design-temporality-classes.md` — that is the home for the
-answer, and this section only restates the questions the requester answers.
-
-**Question 0 — is it a parameter at all?** A **command** (a request to do something at a time), an
-**event record** (a log or a processed transaction, written once and never edited) and
-**infrastructure bookkeeping** are not parameters and get none of this.
-
-**Question 1 — the only classifying question.** *Does anyone need to announce a change in advance so
-it takes effect on a chosen future date, or to stop it from a chosen date while the old record stays
-visible for lookup?*
-- **No** → the parameter keeps only its present value plus a change log. No effective period.
-- **Yes** → the full model in sections 1–6 applies.
-- **Unclear** → stop and ask the requester. There is no safe default in either direction.
-
-**The backdating flag.** *Could someone backdate an entry to change what already happened — rights,
-blocking, approval?* If yes, the parameter may be declared only from today forward. This is the
-**default**; a parameter is exempt only when a real business document is routinely signed before it
-is entered (today: the org unit and its representative).
-
-**Freeze, don't re-resolve.** A processed transaction records the parameter **version** it used.
-Reading a past date is for looking things up and for audit, never to recompute a business result —
-correcting a past period does not silently change an old transaction. Section 1's "resolution by
-transaction date" therefore describes how a parameter is picked **at the moment of processing**; it
-is not a promise that the system can re-derive an old result later.
+**This document governs Declared parameters only.** Which parameters those are, the classifying questions, the backdating flag and Commitment 0 (freeze, don't re-resolve) are decided in `docs/design-temporality-classes.md` — that is the home for the answer. If Q1 is unclear, stop and ask the requester.
 
 ## 1. Foundational principle
 - Every date is formatted to the common standard: yyyy-mm-dd.

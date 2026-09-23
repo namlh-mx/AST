@@ -70,11 +70,7 @@ temporal-FK parent), but its storage, signature and audit follow `rule-platform-
 parameter is not a row in the application database, take the policy from this class and the
 mechanics from `rule-platform-infra`.
 
-There is no third class. A "system-maintained, always-open" class was proposed and rejected on
-2026-08-11: its only candidate (`function`) has admin-confirmed close/reopen actions that carry a
-date, and its supposed guarantee — *a perpetually-open parent can never block a child* — is a
-property of the data, not of the validator, which is class-blind and raises
-`TemporalFk.ParentGap` for any gap.
+There is no third class.
 
 ## 4. The test
 
@@ -104,7 +100,7 @@ commit.
 | org-unit representative | Declared | **allowed** | appointment decision is signed before entry. Screen not built; re-run Q1 when it is designed |
 | role | Declared | `Immediate` | 2026-08-12: declared at the moment it happens, effective the same day; no future start, no scheduled stop |
 | permission (role grant) | Declared | `Immediate` | 2026-08-12: same as role. Changing `scope_level` is revoke-old + grant-new, never a second version — see the Model 2 note below |
-| user | Declared | `NoBackdate` | advance declaration IS allowed (requester 2026-08-12) — deliberately NOT `Immediate`. Permanent leaving closes the user; temporary absence locks the account |
+| user | Declared | `NoBackdate` | advance declaration IS allowed (requester 2026-08-12) — deliberately NOT `Immediate`. Permanent leaving closes the user; temporary absence locks the account. Unshipped Close: backlog 1.2 |
 | function (catalog) | Declared | `NoBackdate` | system-written for add / metadata-update; **admin-confirmed** for remove / re-add (`design-function-catalog-sync.md`) |
 | user lock / admin lock | Declared | `NoBackdate` | the lock chain's date policy, settled 2026-08-07; this flag is its name |
 | business / system parameters | run the test per parameter | per parameter | no blanket default |
@@ -127,11 +123,6 @@ commit.
   grant is. Removing the future removes the ambiguity by construction rather than by algorithm. Do
   not generalise it to a neighbouring row because it "sounds stricter and therefore safer" — `user`
   and `user lock` deliberately keep advance declaration, and `org unit` deliberately keeps backdating.
-- **`user` is Declared but the code does not yet offer Close.** `IUserRepository` exposes upsert and
-  SID writes only, and `user_version` has neither `status` nor `operation_kind`. A permanently
-  departed user therefore keeps resolving in authorization. This is latent only because no
-  user-declaration screen exists; it becomes reachable the moment one does, so Close must ship in
-  the same slice as that screen, not after it.
 
 ## 6. What this classification does not change
 

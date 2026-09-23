@@ -13,7 +13,7 @@
 | thẻ căn cước (id bền) | identity / header (durable id) | table `<name>` |
 | phiên bản | version | table `<name>_version` |
 | đóng băng (giá trị đã dùng) | freeze / snapshot | a transaction stores the version id |
-| đại số khoảng kỳ (8 ca) | interval algebra (8-case algebra) | the period-editing engine, `AST.Core/EffectivePeriod/`, §4 of the doc |
+| đại số khoảng kỳ (8 ca) | interval algebra (8-case algebra) | the period-editing engine, `AST.Core/EffectivePeriod/` |
 | remnant (mảnh còn lại khi cắt kỳ) | remnant | a new version that keeps the old data, only the period changes |
 | cảnh báo khoảng trống | gap warning | a date gap upon declaration |
 | toàn vẹn tham chiếu theo thời gian | temporal foreign key (temporal-FK) | STRICT level; the temporal-FK validator, `AST.Core/EffectivePeriod/` |
@@ -21,7 +21,6 @@
 | xóa mềm | soft delete | `isactive = 0` |
 | đang hiệu lực (còn công nhận) | active | `isactive = 1` |
 | đóng băng (kỳ) | freeze (a period) | see the "freeze / snapshot" row above; also used for a superseded period kept for audit |
-| Cách X/Y | Option X/Y | e.g. Option 1 (middleware tier) vs. Option 2 (direct DB connection) — `docs/design-iam-foundation.md §5` |
 | hạng tham số (theo thời gian) | temporality class | Current vs Declared — `docs/design-temporality-classes.md` |
 | hạng Hiện tại | Current (class) | one table, `isactive`, no period columns; cannot be a temporal-FK parent |
 | hạng Khai báo | Declared (class) | header + version, the full effective-period model |
@@ -33,15 +32,15 @@
 | VN | EN | Note |
 |---|---|---|
 | đơn vị | org unit | table `org_unit`, parent-child tree |
-| mã đơn vị | org code | `org_unit_version.org_code`, business code (P6); app: 4-8 chars, letters+digits, ALL CAPS. ⚠ **Not a natural key**: [[thay thế (đơn vị)]] can give a corrected declaration a different code, so one real-world unit can span two codes across two identities. P6 is uniqueness over ACTIVE rows in a period, not identity |
+| mã đơn vị | org code | `org_unit_version.org_code`. ⚠ **Not a natural key** — `docs/design-iam-schema.md` §1.1; uniqueness is P6 over ACTIVE rows |
 | tên đầy đủ (đơn vị) | full name (VN) | `org_unit_version.org_name_full_vn`, legal profile name |
 | tên viết tắt (đơn vị) | short name (VN) | `org_unit_version.org_name_short_vn`, internal-management name |
-| thông tin bổ sung (đơn vị) | supplemental fields | optional org-unit columns (`org_business_number`, address, EN names, phone/fax/email, reserves) — DDL in `docs/design-iam-schema.md` §1.1 |
+| thông tin bổ sung (đơn vị) | supplemental fields | optional org-unit columns — DDL in `docs/design-iam-schema.md` §1.1 |
 | bị hủy (kế hoạch tương lai) | cancelled (plan) | `org_unit_version.status = 'cancelled'` + `isactive = 0`: a future version closed before it took effect (distinct from a naturally-ended/superseded version) |
-| bị thay thế | replaced | `org_unit_version.status = 'replaced'` + `isactive = 0` + a non-null `replaced_by_org_unit_id`: a version whose record was never right, marked when the whole org unit was replaced by a corrected declaration. Told apart from a naturally-ended version only by that durable marker. Org-unit only in v1 — `chk_rv_status`/`chk_rpv_status` do not admit the value at all |
+| bị thay thế | replaced | `org_unit_version.status = 'replaced'` + `isactive = 0` + a non-null `replaced_by_org_unit_id`. Org-unit only in v1 |
 | đóng (đơn vị) | close / retire (an org unit) | the gesture that ends an OPERATING unit: *it existed, and now it ends*. Last effective day ≥ `today - 1`. Leaves the rows `normal`; the history stays true |
-| thay thế (đơn vị) | replace (an org unit) | the gesture that replaces ONE unit wholly with a corrected declaration: *the record was never right*. The only route that can change an org unit's PARENT or its org code; Sửa's period rule is not yet enforced by the code. Predecessor must be empty. Design: `docs/design-iam-foundation.md` §(9) |
-| dữ liệu lịch sử bất biến | immutable history | data the app already recorded is not changed by anything that happens afterwards. The mechanism is the *đóng băng / freeze* row above — a recorded transaction points at a version row, which is never hard-deleted and whose business columns never change; it does not re-resolve the org unit at read time |
+| thay thế (đơn vị) | replace (an org unit) | the gesture that replaces ONE unit wholly; only route that can change PARENT or org code. Design: `docs/design-iam-foundation.md` §(9) |
+| dữ liệu lịch sử bất biến | immutable history | recorded data is not changed afterwards. Mechanism: the *đóng băng / freeze* row — a recorded transaction points at a version row |
 | vai trò | role | `role` |
 | mã vai trò | role code | `role_version.role_code`, business code / natural key (P6) |
 | tên vai trò | role name | `role_version.role_name` |
@@ -67,8 +66,6 @@
 | tiêm phụ thuộc | dependency injection (DI) | Prism.DryIoc |
 | khóa chống ghi đồng thời | named lock | MySQL `GET_LOCK` |
 | chữ ký số | digital signature | self-generated RSA/ECDSA key pair, a `.sig` file |
-| Lát | slice | a phase/slice label used in project tracking (e.g. Slice #2) |
-| Đn (mốc quyết định) | Dn | decision-log anchor, e.g. D1..D13, D13a, D13b |
 | người yêu cầu | requester | the project's non-technical business stakeholder; source of truth for business decisions |
 
 ## Operations / deployment

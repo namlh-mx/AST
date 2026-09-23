@@ -28,9 +28,7 @@ CommunityToolkit.Mvvm — do not introduce `[ObservableProperty]`/`RelayCommand`
   the exe's own `AST/ViewModels/<Domain>/<Name>ViewModel.cs` instead — today's one instance
   is `ConfigurationStationViewModel`.
 - The subfolder convention exists because `AST/Views/` and `AST.Shell/ViewModels/` are NOT split into
-  per-module assemblies: without a domain subfolder, screens from every business area and every
-  platform-infrastructure area land in the same two flat folders with no discoverability boundary as the
-  app grows. Every existing screen follows it; a new screen follows it from the start.
+  per-module assemblies. Every existing screen follows it; a new screen follows it from the start.
 - Converters: `AST.UI/Converters/`. Behaviors: `AST/Behaviors/`.
 - Design-system brushes / typography: `AST.UI/Resources/DesignSystem/WpfUiOverrides.xaml` —
   reuse these keys via `{DynamicResource ...}`, do NOT hard-code colors. Common keys:
@@ -64,7 +62,6 @@ A screen shows all its parts without a window scrollbar. Default shape:
   (e.g. 120) so it scrolls INTERNALLY when its rows overflow instead of growing the page.
 - The window (`MainWindow`) carries `MinWidth`/`MinHeight` so nothing is squeezed away
   on a small display.
-Reference implementation: `AST/Views/Platform/AdminAuthView.xaml`.
 
 ## Screen anatomy standard (screen-anatomy v2, `AST.UI`)
 Shell chrome (title bar / sidebar / startup banner / Prism `ContentRegion`) is drawn by the shell, never a
@@ -80,20 +77,17 @@ substitute per screen:
    **data table** (`AstDataGrid`), **action bar** (button group — see "Action button groups" below).
 
 **`AstScreen`** (`AST.UI/Controls/AstScreen.cs`, keyed style `AstScreen` in `Controls.xaml`) packages blocks
-1–2 as the standard top frame plus a body `Content` slot — see the header/status-band alignment section
-right below. **`Spacing.Between`** (`AST.UI/Controls/Spacing.cs`) is the token-driven uniform gap for a
-`StackPanel` whose children share one spacing (e.g. a vertical field stack) — set
+1–2 as the standard top frame plus a body `Content` slot. **`Spacing.Between`** (`AST.UI/Controls/Spacing.cs`)
+is the token-driven uniform gap for a `StackPanel` whose children share one spacing — set
 `controls:Spacing.Between="{StaticResource AstFieldGap}"`; do NOT reach for it where gaps are intentionally
-uneven (hand-set each child's `Margin` there instead, as the Connection card stacks do today).
+uneven (hand-set each child's `Margin` there instead).
 
-Retrofit onto these components is incremental, not a one-shot migration — new/rebuilt screens use them; each
-existing screen's retrofit is its own task with its own F5.
+New/rebuilt screens use these components; each existing screen's retrofit is its own task with its own F5.
 
 ### Screen header + status band alignment — owned by `AstScreen`
 Every screen's header and status band occupy the top band and line up with the shell sidebar's user-area, so
 the header sits on the sidebar-toggle centre line and the first data region begins on the user-area↔menu
-divider line. This frame is now a single owned component — a screen wraps its body in **`controls:AstScreen`**
-instead of hand-building the recipe:
+divider line. A screen wraps its body in **`controls:AstScreen`** instead of hand-building the recipe:
 ```xml
 <controls:AstScreen Title="…" Icon="…"
                      BackCommand="{Binding BackCommand, RelativeSource={RelativeSource AncestorType=views:MyView}}"
@@ -102,15 +96,11 @@ instead of hand-building the recipe:
   <!-- screen body: the content slot -->
 </controls:AstScreen>
 ```
-`AstScreen`'s template owns the values that used to be hand-tuned per screen: root `Margin="24,0,24,24"`
-(0 top so the header's vertical centre lands on the sidebar toggle centre), the header row, the status-band
-row, then the body row at `Margin="0,6,0,0"` (content top sits just below the user-area↔menu divider line, not
-overlapping it). It composes `AstScreenHeader` (see below) and `AstStatusBand` (see "Status band" below).
+`AstScreen`'s template owns: root `Margin="24,0,24,24"` (0 top so the header's vertical centre lands on the
+sidebar toggle centre), the header row, the status-band row, then the body row at `Margin="0,6,0,0"`.
+It composes `AstScreenHeader` and `AstStatusBand`.
 `BackCommand` is a dumb passthrough — it carries NO navigation authority; the view still owns Prism
 `RequestNavigate`.
-Reference: `ConnectionDeclarationView` (adopted). `AdminAuthView` still hand-builds an equivalent frame
-(`AstScreenHeader` + `AstStatusBand` composed directly, not wrapped in `AstScreen`) — retrofit deferred, same
-visual result either way.
 
 ### Shell title-bar band + "AST" as the Home affordance (`MainWindow` only, chrome)
 `MainWindow` Row0 is an explicit ~64px band; `ui:TitleBar VerticalAlignment="Top"` keeps the OS caption
@@ -120,8 +110,7 @@ and it turns **bold + brand red** (`#89002a`) while Dashboard is the shown scree
 the click drives content navigation through the shell's own `NavigateCommand`
 (the same one the sidebar leaves use) and the shell owns the active-highlight state (exactly one of
 {AST, a sidebar path} reads as active) — it is never shell navigation authority. `SetAstActive` in
-code-behind toggles the bold+red. `FontSize` / `Margin` / `VerticalAlignment` on the AST `TextBlock` are
-F5-tunable. Reference: `AST/MainWindow.xaml`.
+code-behind toggles the bold+red.
 
 ### Multi-workstation layout stability — size follows the WINDOW, not the CONTENT (approved 2026-07-14)
 A region's size/position is a function of the WINDOW, never of its content. A content change
@@ -130,12 +119,10 @@ A region's size/position is a function of the WINDOW, never of its content. A co
   or pre-reserved space).
 - Window/machine change → regions may scale with the window (multi-workstation goal).
 
-Design floor = ~1280×720 effective WPF units (covers 1366×768 @100% and 1920×1080 @150%).
-`MainWindow` `MinWidth=1280`/`MinHeight=720` and always launches maximized (`WindowState=Maximized`)
-so it fills the actual screen on any machine. WPF `PerMonitorV2` (`AST/app.manifest`) handles DPI
-already — the axis that varies between machines is effective width in WPF units, not DPI.
+Design floor = ~1280×720 effective WPF units. `MainWindow` `MinWidth=1280`/`MinHeight=720` and always
+launches maximized (`WindowState=Maximized`). WPF `PerMonitorV2` (`AST/app.manifest`) handles DPI.
 
-Five techniques (see `AdminAuthView` for the reference implementation):
+Techniques:
 1. Outer frame = Grid with determined rows (`Auto` chrome, `*` data regions).
 2. Status band = the shared `controls:AstStatusBand` in an `Auto` cell; it reserves `MinHeight` so
    show/hide never reflows.
@@ -143,31 +130,20 @@ Five techniques (see `AdminAuthView` for the reference implementation):
    + action bar `Auto` pinned.
 4. Tables: fixed column widths + always-on vertical scrollbar + horizontal scroll `Auto`; the table
    sits in a `*` column with `MaxWidth = Σ(columns) + 16`, and overrides the `AstDataGrid`
-   `HorizontalAlignment` to `Stretch` so it fills/shrinks to the column instead of clipping.
-   Do **not** pin a hard `Width` on a grid placed next to another region — a hard `Width` squeezes
-   the neighbour on a narrow window (that is exactly technique 5). Size each column to its **max
-   possible content** (e.g. a Windows-username column = 200 for the 25-char max; a `yyyy-MM-dd HH:mm`
-   date column = 140); the `AstDataGrid` style already forces `ScrollViewer.VerticalScrollBarVisibility="Visible"`
-   (that fixed dorsal scrollbar is the `+16` in the `MaxWidth` budget). Keep `MaxWidth = Σ(columns) + 16`
-   when tuning. Reference impl: `AdminAuthView` (history + rescuer grids).
-5. Never place an `Auto` column hard-holding a fixed `Width` next to another region (it squeezes the
-   neighbour) — use `*`+`MaxWidth` + internal scroll.
-6. A single-value field that can hold a long string (e.g. a file path) is a fixed-height, no-wrap
-   element so it never grows and pushes its neighbours, yet stays selectable and reads as a label:
-   a read-only `TextBox` styled with **no `BasedOn`** (so it drops WPF-UI's Fluent input chrome and
-   falls back to the framework-default template) + borderless/transparent + `TextWrapping="NoWrap"`
+   `HorizontalAlignment` to `Stretch`. Do **not** pin a hard `Width` on a grid placed next to another
+   region. Size each column to its **max possible content**. Keep `MaxWidth = Σ(columns) + 16` when tuning.
+5. Never place an `Auto` column hard-holding a fixed `Width` next to another region — use `*`+`MaxWidth`
+   + internal scroll.
+6. A single-value field that can hold a long string is a fixed-height, no-wrap element: a read-only
+   `TextBox` styled with **no `BasedOn`** + borderless/transparent + `TextWrapping="NoWrap"`
    + `HorizontalScrollBarVisibility="Hidden"`. Overflow is hidden; the user selects/drags to reveal
-   it (tooltips are removed app-wide). NOT a wrapping `TextBlock` (not selectable) and NOT a plain
-   `ui:TextBox` (looks like an input). If such a field sits inside a per-region ScrollViewer, give
-   it a right margin (~16) so the overlay scrollbar does not sit over its right edge. This is the shared
-   **`AstSelectableValueText`** style in `Controls.xaml` (deliberate no `BasedOn`); set `Foreground` on the
-   element itself — the style leaves value colour to the call site.
+   it (tooltips are removed app-wide). If such a field sits inside a per-region `ScrollViewer`, give
+   it a right margin (~16); otherwise the overlay scrollbar covers the value's right edge. This is
+   the shared **`AstSelectableValueText`** style in `Controls.xaml`; set `Foreground` on the
+   element itself.
 7. Per-region overflow fallback (no whole-page scroll): a **form** region wraps its content in an
-   internal `ScrollViewer` (`VerticalScrollBarVisibility="Auto"`, horizontal `Disabled`) so it
-   scrolls INSIDE the card only when the card is shorter than its content (small/scaled screens);
-   the page itself never scrolls (`*` is a no-op inside a vertical ScrollViewer, so the ROOT keeps
-   its no-scroll star Grid — only the region's inner content, which has a natural height, is
-   wrapped). A data table already scrolls internally via its `MinHeight` + virtualization.
+   internal `ScrollViewer` (`VerticalScrollBarVisibility="Auto"`, horizontal `Disabled`);
+   the page itself never scrolls.
 
 ## Styling a WPF-UI control — always `BasedOn` the default style
 WPF-UI (`Wpf.Ui`) styles its controls through the IMPLICIT styles merged by
@@ -230,17 +206,11 @@ for a WPF-UI control MUST derive from the default:
 ## AutomationId for FlaUI-readiness (new screens only)
 
 Every **newly-built** View/CustomControl sets `AutomationProperties.AutomationId` on its
-interactable elements, so a future FlaUI automated-UI-test gate can find them. This is
-a forward convention only — existing, already-stable screens are **not** retrofitted.
-
-- For an `ItemsControl`-based element (`ListView`, `ListBox`, `TreeView`, …), set the
-  `AutomationId` on the **`ItemContainerStyle`**, never on `DataTemplate` content — FlaUI's UIA
-  tree exposes the item container, not the template inside it.
-- A new control that renders via `Shape` (`Path`, `Ellipse`, a hand-drawn connection/line) has no
-  `AutomationPeer` by default and is invisible to FlaUI; if it will need UIA verification later,
-  override `OnCreateAutomationPeer` when authoring it.
-- No FlaUI test project exists yet — this is about placing IDs now so one can be stood up later
-  once enough new screens carry them; it does not gate anything today.
+interactable elements. Existing screens are **not** retrofitted.
+- For an `ItemsControl`-based element, set the `AutomationId` on the **`ItemContainerStyle`**, never
+  on `DataTemplate` content.
+- A new control that renders via `Shape` has no `AutomationPeer` by default; override
+  `OnCreateAutomationPeer` when it will need UIA verification.
 
 ## Reference skeleton
 `templates/skeletons/` holds one minimal View+ViewModel pair showing the structure above.
@@ -330,22 +300,19 @@ hex in views.
   — the single home. Bind `Message`/`Severity` to a VM that implements **`AST.Core.Presentation.IStatusBanner`**
   (`StatusMessage`/`Severity`) — the one status-band VM contract; the control reserves its height so show/hide
   never reflows (technique 2).
-- A VM with a single status source just exposes `StatusMessage`/`Severity` directly (e.g.
-  `ConnectionDeclarationViewModel`). A VM that aggregates several sources onto one band (e.g.
-  `AdminAuthViewModel`, funnelling its own auth-result status plus two child VMs' status) reconciles them
-  onto `StatusMessage`/`Severity` itself, last-writer-wins — the child VMs are funnel SOURCES, not
-  `IStatusBanner` implementers themselves. See `AdminAuthViewModel`'s `OnBreakGlassStatusChanged`/
-  `OnHistoryStatusChanged` for the pattern.
-- Do **not** re-inline the icon+text band per screen — it drifted before this was consolidated.
+- A VM with a single status source just exposes `StatusMessage`/`Severity` directly. A VM that aggregates
+  several sources onto one band reconciles them onto `StatusMessage`/`Severity` itself, last-writer-wins —
+  the child VMs are funnel SOURCES, not `IStatusBanner` implementers themselves.
+- Do **not** re-inline the icon+text band per screen.
 
 ### Selectable read-only values (paths, etc.)
-- Apply the shared **`AstSelectableValueText`** style (`AST.UI/Resources/DesignSystem/Controls.xaml`) — the
-  label-look selectable `TextBox` recipe (deliberate no `BasedOn`, drops Fluent input chrome). Set
-  `Foreground` on the element itself; the style leaves value colour to the call site. See "Multi-workstation layout stability" in this file.
+- Apply the shared **`AstSelectableValueText`** style (`AST.UI/Resources/DesignSystem/Controls.xaml`). Set
+  `Foreground` on the element itself; the style leaves value colour to the call site. Selectable-value
+  layout (right clearance inside a region `ScrollViewer`, app-wide no-tooltip) is under Multi-workstation
+  layout stability, technique 6.
 - A **file-path value** is shown as `[folder icon] path`: a plain **decorative** `ui:SymbolIcon`
   (`FolderOpen24`, no click/command) in an `Auto` column, then the `AstSelectableValueText` path in the
-  `*` column with `Margin="8,0,0,0"`. The field label lines up with the icon's left edge. Same shape on
-  every screen (connection save-path, AdminAuth history path).
+  `*` column with `Margin="8,0,0,0"`. The field label lines up with the folder icon's left edge.
 
 ### Screen header = Back affordance (drill-in screens) — `AstScreenHeader`
 - A screen reached by navigating **from another screen** (a drill-in — NOT one reached by a sidebar leaf)
@@ -357,12 +324,7 @@ hex in views.
   view keeps navigation authority. The Prism `ConfirmNavigationRequest` leave-confirm still fires (it
   is triggered by navigating away, not by the header click). **Unlike** the shell "AST" home text, the
   screen header is **NOT** highlighted — it just carries the hand cursor. Sidebar-leaf screens have no
-  parent, so their header has no `BackCommand` and stays a plain (non-clickable) label. Reference:
-  `AdminAuthView` / `ConnectionDeclarationView`.
-
-### Header / status / content
-- Screen anatomy standard + header/status-band alignment + no-scroll star layout: sections above in this
-  file. Reference: `MainWindow` + `AdminAuthView` + `ConnectionDeclarationView` on **main**.
+  parent, so their header has no `BackCommand` and stays a plain (non-clickable) label.
 
 ## Pixel-level defects — measure ink in a screenshot
 Settle a one- or two-pixel alignment defect by measuring ink in a screenshot, not layout coordinates.

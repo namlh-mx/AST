@@ -14,45 +14,31 @@ permissions to** (`role_permission` = role x function x scope). `function` is th
 permissions/business logic point to this identity, not to a specific version** -> changing the "wrapper"
 (metadata) never breaks permissions; a version is never physically deleted -> history never breaks.
 
-## 2. The Two Risks the Decisions Answer
-- **R1 — "absent from code" is not "intentionally deleted".** A function can be absent at sync time because a **module failed to load /
-  temporarily failed to load** (even though everyone shares one build on the network drive, a load failure can
-  still happen). Auto-closing immediately -> **wrongly cuts permissions in bulk**, then reopening them next
-  time -> churn; and it could be wrongly blocked by reverse-FK, causing a sync error.
-- **R2 — re-add was undefined.** A `function_key` gets removed then added back to the code. Treating it as
-  "brand new" -> creates a **duplicate identity** (2 `function.id` rows for the same key) -> the old permission
-  configuration silently becomes orphaned, **breaking invariant #5**, leaving the app in an ambiguous data
-  state.
-
-## 3. Decisions Made
+## 2. Decisions Made
 ### Decision 1: Auto-sync ADDS + UPDATES ONLY. Removal = admin confirmation.
+- **R1 — "absent from code" is not "intentionally deleted".** A function can be absent at sync time because a module failed to load. Auto-closing immediately wrongly cuts permissions in bulk and can be blocked by reverse-FK.
 - **Automatic (every sync):** ADD new functions; UPDATE metadata of existing functions.
 - **NOT automatic:** CLOSE (remove). The app only **flags a "removal candidate"** = active in the DB but not
   present in code. **Admin confirmation** on the admin screen is what actually closes it.
-- *Rationale & benefits:* avoids wrongly cutting permissions when a module fails to load; **transient issues
-  self-heal** (next time the module loads fully -> the function reappears -> the flag disappears on its own,
-  the admin doesn't need to do anything); **no impact on regular users** (a flagged-for-removal function stays
-  in effect until the admin confirms); **no repeated nagging** (once closed it is no longer a candidate).
+- Transient issues self-heal (next full load clears the flag); a flagged-for-removal function stays in effect until the admin confirms.
 
-### Decision 2: Re-add = "Option X" — reuse the same old identity.
+### Decision 2: Re-add reuses the same old identity.
+- **R2 — re-add was undefined.** Treating a returning `function_key` as brand new creates a duplicate identity and orphans old permissions (invariant #5).
 - One `function_key` = one `function.id` **for life**. Restoring = the admin **reopens that exact identity**
   (adding a new effective period, from the date the admin picks -> `9999-12-31`). **Old permissions stay
   closed; the admin re-assigns them.**
 - The app **never auto-creates a duplicate, never auto-reopens** — it only flags a **"reopen candidate"** =
   present in code, already has an old identity, but not active today.
-- *Rationale:* preserves full history + keeps links intact (per invariant #5); "treated as new" is expressed
-  via a **new effective period**, not a new identity.
-- *Considered & rejected:* "Option Y" (spawn a new identity + a history-linking pointer) — more complex (adds
-  a linking column, loosens the natural-key uniqueness rule), with no meaningful added benefit.
+- "Treated as new" is expressed via a **new effective period**, not a new identity.
 
-## 4. Boundary: C2 (automatic) vs. Admin Screen (manual, later phase)
+## 3. Boundary: C2 (automatic) vs. Admin Screen (manual, later phase)
 | Task | Who | When |
 |---|---|---|
 | Create new function (epoch `[2000-01-01, 9999-12-31]`) | **C2 automatic** | Every sync |
 | Update metadata (case 7 exact match) | **C2 automatic** | Every sync |
 | List "removal candidates" + "reopen candidates" | **C2 automatic (report only)** | Every sync |
 | Confirm CLOSE of a function (close dependent permissions first, then close the version via the repository close operation (reverse-FK guarded)) | **Admin** | Admin-screen phase |
-| REOPEN a removed function (Option X) | **Admin** | Admin-screen phase |
+| REOPEN a removed function (reuse identity) | **Admin** | Admin-screen phase |
 | Trigger sync | **Automatic** — every successful (re)connect | `StartupRunner.Rerun()` reaching `StartupMode.Connected` |
 
 - **Trigger (locked):** sync fires automatically from `AST/Startup/StartupRunner.cs`'s
@@ -83,7 +69,7 @@ permissions/business logic point to this identity, not to a specific version** -
   the actual close operation lives in the admin screen, which uses the repository close operation (which is
   reverse-FK guarded).
 
-## 5. What C2 Does (Technical Summary)
+## 4. What C2 Does (Technical Summary)
 The sync engine (see `AST.Modules.IAM/`) reads today's active functions (Global scope) and all known keys,
 then per registered descriptor: metadata changed -> upsert (case 7); never seen -> create at epoch;
 known-but-inactive identity -> reopen candidate (report only); active in DB but missing from code -> removal
