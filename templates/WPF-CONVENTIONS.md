@@ -334,8 +334,8 @@ hex in views.
 
 ## Observing a UI claim — the cheapest instrument that can decide
 
-Work down this list; stop at the first step that decides. Skipping a step needs a stated reason it
-cannot decide the question, never a preference.
+Work down this list; stop at the first step that decides. Skipping one needs a stated reason it
+cannot decide, never a preference.
 
 1. **Structure, or a value a ViewModel holds** — the symbol graph and an ordinary test.
 2. **Whether a binding failed** — capture `PresentationTraceSources.DataBindingSource` around a
@@ -354,8 +354,10 @@ cannot decide the question, never a preference.
    window too, so it cannot tell an effective retint from an ineffective one.
 7. **The acceptance names F5, or the answer needs the requester's monitor** — ask the requester.
 
-An image costs `⌈width/28⌉ × ⌈height/28⌉` visual tokens of the agent's own input on the current
-model family, counted after any resize it applies, so the crop is the saving. Render synthetic
+An image costs `⌈width/28⌉ × ⌈height/28⌉` visual tokens where the reading agent takes 28-pixel
+patches at its high-resolution tier, counted after any resize it applies; every figure above is an
+estimate for that regime, so check the reading agent's own rules before carrying one elsewhere.
+The crop is the saving. Render synthetic
 fixtures, never real records, and write images outside the repository. A gesture or navigation
 sequence a hosted test cannot reproduce needs a UI-automation driver and a stable `AutomationId` —
 its own task, not a step here.
