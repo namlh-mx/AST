@@ -2,48 +2,20 @@ using FluentAssertions;
 
 namespace AST.Meta.Tests;
 
-// Guards backlog 0.4b's org_unit half (2026-08-17) by scanning four source files. A migrated test stays
-// green if the ViewModel quietly mints again, so this scan is the only cheap tripwire.
+// Claim: in AST.Infrastructure, AST.Modules.IAM, AST.ConfigKeyGen and AST, no IL use (call, callvirt,
+// newobj, ldftn, ldvirtftn, ldtoken) of a pinned org-unit version writer resolves to OrgUnitRepository,
+// VersionedRepository<OrgUnitVersionEntity> or open VersionedRepository<T>, except three callers, each
+// matched by defining assembly and full type name:
+//   AST.Modules.IAM.OrgUnitDeclarationService
+//   AST.Modules.IAM.Data.Repositories.OrgUnitRepository (the whole type)
+//   AST.Infrastructure.VersionedRepository`1
 //
-// HOW it reaches internal types: SOURCE TEXT, not reflection. AST.Meta.Tests has no ProjectReference (see
-// the csproj), so InternalsVisibleTo would not help. The detector is RoleWritePathAbsenceDetector, reused
-// rather than re-derived — its regexes already survived an independent review (the
-// method-group case).
-//
-// COVERED:
-//   - IOrgUnitRepository.cs declaring CreateIdentityAsync / DeleteEmptyIdentityAsync / UpsertAsync
-//   - OrgUnitDeclarationService.cs calling the parameterless mint, or any compensation delete. Both still
-//     exist on the CONCRETE OrgUnitRepository (test fixtures seed headers with them), so removing them from
-//     the interface does not stop this one service from reaching for them again.
-//   - OrgUnitDeclarationViewModel.cs — the file that actually regressed — mentioning either, naming any
-//     VersionOperationKind member, or calling ANY org-unit writer (widened from UpsertAsync-only on
-//     2026-08-21: the interface still declares Close/Cancel/Delete, so the narrow leg left
-//     this very screen able to close a root without the service's gate and stay green).
-//   - LEG 4 (2026-08-21): a PRODUCTION-WIDE directory scan for a receiver-qualified org-unit
-//     writer call anywhere outside OrgUnitDeclarationService.cs. Legs 2/3 read named files, so a NEW
-//     in-module caller of the concrete internal OrgUnitRepository could re-parent or close a root with all
-//     three legs green — that is the hole leg 4 exists to close.
-//
-// THE BOUNDARY IS FOUR-LEGGED (three legs from one review round, the fourth from the next), because
-// no single assertion states it: the service must DECLARE Edit (leg 1), the repository interface must NOT
-// declare an UpsertAsync (leg 2), the screen must neither call a writer nor label one (legs 3a/3b), and no
-// other production file may name a writer on an org-unit receiver (leg 4). Each leg has its own falsifying
-// mutation recorded in the plan's execution log — a four-legged guard where only one leg can redden is a
-// one-legged guard wearing a costume.
-//
-// ⚠️ WHAT THIS FILE DOES NOT PROVE — read before citing it as "the boundary is enforced":
-//   - It is a CONVENTION guard, not a compiler-enforced boundary. IOrgUnitRepository still declares
-//     CloseVersionAsync / CancelPlanAsync / DeleteVersionAsync; anyone resolving that interface can call
-//     them and skip the service's root gate, authorization and BOTH audit rows. Leg 4 makes such a caller
-//     redden this suite; it does not make one impossible.
-//   - Leg 4 matches by RECEIVER NAME (`orgUnit…` / `_orgUnits` / `OrgUnitRepository`, see the detector).
-//     A caller that names the variable `repo` or `_r` is NOT caught. Widening the regex to every receiver
-//     would collide with RoleRepository/RolePermissionRepository, which legitimately declare and call the
-//     same method NAMES — that collision, not oversight, is why the scan is receiver-anchored.
-//   - Comments (stripped before matching); the surviving composite overloads on the CONCRETE class, which
-//     is where every write now lives; a declaration that moves into a partial class; a write method whose
-//     return type is not `Task…`; a NEW write member added to IOrgUnitRepository under a different name —
-//     the interface Facts name three members and are not a general read-only proof.
+// Exclusions: reflection; dynamic; a delegate built inside an allowed caller and handed out; test
+// projects; raw SQL and a VersionedRepository<OtherRow> subclass whose table is org_unit_version; the
+// identity writers; a new writer under a new name; a .cs file brought in from outside the project, which
+// is covered by build-first only.
+// The guard assumes the current production inputs were built first; a change that keeps an older
+// timestamp than the DLL is not detected by freshness.
 public sealed class OrgUnitWritePathAbsenceTests
 {
     private const string IdentityCreationClaim =
@@ -91,10 +63,38 @@ public sealed class OrgUnitWritePathAbsenceTests
             "UpsertAsync moved behind IOrgUnitDeclarationService on 2026-08-21 (backlog 0.7); " + WriteClaim + ".");
     }
 
+    [Fact]
+    public void IOrgUnitRepository_does_not_declare_CloseVersionAsync()
+    {
+        RoleWritePathAbsenceDetector.InterfaceDeclares(ReadIOrgUnitRepository(), "CloseVersionAsync").Should().BeFalse(
+            "IOrgUnitRepository declares no version writer; Close goes through OrgUnitDeclarationService.");
+    }
+
+    [Fact]
+    public void IOrgUnitRepository_does_not_declare_DeleteVersionAsync()
+    {
+        RoleWritePathAbsenceDetector.InterfaceDeclares(ReadIOrgUnitRepository(), "DeleteVersionAsync").Should().BeFalse(
+            "IOrgUnitRepository declares no version writer; there is no Delete business operation.");
+    }
+
+    [Fact]
+    public void IOrgUnitRepository_does_not_declare_CancelPlanAsync()
+    {
+        RoleWritePathAbsenceDetector.InterfaceDeclares(ReadIOrgUnitRepository(), "CancelPlanAsync").Should().BeFalse(
+            "IOrgUnitRepository declares no version writer; Cancel goes through OrgUnitDeclarationService.");
+    }
+
+    [Fact]
+    public void IOrgUnitRepository_declares_GetByIdentityAsync()
+    {
+        RoleWritePathAbsenceDetector.InterfaceDeclares(ReadIOrgUnitRepository(), "GetByIdentityAsync").Should().BeTrue(
+            "the interface file was read and still declares GetByIdentityAsync.");
+    }
+
     // LEG 3a (negative): the screen does not reach a writer directly. PreviewUpsertAsync is a READ and
     // stays on the interface — the detector's leading `.` is what keeps it from matching.
     //
-    // WIDENED 2026-08-21 from UpsertAsync-only to EVERY writer the interface still declares.
+    // WIDENED 2026-08-21 from UpsertAsync-only to every org-unit writer name.
     // This screen holds IOrgUnitRepository for its reads and is the ONLY production holder of it, so a
     // `_orgUnits.CloseVersionAsync(...)` here would close a root with no root gate, no authorization and
     // neither audit row — and the narrow leg would have stayed green through all of it.
@@ -102,8 +102,7 @@ public sealed class OrgUnitWritePathAbsenceTests
     public void OrgUnitDeclarationViewModel_does_not_call_any_org_unit_writer()
     {
         OrgUnitWritePathAbsenceDetector.CallsAnyWriter(ReadOrgUnitDeclarationViewModel()).Should().BeFalse(
-            "the declaration screen must not write a version itself, by ANY of the writers "
-            + "IOrgUnitRepository still declares; " + WriteClaim + ".");
+            "the declaration screen must not write a version itself, by any org-unit writer name; " + WriteClaim + ".");
     }
 
     [Fact]
@@ -149,45 +148,17 @@ public sealed class OrgUnitWritePathAbsenceTests
             WriteClaim + ".");
     }
 
-    // LEG 4 (negative, production-wide) — the leg the three named-file legs could not supply.
-    // Shape borrowed from AST.Meta.Tests/WritePathBusinessDateTests.cs:52-77 (directory scan → named
-    // offender list), not invented here.
-    //
-    // The concrete OrgUnitRepository is `internal sealed`, so an in-module caller is the realistic breach:
-    // it needs no interface, no DI change and no new file. Measured 2026-08-21 before this leg existed:
-    // 64 direct callers of the concrete writers, ALL of them tests — so this starts as a guard hole, not a
-    // live defect. Tests are excluded on purpose: fixtures legitimately seed versions through the writers.
+    // Production scan. The file header states the claim, the three allowed callers and the exclusions.
+    // Joined, not BeEmpty on the collection: BeEmpty names only the first offender.
     [Fact]
     public void No_production_file_outside_the_service_calls_an_org_unit_writer()
     {
-        var root = MetaTest.RepoRoot();
-
-        var offenders = ProductionDirectories
-            .Select(dir => Path.Combine(root, dir))
-            .Where(Directory.Exists)
-            .SelectMany(dir => Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories))
-            .Where(path => !MetaTest.IsGenerated(root, path))
-            .Where(path => !Path.GetFileName(path).Equals("OrgUnitDeclarationService.cs", StringComparison.Ordinal))
-            .Where(path => OrgUnitWritePathAbsenceDetector.CallsOrgUnitWriterOnAnOrgUnitReceiver(File.ReadAllText(path)))
-            .Select(path => Path.GetRelativePath(root, path))
-            .OrderBy(path => path, StringComparer.Ordinal)
-            .ToList();
-
-        // Joined, not BeEmpty on the collection: BeEmpty names only the first offender, and a boundary that
-        // slips usually slips in more than one file at once (same reasoning as WritePathBusinessDateTests).
-        string.Join(", ", offenders).Should().BeEmpty(
-            "these production files call an org-unit version writer directly, skipping the root-close gate, "
-            + "the scope check and the audit rows that live in OrgUnitDeclarationService; " + WriteClaim
-            + ". If a new legitimate caller is intended, that is an architecture-boundary decision "
-            + "(rule-module-boundary §3) — widen this list deliberately, never to make a red test green.");
+        var report = OrgUnitWriterBoundary.Scan();
+        var observed = report.Failure ?? string.Join("\n", report.Offenders);
+        observed.Should().BeEmpty(
+            "an org-unit version writer is used outside the three allowed callers, or the guard could not read "
+            + "a current build (dotnet build AST.slnx); " + WriteClaim + ".");
     }
-
-    // AST.UI is absent by design: it references no repository. AST.Meta.Tests scans SOURCE, so adding a
-    // directory here costs a file read, not a project reference.
-    private static readonly string[] ProductionDirectories =
-    [
-        "AST.Core", "AST.Infrastructure", "AST.Modules.IAM", "AST.Shell", "AST.App", "AST",
-    ];
 
     private static string ReadIOrgUnitDeclarationService() =>
         File.ReadAllText(Path.Combine(MetaTest.RepoRoot(), "AST.Core", "Iam", "IOrgUnitDeclarationService.cs"));
@@ -249,7 +220,7 @@ public sealed class OrgUnitWritePathAbsenceDetectorTests
     [InlineData("await _orgUnits.CloseVersionAsync(orgUnitId, versionId, newTo, date, user, note);")]
     [InlineData("await _orgUnits.CancelPlanAsync(orgUnitId, versionId, today, user, \"\");")]
     [InlineData("await _orgUnits.DeleteVersionAsync(orgUnitId, versionId);")]
-    public void Detects_every_writer_the_interface_still_declares(string source)
+    public void Detects_every_org_unit_writer_name(string source)
     {
         OrgUnitWritePathAbsenceDetector.CallsAnyWriter(source).Should().BeTrue();
     }
@@ -260,28 +231,6 @@ public sealed class OrgUnitWritePathAbsenceDetectorTests
     public void Ignores_reads_when_widened_to_every_writer(string source)
     {
         OrgUnitWritePathAbsenceDetector.CallsAnyWriter(source).Should().BeFalse();
-    }
-
-    // Leg 4's receiver anchor. The NEGATIVE cases are the point: they are what stops the production-wide
-    // scan from reddening on the role side, which legitimately calls the identical method names.
-    [Theory]
-    [InlineData("await orgUnitRepository.CloseVersionAsync(context, id, versionId, newTo, date, user, note);")]
-    [InlineData("await _orgUnits.UpsertAsync(orgUnitId, period, code, full, short, parentId, kind, user, reason);")]
-    [InlineData("await _orgUnitRepository.CancelPlanAsync(id, versionId, today, user, \"\");")]
-    public void Leg4_detects_a_writer_on_an_org_unit_receiver(string source)
-    {
-        OrgUnitWritePathAbsenceDetector.CallsOrgUnitWriterOnAnOrgUnitReceiver(source).Should().BeTrue();
-    }
-
-    [Theory]
-    [InlineData("await roleRepository.CloseVersionAsync(context, roleId, versionId, newTo, date, user, note);")]
-    [InlineData("await rolePermissionRepository.CancelPlanAsync(context, id, versionId, today, user, reason);")]
-    [InlineData("base.CloseVersionAsync(context, orgUnitId, versionId, newTo, operationDate, recordedBy, reason);")]
-    [InlineData("var affected = await _orgUnits.PreviewUpsertAsync(orgUnitId, period);")]
-    [InlineData("public async Task<ErrorOr<UpsertResult>> UpsertAsync(")]
-    public void Leg4_ignores_other_receivers_reads_and_declarations(string source)
-    {
-        OrgUnitWritePathAbsenceDetector.CallsOrgUnitWriterOnAnOrgUnitReceiver(source).Should().BeFalse();
     }
 }
 
@@ -298,7 +247,7 @@ internal static class OrgUnitWritePathAbsenceDetector
     public static bool CallsUpsert(string source) =>
         System.Text.RegularExpressions.Regex.IsMatch(StripLineComments(source), @"\.UpsertAsync\s*\(");
 
-    // Every writer IOrgUnitRepository still declares, not just UpsertAsync. Receiver-free, so
+    // Every org-unit writer name, not just UpsertAsync. Receiver-free, so
     // it is only safe on a file that touches ONE repository — OrgUnitDeclarationViewModel does. Do NOT
     // reuse it for a directory scan: RoleRepository declares the same method NAMES.
     // The leading `\.` still carries PreviewUpsertAsync's exclusion.
@@ -306,19 +255,6 @@ internal static class OrgUnitWritePathAbsenceDetector
         System.Text.RegularExpressions.Regex.IsMatch(
             StripLineComments(source),
             @"\.(?:UpsertAsync|CloseVersionAsync|CancelPlanAsync|DeleteVersionAsync)\s*\(");
-
-    // Receiver-ANCHORED variant for leg 4's production-wide scan. `roleRepository.CloseVersionAsync(...)`
-    // is legitimate and must not match, so the receiver — not the method name — is what identifies an
-    // org-unit write. Covers the spellings this codebase actually uses: `_orgUnits`, `orgUnitRepository`,
-    // `OrgUnitRepository`. `base.CloseVersionAsync(...)` inside OrgUnitRepository itself does not match
-    // (receiver is `base`), which is why that file needs no exclusion.
-    // KNOWN GAP, stated in the file header too: a receiver named `repo` slips through.
-    private static readonly System.Text.RegularExpressions.Regex OrgUnitWriterOnOrgUnitReceiver = new(
-        @"\b_?[Oo]rg[Uu]nits?(?:Repository|Repo)?\s*\.\s*(?:UpsertAsync|CloseVersionAsync|CancelPlanAsync|DeleteVersionAsync)\s*\(",
-        System.Text.RegularExpressions.RegexOptions.Compiled);
-
-    public static bool CallsOrgUnitWriterOnAnOrgUnitReceiver(string source) =>
-        OrgUnitWriterOnOrgUnitReceiver.IsMatch(StripLineComments(source));
 
     // Same stripping rule the role detector uses, so both guards agree on what a "mention" is.
     private static string StripLineComments(string source)

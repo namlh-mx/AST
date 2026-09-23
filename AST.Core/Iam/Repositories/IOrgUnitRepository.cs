@@ -1,7 +1,6 @@
 using AST.Core.Data;
 using AST.Core.EffectivePeriod;
 using AST.Core.Presentation;
-using AST.Core.Time;
 using ErrorOr;
 // [Fix CS0118] The "EffectivePeriod" sub-namespace of "AST.Core" shares its name with the struct inside it ->
 // lookup favors the namespace when this file (AST.Core.Iam.Repositories) is also nested under "AST.Core". Alias with a different name.
@@ -20,15 +19,11 @@ public interface IOrgUnitRepository
     // its first version. The property above is unchanged -- both mints are on that one service -- but a reader
     // must not infer "created" from operation_kind = 'Add': a replacement successor has no Add row anywhere in
     // its history, and its creation date is the date of its FIRST row, whatever kind that row carries.
-    // WIDENED 2026-08-21 (backlog 0.7): UpsertAsync is gone from here too. EVERY org-unit version write goes
-    // through IOrgUnitDeclarationService IN PRODUCTION -- CloseVersionAsync/DeleteVersionAsync/CancelPlanAsync
-    // below are the primitives that service drives, and they remain CALLABLE by anyone holding this interface.
-    // The only production holder is OrgUnitDeclarationViewModel, which calls no writer on it (verified
-    // 2026-08-21). Say "no production caller outside the service", NOT "no write member": the earlier wording
-    // was an over-claim -- the root-close rule and its audit rows live in the SERVICE, so a
-    // direct caller of the members below skips them.
-    // AST.Meta.Tests/OrgUnitWritePathAbsenceTests guards the convention; its own header is the single home
-    // for what those legs do and do not prove.
+    // WIDENED 2026-08-21: UpsertAsync is gone from here too. IOrgUnitRepository declares no
+    // version writer. Close and Cancel go only through OrgUnitDeclarationService; there is no Delete
+    // business operation. The concrete writers remain on OrgUnitRepository and VersionedRepository<TVersion>.
+    // AST.Meta.Tests/OrgUnitWritePathAbsenceTests guards that boundary by the called member and its type;
+    // its header is what that guard does and does not prove.
 
     Task<IReadOnlyList<OrgUnitVersionDto>> GetInScopeAsync(DataScope scope, DateOnly asOf);
 
@@ -56,33 +51,6 @@ public interface IOrgUnitRepository
     Task<IReadOnlyList<OrgUnitPickerItem>> GetEligibleParentsAsync(
         DataScope scope, Period childPeriod, long? excludedSubtreeRootId = null);
 
-    // Cut/close the period: shrinks effective_to of version `versionId` down to `newTo`. Reverse-FK (D8) BLOCKS if a
-    // child (a sub-org-unit or a user belonging to this org unit) would lose coverage; a gap warning is returned alongside.
-    // `operationDate`: the caller-captured business date for this operation, same contract as
-    // CancelPlanAsync's below. `org_unit` has no close-date policy of its own — it carries the date
-    // because the base engine's close path takes it uniformly for every entity, and the entities that
-    // DO have a policy (role/permission, `Immediate`) must not be able to re-read a clock instead.
-    Task<ErrorOr<UpsertResult>> CloseVersionAsync(
-        long orgUnitId, long versionId, DateOnly newTo, OperationDate operationDate,
-        string recordedBy, string? reason);
-
-    // Delete 1 period: soft-deletes version `versionId`. The original version must still exist (blocked if it is the last active version);
-    // reverse-FK BLOCKS if a child would lose coverage.
-    Task<ErrorOr<UpsertResult>> DeleteVersionAsync(long orgUnitId, long versionId);
-
-    // Cancels a version that has NOT completed a single effective day (N6, requester decision D1
-    // 2026-08-10): isactive=0 AND status='cancelled'. `operationDate` is the CALLER-supplied operation date
-    // (design-effective-period.md §3 -- captured ONCE by the caller for this whole operation, e.g.
-    // IOrgUnitDeclarationService's derived-branch date; TASK 0, 2026-08-11), NOT re-read from any
-    // engine-internal clock -- the boundary is the caller-supplied operation date, not "business
-    // today" resolved independently inside this method. BLOCKS (Validation,
-    // VersionedRepository.NotAFuturePlan) when EffectiveFrom is strictly before `operationDate` --
-    // such a version must be retired via CloseVersionAsync instead. Reverse-FK (D8) BLOCKS if a child
-    // (a sub-org-unit or a user belonging to this org unit) would lose coverage as a result; a gap
-    // warning is returned alongside.
-    Task<ErrorOr<UpsertResult>> CancelPlanAsync(
-        long orgUnitId, long versionId, DateOnly operationDate, string recordedBy, string reason);
-
     // H2 (N9): the "affected versions" preview for a warn-before-save UI check. Returns the isactive=1
     // versions of `orgUnitId` whose period OVERLAPS `period` -- empty means a clean append (no cut/remnant
     // will happen); non-empty means the save will soft-deactivate/split at least one existing version.
@@ -93,9 +61,9 @@ public interface IOrgUnitRepository
     // fall within `scope` at ANY point in its FULL version history (active, inactive, cancelled, past,
     // present, or future alike) -- NOT just "as of today". Mirrors GetHistoryInScopeAsync's own scope
     // predicate (a unit being edited/closed may be entirely past- or future-dated, spec 2.7.6), so a
-    // caller must gate a write (edit/close) on this returning true before ever reaching
-    // CloseVersionAsync/DeleteVersionAsync/CancelPlanAsync -- those methods do NOT re-check scope
-    // themselves (spec 2.7.9 read/write split still applies: this call takes an already-resolved
+    // caller must gate a write (edit/close) on this returning true before the service reaches a concrete
+    // writer -- those writers do NOT re-check scope themselves (spec 2.7.9 read/write split still applies:
+    // this call takes an already-resolved
     // DataScope, it does not call AuthorizeAsync). Throws InvalidOperationException for ScopeLevel.Self,
     // same as GetHistoryInScopeAsync (org_unit_version has no owner column).
     Task<bool> IsWithinScopeAsync(DataScope scope, long orgUnitId);

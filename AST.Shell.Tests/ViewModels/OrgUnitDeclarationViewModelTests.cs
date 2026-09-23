@@ -116,47 +116,6 @@ public class OrgUnitDeclarationViewModelTests
             }
             return Task.FromResult(UpsertResult);
         }
-        public ErrorOr<UpsertResult> CloseResult { get; set; } = new UpsertResult(0, [], []);
-        public ErrorOr<UpsertResult> CancelPlanResult { get; set; } = new UpsertResult(0, [], []);
-        public long? LastCloseOrgUnitId { get; private set; }
-        public long? LastCloseVersionId { get; private set; }
-        public DateOnly? LastCloseNewTo { get; private set; }
-        public long? LastCancelOrgUnitId { get; private set; }
-        public long? LastCancelVersionId { get; private set; }
-        public int CancelPlanCallCount { get; private set; }
-
-        public Task<ErrorOr<UpsertResult>> CloseVersionAsync(long orgUnitId, long versionId, DateOnly newTo, OperationDate operationDate, string recordedBy, string? reason)
-        {
-            _ = operationDate;
-            LastCloseOrgUnitId = orgUnitId;
-            LastCloseVersionId = versionId;
-            LastCloseNewTo = newTo;
-            if (AutoAddWrittenIdentityToInScope
-                && !CloseResult.IsError
-                && InScopeResult.All(u => u.OrgUnitId != orgUnitId))
-            {
-                InScopeResult = InScopeResult.Append(
-                    Dto(orgUnitId, parentId: null, Today, newTo)).ToList();
-            }
-            return Task.FromResult(CloseResult);
-        }
-
-        public Task<ErrorOr<UpsertResult>> DeleteVersionAsync(long orgUnitId, long versionId) => throw new NotSupportedException();
-
-        public Task<ErrorOr<UpsertResult>> CancelPlanAsync(long orgUnitId, long versionId, DateOnly operationDate, string recordedBy, string reason)
-        {
-            CancelPlanCallCount++;
-            LastCancelOrgUnitId = orgUnitId;
-            LastCancelVersionId = versionId;
-            if (AutoAddWrittenIdentityToInScope
-                && !CancelPlanResult.IsError
-                && InScopeResult.All(u => u.OrgUnitId != orgUnitId))
-            {
-                InScopeResult = InScopeResult.Append(
-                    Dto(orgUnitId, parentId: null, Today, EffectivePeriod.OpenEnd)).ToList();
-            }
-            return Task.FromResult(CancelPlanResult);
-        }
 
         public IReadOnlyList<OrgUnitVersionDto> PreviewResult { get; set; } = [];
 
@@ -2141,8 +2100,6 @@ public class OrgUnitDeclarationViewModelTests
         Assert.Equal(1, declaration.LastRequest!.OrgUnitId);
         Assert.Equal(77, declaration.LastRequest.VersionId);
         Assert.Equal(Today.AddDays(5), declaration.LastRequest.EffectiveThrough);
-        Assert.Null(repo.LastCloseOrgUnitId);
-        Assert.Equal(0, repo.CancelPlanCallCount);
         Assert.Equal(StatusSeverity.Success, vm.Severity);
     }
 
@@ -2167,7 +2124,6 @@ public class OrgUnitDeclarationViewModelTests
         // Brief 163: S5 — no data inside operator messages; floor date is not interpolated.
         vm.Severity.Should().Be(StatusSeverity.Error);
         vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực không được khai báo trước ngày hôm qua.");
-        Assert.Null(repo.LastCloseOrgUnitId);
     }
 
     [Fact]
@@ -2188,8 +2144,6 @@ public class OrgUnitDeclarationViewModelTests
         Assert.NotNull(declaration.LastRequest);
         Assert.Equal(88, declaration.LastRequest!.VersionId);
         Assert.Null(declaration.LastRequest.EffectiveThrough);
-        Assert.Equal(0, repo.CancelPlanCallCount);
-        Assert.Null(repo.LastCloseOrgUnitId);
         Assert.Equal(StatusSeverity.Success, vm.Severity);
     }
 
@@ -3006,8 +2960,6 @@ public class OrgUnitDeclarationViewModelTests
         Assert.Equal(
             "Người dùng không được cấp quyền.",
             vm.StatusMessage);
-        Assert.Null(repo.LastCloseOrgUnitId);
-        Assert.Equal(0, repo.CancelPlanCallCount);
     }
 
     [Fact]
@@ -3033,8 +2985,6 @@ public class OrgUnitDeclarationViewModelTests
         Assert.Equal(
             "Người dùng không được cấp quyền.",
             vm.StatusMessage);
-        Assert.Equal(0, repo.CancelPlanCallCount);
-        Assert.Null(repo.LastCancelOrgUnitId);
     }
 
     // The Global-scope gate itself moved into IOrgUnitDeclarationService (2026-08-17, an earlier ruling) and is
@@ -3147,7 +3097,6 @@ public class OrgUnitDeclarationViewModelTests
         Assert.Equal(StatusSeverity.Success, vmClose.Severity);
         Assert.Equal(1, closeDecl.CloseCallCount);
         Assert.Equal(Today.AddDays(5), closeDecl.LastRequest!.EffectiveThrough);
-        Assert.Null(repoClose.LastCloseOrgUnitId);
     }
 
     [Fact]
@@ -3358,9 +3307,6 @@ public class OrgUnitDeclarationViewModelTests
         await vmPending.SaveCommand.Execute();
         Assert.Equal(1, pendingDecl.CloseCallCount);
         Assert.Null(pendingDecl.LastRequest!.EffectiveThrough);
-        Assert.Equal(0, repoPending.CancelPlanCallCount);
-        Assert.Null(repoPending.LastCloseOrgUnitId);
-
         var effectiveDecl = new FakeOrgUnitDeclarationService();
         var (vmEffective, repoEffective, _) = BuildForEdit(declaration: effectiveDecl);
         repoEffective.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
@@ -3371,8 +3317,6 @@ public class OrgUnitDeclarationViewModelTests
         await vmEffective.SaveCommand.Execute();
         Assert.Equal(1, effectiveDecl.CloseCallCount);
         Assert.Equal(Today.AddDays(5), effectiveDecl.LastRequest!.EffectiveThrough);
-        Assert.Equal(0, repoEffective.CancelPlanCallCount);
-        Assert.Null(repoEffective.LastCloseOrgUnitId);
     }
 
     [Fact]
@@ -3820,8 +3764,6 @@ public class OrgUnitDeclarationViewModelTests
         // Cancel, not retire-with-date: EffectiveThrough travels as null regardless of whatever was
         // left in the (disabled) EffectiveTo box.
         declaration.LastRequest!.EffectiveThrough.Should().BeNull();
-        repo.CancelPlanCallCount.Should().Be(0); // cancel routes through the declaration service, never the repo directly
-        repo.LastCloseOrgUnitId.Should().BeNull();
         vm.Severity.Should().Be(StatusSeverity.Success);
         // Requester decision 2026-08-10: the cancel branch must distinguish itself from an ordinary
         // close/retire so the operator's only signal after an irreversible cancel is not "Đã lưu.".

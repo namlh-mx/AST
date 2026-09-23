@@ -27,8 +27,8 @@ public sealed class AutoCutDependentTests : IamRepositoryTestBase
     private static readonly DateOnly CutAt = Today.AddDays(-1);
     private static readonly DateOnly DayAfterCut = Today;
 
-    // CloseVersionAsync is public on VersionedRepository but only IOrgUnitRepository re-declares it, so the
-    // role/function cases go through the concrete repositories (InternalsVisibleTo AST.Modules.IAM.Tests).
+    // CloseVersionAsync is public on VersionedRepository and IOrgUnitRepository does not declare it. The
+    // role and function cases call the concrete repositories.
     private RoleRepository RoleRepo => (RoleRepository)Roles;
     private FunctionRepository FunctionRepo => (FunctionRepository)Functions;
 
