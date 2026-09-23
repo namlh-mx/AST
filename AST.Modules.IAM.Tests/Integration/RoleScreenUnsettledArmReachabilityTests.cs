@@ -13,7 +13,7 @@ using MySqlConnector;
 namespace AST.Modules.IAM.Tests.Integration;
 
 // Brief 167-C (+ fix round 1): production-path probes for six unsettled role-screen Format-map arms
-// (operator-messages §1.5j). Every test carries at least one POSITIVE assertion about what happened.
+// (defensive role-screen arms; unresolved `FormatSaveError` × `BaseVersionRequired` is backlog 3.95). Every test carries at least one POSITIVE assertion about what happened.
 public sealed class RoleScreenUnsettledArmReachabilityTests : IamRepositoryTestBase
 {
     private static readonly EffectivePeriod OpenFrom2020 = new(new DateOnly(2020, 1, 1), EffectivePeriod.OpenEnd);
