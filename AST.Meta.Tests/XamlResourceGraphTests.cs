@@ -50,6 +50,35 @@ public class XamlResourceGraphTests
             + "shrinks instead of rotting:\n  " + string.Join("\n  ", resolved));
     }
 
+    // MSBuild writes <project>_<infix>_wpftmp.csproj beside the real project, outside bin\ and obj\,
+    // so MetaTest.IsGenerated does not exclude it. The infix changes per run; the suffix does not.
+    // Match the file name only.
+    internal static bool IsScannedByTheItemGlobGuard(string projectPath) =>
+        !Path.GetFileName(projectPath).EndsWith("_wpftmp.csproj", StringComparison.OrdinalIgnoreCase);
+
+    [Fact]
+    public void Fixture_TransientWpfProjectIsExcludedByFileName()
+    {
+        var directory = Directory.CreateTempSubdirectory("ast-390-wpftmp-");
+        try
+        {
+            // Identical bytes, and they trip an opt-out, so only the file name can split the result.
+            var content = "<Compile Include=\"Generated.g.cs\" />";
+            var real = Path.Combine(directory.FullName, "AST.UI.csproj");
+            var transient = Path.Combine(directory.FullName, "AST.UI_zz000000_wpftmp.csproj");
+            File.WriteAllText(real, content);
+            File.WriteAllText(transient, content);
+
+            File.ReadAllBytes(real).Should().Equal(File.ReadAllBytes(transient));
+            IsScannedByTheItemGlobGuard(real).Should().BeTrue();
+            IsScannedByTheItemGlobGuard(transient).Should().BeFalse();
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
     // META guard — XamlResourceGraph's universe is "every file under a project directory named in
     // AST.slnx". That equals what MSBuild compiles only while two things hold: no project opts out
     // of the default item globs, and no project nests inside another. A violation is silent in
@@ -62,7 +91,7 @@ public class XamlResourceGraphTests
         var root = MetaTest.RepoRoot();
         var projects = Directory
             .EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories)
-            .Where(f => !MetaTest.IsGenerated(root, f))
+            .Where(f => !MetaTest.IsGenerated(root, f) && IsScannedByTheItemGlobGuard(f))
             .OrderBy(f => f, StringComparer.Ordinal)
             .ToList();
 
