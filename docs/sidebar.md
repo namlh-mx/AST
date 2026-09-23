@@ -1,6 +1,6 @@
 # Shell sidebar (settled model)
 
-The shell sidebar is the app's main navigation menu. This documents the **as-built** model.
+The shell sidebar is the app's main navigation menu.
 
 ## 1. Structure — 2 levels, data-driven
 
@@ -23,7 +23,7 @@ The shell sidebar is the app's main navigation menu. This documents the **as-bui
   read happens in `MainWindow.xaml.cs`'s `OnLoaded`, which fires after modules have loaded and the app's own
   startup registration has run. Never rebuilt after that first read — a later `IFunctionRegistry.Register`
   call is a logged no-op for the sidebar this session.
-- **Sidebar filtering by permission was considered and explicitly rejected** — every read/write on every
+- **Do not filter the sidebar by permission.** Every read/write on every
   declared screen already fails closed via `IAuthorizationService` at the data layer, so hiding a menu item
   buys no additional security; worse, it would make the "Cấu hình" footer entry (the rescuer's only path to
   fix a broken DB connection) depend on the DB being reachable to even render, which is backwards. Do not
@@ -41,12 +41,12 @@ The shell sidebar is the app's main navigation menu. This documents the **as-bui
   pane header drives `IsPaneOpen` from code-behind.
 - **No native flyout.** Collapsed-rail group access: clicking an L1 group icon **auto-opens the pane and
   expands that group**; the pane then **auto-collapses** after the user opens a screen (leaf click) or clicks
-  outside the sidebar. A **manual** toggle-open is sticky (does not auto-collapse). (Locked.)
+  outside the sidebar. A **manual** toggle-open is sticky (does not auto-collapse).
 - **Accordion (single-expand)**: expanding one L1 group collapses the others; collapsing the pane collapses
   all groups. Driven from `MainWindow` code-behind by observing the built-in `NavigationViewItem.IsExpanded`
   / `NavigationView.IsPaneOpen` DPs — no template changes.
 - **Built-in visual cues only** — the parent chevron and child indent are WPF-UI's own; no custom
-  chevron/dot templates, no auto-hover/pin. ("Built-in only, no hand-rolled template", locked 2026-07-10.)
+  chevron/dot templates, no auto-hover/pin.
 - Interactive-state colours map to the brand palette in `Resources/DesignSystem/WpfUiOverrides.xaml`. Leaf
   hover foreground is driven from code-behind: WPF-UI 4.3's child-item template only changes Background on
   hover.
@@ -71,9 +71,6 @@ The shell sidebar is the app's main navigation menu. This documents the **as-bui
   `OrgUnitDeclarationView`, gated by `role_permission` on `Iam.OrgUnit.Declare` (not `IAdminSession`).
 - **User area**: pane-header placeholder — a `PersonCircle24` icon + "Người dùng" label; the label is shown
   only while the pane is open.
-- **Home affordance**: Home is **not** a sidebar item and there is **no separate Home button**. The **"AST"
-  title text** in the title-bar band IS the Home affordance: clicking it navigates to `DashboardView` via the
-  same `NavigateCommand`, and it turns **bold + brand red** while Dashboard is the shown screen.
 - **Active highlight (one target tracks the SHOWN screen)**: the active leaf and its parent L1 group icon
   co-highlight. A **group's own `IsActive` is never set**. Fill follows the shown screen only: **browsing a
   group header does NOT fill it**.
@@ -85,11 +82,9 @@ The shell sidebar is the app's main navigation menu. This documents the **as-bui
     navigations that never touch the sidebar (startup, a Trạm cấu hình card) update it correctly.
   - **Resolution never guesses.** Every placeholder leaf targets the same view, so a view name alone does not
     identify a leaf; the leaf title (a navigation parameter) breaks the tie. If it still cannot decide, **no
-    leaf is lit** — a blank sidebar is honest, a wrong leaf is a lie.
+    leaf is lit**.
   - **A leaf may own views that are not leaves.** Screens reachable only through Trạm cấu hình stay resolved
     to the `Cấu hình` hub, which therefore stays lit while one of them is shown. Ownership is a fallback and
     can never override a real leaf.
   - Painting is `MainWindow` code-behind; which leaf to paint is decided in `MainWindowViewModel`, which holds
     no WPF types.
-- **Connection status**: a single dot at the bottom-left of the status bar (no clock); per-screen status
-  lives on each screen, not a global banner.

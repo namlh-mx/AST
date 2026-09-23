@@ -28,13 +28,13 @@ CommunityToolkit.Mvvm — do not introduce `[ObservableProperty]`/`RelayCommand`
      backing service at all: `Dashboard`, `ComingSoon`, `Help`. Stays flat under `AST/Views/`.
 - ViewModels: same domain subfolder under `AST.Shell/ViewModels/<Domain>/<Name>ViewModel.cs`.
   BCL-only presentation VMs the shell owns live here, never in a business module project
-  (rule-module-boundary — Presentation is deliberately centralized, see below).
+  (rule-module-boundary — Presentation is deliberately centralized).
   **Exception:** a VM that needs `Prism.Wpf` directly (e.g. `IRegionManager` for its own
   navigation calls, which `AST.Shell` cannot reference — plain `net10.0`, no WPF) lives in
   the exe's own `AST/ViewModels/<Domain>/<Name>ViewModel.cs` instead — today's one instance
   is `ConfigurationStationViewModel`.
 - The subfolder convention exists because `AST/Views/` and `AST.Shell/ViewModels/` are NOT split into
-  per-module assemblies. Every existing screen follows it; a new screen follows it from the start.
+  per-module assemblies. A new screen follows it from the start.
 - Converters: `AST.UI/Converters/`. Behaviors: `AST/Behaviors/`.
 - Design-system brushes / typography: `AST.UI/Resources/DesignSystem/WpfUiOverrides.xaml` —
   reuse these keys via `{DynamicResource ...}`, do NOT hard-code colors. Common keys:
@@ -56,7 +56,7 @@ Two hard WPF-UI constraints are WHY (a nested hub silently breaks both, and only
 **Module UIs do NOT re-merge these** — they render inside the shell window and inherit the app-global resources.
 Full rationale: the design record (2026-07-18) +.
 
-## Screen layout standard (no-scroll, star-sizing) — approved 2026-07-13
+## Screen layout standard (no-scroll, star-sizing)
 A screen shows all its parts without a window scrollbar. Default shape:
 - Root is a `Grid` that FILLS the content area — NOT an outer `ScrollViewer`
   (`*` sizing is a no-op inside a vertical ScrollViewer, so the outer ScrollViewer
@@ -70,7 +70,7 @@ A screen shows all its parts without a window scrollbar. Default shape:
   on a small display.
 
 ## Screen anatomy standard (screen-anatomy v2, `AST.UI`)
-Shell chrome (title bar / sidebar / startup banner / Prism `ContentRegion`) is drawn by the shell, never a
+Shell chrome (title bar / sidebar / status bar / Prism `ContentRegion`) is drawn by the shell, never a
 screen. A screen's own body assembles from a small, fixed set of shared blocks — do not hand-build a
 substitute per screen:
 1. **Screen header** (icon + title + optional Back affordance) — on every screen.
@@ -106,19 +106,21 @@ divider line. A screen wraps its body in **`controls:AstScreen`** instead of han
 sidebar toggle centre), the header row, the status-band row, then the body row at `Margin="0,6,0,0"`.
 It composes `AstScreenHeader` and `AstStatusBand`.
 `BackCommand` is a dumb passthrough — it carries NO navigation authority; the view still owns Prism
-`RequestNavigate` (`templates/WPF-CONVENTIONS.md` Agent rules).
+`RequestNavigate` (Agent rules).
 
-### Shell title-bar band + "AST" as the Home affordance (`MainWindow` only, chrome)
+### Shell chrome (`MainWindow` only)
 `MainWindow` Row0 is an explicit ~64px band; `ui:TitleBar VerticalAlignment="Top"` keeps the OS caption
 buttons at the natural ~32px top strip. The **"AST" title text** (in `TitleBar.Header`, left) IS the Home
-affordance — there is **no separate Home button**: clicking it navigates the content region to Dashboard,
-and it turns **bold + brand red** (`#89002a`) while Dashboard is the shown screen. This is chrome only;
-the click drives content navigation through the shell's own `NavigateCommand`
+affordance — Home is **not** a sidebar item and there is **no separate Home button**: clicking it navigates
+the content region to Dashboard, and it turns **bold + brand red** (`#89002a`) while Dashboard is the shown
+screen. This is chrome only; the click drives content navigation through the shell's own `NavigateCommand`
 (the same one the sidebar leaves use) and the shell owns the active-highlight state (exactly one of
 {AST, a sidebar path} reads as active) — it is never shell navigation authority. `SetAstActive` in
 code-behind toggles the bold+red.
 
-### Multi-workstation layout stability — size follows the WINDOW, not the CONTENT (approved 2026-07-14)
+**Connection status**: a single dot at the bottom-left of the status bar (no clock); per-screen status lives on each screen, not a global banner.
+
+### Multi-workstation layout stability — size follows the WINDOW, not the CONTENT
 A region's size/position is a function of the WINDOW, never of its content. A content change
 (load / add / remove / edit) must never move or resize any other region. Two axes:
 - Content change → must NOT move anything; overflow is absorbed INSIDE the region (internal scroll
@@ -224,10 +226,10 @@ Copy the shape, not the content — it is not a working feature.
 
 ## Form & control chrome standards (UI design — locked growing list)
 
-Single home for reusable chrome. A UI standard has **one home** — a keyed `Ast*` style in
+A UI standard has **one home** — a keyed `Ast*` style in
 `AST.UI/Resources/DesignSystem/Controls.xaml`, or a shared control in `AST.UI/Controls/` (e.g. `AstPasswordBox`,
-`AstStatusBand`) — and applies to **every** screen; never a per-view copy. The standard set grows as
-screens are built. Tokens live in `Palette.xaml` / `Typography.xaml` / `Spacing.xaml` — do not hard-code
+`AstStatusBand`) — and applies to **every** screen; never a per-view copy.
+Tokens live in `Palette.xaml` / `Typography.xaml` / `Spacing.xaml` — do not hard-code
 hex in views.
 
 ### Text input placeholders
@@ -237,8 +239,8 @@ hex in views.
   is picked) — that is a state, not a typing hint.
 
 ### Password fields
-- Control: **`controls:AstPasswordBox`** (`AST.UI/Controls/AstPasswordBox.cs`) only — never stock `PasswordBox`,
-  and no longer raw `ui:PasswordBox`. Apply the keyed style **`AstPasswordBox`** to it as before.
+- Control: **`controls:AstPasswordBox`** (`AST.UI/Controls/AstPasswordBox.cs`) only — never stock `PasswordBox`
+  or raw `ui:PasswordBox`. Apply the keyed style **`AstPasswordBox`** to it.
   **Why the subclass is mandatory (do not "simplify" it away):** WPF-UI 4.3's `PasswordBox` syncs
   *Text -> Password* only while the password is revealed, so a programmatic clear (a ViewModel wiping the
   field on reuse/clear/navigate-away) is reverted from the visible text AND the stale secret is pushed back
@@ -263,7 +265,7 @@ hex in views.
   - **wiping the form** in `OnNavigatedFrom`.
 - **Do not hand-roll either behaviour per screen.** Prism reuses a view *and* its ViewModel
   (`IsNavigationTarget => true`), so anything typed survives navigation unless the screen clears it — and a
-  screen that forgets leaks a secret. That is a real defect this project has already shipped once.
+  screen that forgets leaks a secret.
 - `HasUnsavedInput` means **touched AND non-empty** — never just non-empty. A just-opened screen, a cleared
   form and a saved form must all leave silently, or the confirmation trains operators to dismiss it.
 - `Clear()` resets **every** field the operator can type into, including file paths and pending list edits —
@@ -327,7 +329,7 @@ hex in views.
   code-behind click handler to hand-wire. The view exposes a `DelegateCommand` set **before**
   `InitializeComponent` (so the header's binding reads it on first layout) that `RequestNavigate`s to the
   parent view; the header never navigates itself (`AST.UI/Controls/AstScreenHeader.xaml.cs`) — the consuming
-  view keeps navigation authority (`templates/WPF-CONVENTIONS.md` Agent rules). The Prism `ConfirmNavigationRequest` leave-confirm still fires (it
+  view keeps navigation authority (Agent rules). The Prism `ConfirmNavigationRequest` leave-confirm still fires (it
   is triggered by navigating away, not by the header click). **Unlike** the shell "AST" home text, the
   screen header is **NOT** highlighted — it just carries the hand cursor. Sidebar-leaf screens have no
   parent, so their header has no `BackCommand` and stays a plain (non-clickable) label.
@@ -344,20 +346,16 @@ cannot decide, never a preference.
    known-bad control in the same capture lifetime; a dead listener reads as a clean screen.
 3. **A distance in pixels** — measure ink, below.
 4. **What it looks like** — render the element off-screen, cropped to the region in dispute, and
-   read the PNG. Start at 96 DPI: a 540×210 crop costs 160 visual tokens and carried diacritics,
-   fill colours and the enabled/disabled distinction on the sample that set this rule, where twice
-   the DPI cost 585 and added nothing. Raise the resolution when the read cannot decide.
-5. **Whole-screen composition** — the same render at the screen's own size, once; 1,196 tokens at
-   1280×720, 2,691 at 1920×1080.
+   read the PNG. Start at 96 DPI. Raise the resolution when the read cannot decide.
+5. **Whole-screen composition** — the same render at the screen's own size, once.
 6. **Application-level resource placement, brand accent, window chrome** — of the instruments here
    only the running application decides these, on a run the requester grants; `OffscreenHost` carries the merge on the
    window too, so it cannot tell an effective retint from an ineffective one.
 7. **The acceptance names F5, or the answer needs the requester's monitor** — ask the requester.
 
 An image costs `⌈width/28⌉ × ⌈height/28⌉` visual tokens where the reading agent takes 28-pixel
-patches at its high-resolution tier, counted after any resize it applies; every figure above is an
-estimate for that regime, so check the reading agent's own rules before carrying one elsewhere.
-The crop is the saving. Render synthetic
+patches at its high-resolution tier, counted after any resize it applies.
+Render synthetic
 fixtures, never real records, and write images outside the repository. A gesture or navigation
 sequence a hosted test cannot reproduce needs a UI-automation driver and a stable `AutomationId` —
 its own task, not a step here.
