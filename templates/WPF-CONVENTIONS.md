@@ -46,6 +46,8 @@ The shared design system lives in `AST.UI` (`Resources/DesignSystem/*.xaml`), bu
 merges it **FLAT and app-global** — never wrap it in a nested aggregate "hub" `ResourceDictionary`. Merge
 order (LOCKED, WpfUiOverrides LAST so its retints win):
 `ui:ThemesDictionary → ui:ControlsDictionary → Palette → Typography → Spacing → Controls → WpfUiOverrides`.
+The Light theme resolves from `ui:ThemesDictionary Theme="Light"` alone; no `ApplicationThemeManager` call is
+required (requester F5, 2026-10-10).
 Two hard WPF-UI constraints are WHY (a nested hub silently breaks both, and only F5 shows it):
 - **`ui:ThemesDictionary` must be a top-level member of `Application.Resources.MergedDictionaries`** — the
   runtime brand accent (`ApplicationAccentColorManager.Apply` in `App.xaml.cs`) finds it only there; nesting

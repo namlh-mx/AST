@@ -576,12 +576,6 @@
 
                                                 </DataTrigger>
 
-                                                <DataTrigger Binding="{Binding Mode}" Value="Editing">
-
-                                                    <Setter Property="IsEnabled" Value="True" />
-
-                                                </DataTrigger>
-
                                                 <DataTrigger Binding="{Binding Mode}" Value="Replacing">
 
                                                     <Setter Property="IsEnabled" Value="True" />
@@ -665,12 +659,6 @@
                                                     <Style.Triggers>
 
                                                         <DataTrigger Binding="{Binding Mode}" Value="Adding">
-
-                                                            <Setter Property="IsEnabled" Value="True" />
-
-                                                        </DataTrigger>
-
-                                                        <DataTrigger Binding="{Binding Mode}" Value="Editing">
 
                                                             <Setter Property="IsEnabled" Value="True" />
 

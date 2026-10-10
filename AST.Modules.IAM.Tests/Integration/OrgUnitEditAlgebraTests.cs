@@ -9,7 +9,7 @@ namespace AST.Modules.IAM.Tests.Integration;
 
 // B1 T3+ — org-unit edit-algebra additions beyond the base 8-case suite already covered in
 // OrgUnitRepositoryTests.cs: the optional §2.4 supplemental catalog (this file), P6 code uniqueness,
-// cancel-plan, and the H2/temporal-FK matrix land here in later tasks (T4-T6).
+// cancel-plan, and the temporal-FK matrix land here in later tasks (T4-T6).
 public sealed class OrgUnitEditAlgebraTests : IamRepositoryTestBase
 {
     private static readonly EffectivePeriod OpenFrom2020 = new(new DateOnly(2020, 1, 1), EffectivePeriod.OpenEnd);
@@ -357,25 +357,6 @@ public sealed class OrgUnitEditAlgebraTests : IamRepositoryTestBase
                 new EffectivePeriod(new DateOnly(2020, 10, 1), new DateOnly(2020, 10, 31)), // p2 tail remnant
             ],
             active.OrderBy(p => p.From));
-    }
-
-    // H2 (N9): the warn-before-save affected list -- isactive=1 versions whose period OVERLAPS the
-    // candidate save period. Disjoint/gap-adjacent -> empty (clean append); any overlap -> non-empty.
-    [Theory]
-    [InlineData("2019-01-01", "2019-12-31", 0)] // disjoint before -> clean
-    [InlineData("2021-01-01", "2021-12-31", 0)] // disjoint after (gap-free adjacency not tested here) -> clean
-    [InlineData("2020-06-01", "2020-12-31", 1)] // overlaps tail -> affected
-    [InlineData("2020-01-01", "2020-12-31", 1)] // exact match -> affected
-    public async Task PreviewUpsertAsync_OverlapPredicate(string from, string to, int expectedAffected)
-    {
-        SkipUnlessDbAvailable();
-
-        var id = await CreateOrgUnitAsync(
-            "H2", "Đơn vị H2", "H2", null, new EffectivePeriod(new DateOnly(2020, 1, 1), new DateOnly(2020, 12, 31)));
-
-        var affected = await OrgUnits.PreviewUpsertAsync(id, new EffectivePeriod(DateOnly.Parse(from), DateOnly.Parse(to)));
-
-        Assert.Equal(expectedAffected, affected.Count);
     }
 
     // N2: an open-ended child requires its parent to cover all the way to the open end -- a parent that

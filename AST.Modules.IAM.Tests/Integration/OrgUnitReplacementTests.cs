@@ -47,8 +47,7 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
             authorization ?? new FakeAuthorizationService(new DataScope(ScopeLevel.Global, null, actor)),
             new FakeCurrentWindowsUser(actor),
             new FixedBusinessDateProvider(Today),
-            breakGlass ?? new FakeBreakGlassPolicy(),
-            new PeriodEditor());
+            breakGlass ?? new FakeBreakGlassPolicy());
 
     private OrgUnitDeclarationService BuildBreakGlassService(IAuditLogWriter? auditLog = null) =>
         BuildService(auditLog: auditLog, breakGlass: new FakeBreakGlassPolicy(Actor));
@@ -460,8 +459,7 @@ public sealed class OrgUnitReplacementTests : IamRepositoryTestBase
         // Same-period edit soft-deactivates the Add row (status stays normal, no successor link).
         var edited = await BuildService().EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                predecessor, firstVersionId, parent, p1, null,
-                "R22OLD", "Đơn vị R22 đổi tên", "R22OLD", "sửa tên", null));
+                predecessor, firstVersionId, parent, "Đơn vị R22 đổi tên", "R22OLD", "sửa tên", null));
         edited.IsError.Should().BeFalse(DescribeErrors(edited.Errors));
 
         // Adjacent second active slice (algebra case 2) — keeps the prior inactive row untouched.

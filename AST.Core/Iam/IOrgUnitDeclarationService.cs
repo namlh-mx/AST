@@ -64,11 +64,12 @@ public interface IOrgUnitDeclarationService
 
     // Third use-case (backlog 0.7, 2026-08-21): edit an EXISTING org unit's business fields.
     //
-    // The load-bearing property, and the reason this method exists at all: a new parent is
-    // UNEXPRESSIBLE, not rejected. EditOrgUnitDeclarationRequest carries no "desired parent" field, so
-    // there is no rejection branch a caller can probe and no way to ask for a re-parenting in the first
-    // place. The value written is the one this service reads back under the identity lock — never a
-    // value the caller supplied.
+    // The load-bearing property, and the reason this method exists at all: a new parent, a new
+    // effective period, an end date and a new org code are UNEXPRESSIBLE, not rejected.
+    // EditOrgUnitDeclarationRequest carries none of those fields, so there is no rejection branch a
+    // caller can probe and no way to ask for them. The parent, the period and the org code written are
+    // the ones this service reads back under the identity lock for ExpectedVersionId — never a value the
+    // caller supplied, and never another active row's (D-37).
     //
     // Two more, same posture as the two methods above:
     //   - the actor and the authorization scope are derived server-side (ICurrentWindowsUser /
@@ -78,14 +79,10 @@ public interface IOrgUnitDeclarationService
 
     // Fifth gesture (docs/design-iam-foundation.md §(9)): replace one org unit WHOLLY with a
     // corrected declaration. This is NOT a Close and NOT an Edit -- a Close says the unit existed and now
-    // ends; an Edit may not touch the parent, which is UNEXPRESSIBLE in EditOrgUnitDeclarationRequest. A
-    // replacement says the record was never right, and declares a new identity in its place.
-    //
-    // NOT a claim about the period or the org code AS SHIPPED. Under the requester's five-gesture model
-    // (2026-09-04) those belong to Thay the alone -- but EditOrgUnitDeclarationRequest still carries
-    // `Period` and `OrgCode` and the Edit path still writes them. Locking them out of Sua is backlog 3.29,
-    // deliberately blocked on this gesture existing. Do not read the target model as the current contract.
-    // Found by review 240 (F-240-06), after the same over-claim was corrected in the glossary.
+    // ends; an Edit may not touch the parent, the effective period or the org code, which are
+    // UNEXPRESSIBLE in EditOrgUnitDeclarationRequest (D-37). A replacement says the record was never
+    // right, and declares a new identity in its place. It is the gesture that supplies a different parent,
+    // org code or effective period.
     //
     // Load-bearing properties an implementation may not relax:
     //   - the actor and the authorization scope are derived server-side, so the request carries neither,
@@ -105,30 +102,7 @@ public interface IOrgUnitDeclarationService
     //     MySQL checks immediately. That split is an invariant, not an optimisation.
     Task<ErrorOr<ReplaceOrgUnitDeclarationResult>> ReplaceOrgUnitDeclarationAsync(
         ReplaceOrgUnitDeclarationRequest request);
-
-    // The canonical preview for an Edit. Returns the operations the write WOULD
-    // perform that carry the old business data -- the remnants -- computed by THE SAME IPeriodEditor the
-    // write path runs. It is ADVISORY: the service re-plans under the identity lock regardless and the
-    // service's own plan is what gets written. Nothing compares the two -- a single admin
-    // declares at a time, so the confirm-to-save window is accepted.
-    //
-    // The ViewModel must never call IPeriodEditor itself. The algebra keeps ONE
-    // caller layer, which is the whole reason this member exists rather than a VM-side derivation.
-    //
-    // `endsOn` is a parameter because it changes the answer: with it set, the upsert period's end is the
-    // STORED end and the tail remnant the operator would otherwise see does not appear.
-    Task<ErrorOr<IReadOnlyList<PreviewedRemnant>>> PreviewEditAsync(
-        long orgUnitId, long expectedVersionId, Period period, DateOnly? endsOn);
 }
-
-// One remnant the Edit would leave behind: a stretch that survives the save carrying the OLD business
-// values, with only its period changed.
-//
-// NO SourceVersionId: it was on this record for one consumer only -- a confirmed-plan
-// signature -- and that is deferred. A field nothing reads is a
-// claim wider than its use. That signature is SUSPENDED, not deleted: restoring the field
-// re-opens the same reasoning.
-public sealed record PreviewedRemnant(Period Period);
 
 // `Period` is caller-supplied: `org_unit` is a Declared entity (docs/design-temporality-classes.md), so
 // unlike the Immediate role/permission side a start other than today is legal and must not be derived.
@@ -163,7 +137,7 @@ public sealed record ReplaceOrgUnitDeclarationRequest(
 
 public sealed record ReplaceOrgUnitDeclarationResult(long OrgUnitId, UpsertResult Write);
 
-// NO desired-parent field: re-parenting is unexpressible, which is a stronger guarantee than rejecting it.
+// The request has no parent, period, end-date or org-code field, each unexpressible (D-37).
 //
 // `ExpectedParentId` and `ExpectedVersionId` are what the caller READ, echoed back. They are not the
 // caller asserting a parent: the service pre-enlists `ExpectedParentId` so the composite's up-front lock
@@ -184,31 +158,11 @@ public sealed record ReplaceOrgUnitDeclarationResult(long OrgUnitId, UpsertResul
 // because it is optional. It is a required positional parameter: a correctness-carrying parameter ships
 // required, never with a default.
 //
-// `Period` is caller-supplied for the same reason it is on Add: `org_unit` is a Declared entity
-// (docs/design-temporality-classes.md), so a start other than today is legal and must not be derived.
-//
-// `EndsOn` is the operator's answer to the save-time confirm, not a second period field:
-//   - null  -> the ordinary Edit. The 8-case algebra runs and whatever remnants it produces stand.
-//   - a date -> "the unit ENDS on that date". The service writes the edited values over [Period.From,
-//               EndsOn] and leaves NO tail, by running the existing Close on the row the upsert just
-//               wrote, inside the SAME transaction.
-//
-// It is a REQUIRED positional parameter with no default. A correctness-carrying parameter ships
-// required -- a defaulted one would let an existing caller silently keep the old behaviour after a
-// semantic change.
-//
-// It is NOT "the end of the period": Period.To still says what the operator typed. When EndsOn is set
-// the two are expected to be equal for a tail-shortening save, and the service does not require them to
-// be -- see the ordering note on EditOrgUnitDeclarationAsync.
-//
 // No actor and no scope field, and no operation kind -- all derived server-side.
 public sealed record EditOrgUnitDeclarationRequest(
     long OrgUnitId,
     long ExpectedVersionId,
     long? ExpectedParentId,
-    Period Period,
-    DateOnly? EndsOn,
-    string OrgCode,
     string OrgNameFullVn,
     string OrgNameShortVn,
     string? Reason,

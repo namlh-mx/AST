@@ -39,7 +39,7 @@
 | bị hủy (kế hoạch tương lai) | cancelled (plan) | `org_unit_version.status = 'cancelled'` + `isactive = 0`: a future version closed before it took effect (distinct from a naturally-ended/superseded version) |
 | bị thay thế | replaced | `org_unit_version.status = 'replaced'` + `isactive = 0` + a non-null `replaced_by_org_unit_id`. Org-unit only in v1 |
 | đóng (đơn vị) | close / retire (an org unit) | the gesture that ends an OPERATING unit: *it existed, and now it ends*. Last effective day ≥ `today - 1`. Leaves the rows `normal`; the history stays true |
-| thay thế (đơn vị) | replace (an org unit) | the gesture that replaces ONE unit wholly; only route that can change PARENT or org code. Design: `docs/design-iam-foundation.md` §(9) |
+| thay thế (đơn vị) | replace (an org unit) | the gesture that replaces ONE unit wholly; only route that can change PARENT, org code or effective-from (D-37). Design: `docs/design-iam-foundation.md` §(9) |
 | dữ liệu lịch sử bất biến | immutable history | recorded data is not changed afterwards. Mechanism: the *đóng băng / freeze* row — a recorded transaction points at a version row |
 | vai trò | role | `role` |
 | mã vai trò | role code | `role_version.role_code`, business code / natural key (P6) |

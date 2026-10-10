@@ -171,17 +171,13 @@ internal sealed class OrgUnitRepository
     // Every ACTIVE version's own period, read under the composite's own lock so the answer is authoritative
     // rather than merely recent -- the same posture as GetActiveParentIdsAsync above, and for the same
     // reason: a period read before the lock is decidable against a value that can change under it.
-    //
-    // ONE read serving three questions the Edit path asks together: has the
-    // requested period changed at all, where does the edited version END, and does any OTHER active version
-    // still cover days beyond the operator's end date. Three separate reads would be three chances for the
-    // answers to disagree with each other.
     internal async Task<IReadOnlyList<ActiveVersionPeriod>> GetActivePeriodsAsync(
         ICompositeWriteContext context, long orgUnitId)
     {
-        var rows = await context.Connection.QueryAsync<(long Id, DateOnly EffectiveFrom, DateOnly EffectiveTo)>(
+        var rows = await context.Connection.QueryAsync<(long Id, DateOnly EffectiveFrom, DateOnly EffectiveTo, string OrgCode)>(
             """
-            SELECT id AS Id, effective_from AS EffectiveFrom, effective_to AS EffectiveTo
+            SELECT id AS Id, effective_from AS EffectiveFrom, effective_to AS EffectiveTo,
+                   org_code AS OrgCode
             FROM org_unit_version
             WHERE org_unit_id = @orgUnitId AND isactive = 1
             """,
@@ -189,7 +185,8 @@ internal sealed class OrgUnitRepository
             transaction: context.Transaction);
 
         return rows
-            .Select(r => new ActiveVersionPeriod(r.Id, new EffectivePeriod(r.EffectiveFrom, r.EffectiveTo)))
+            .Select(r => new ActiveVersionPeriod(
+                r.Id, new EffectivePeriod(r.EffectiveFrom, r.EffectiveTo), r.OrgCode))
             .ToList();
     }
 
@@ -539,35 +536,6 @@ internal sealed class OrgUnitRepository
         OperationDate operationDate, string recordedBy, string? reason) =>
         base.CloseVersionAsync(context, orgUnitId, versionId, newTo, operationDate, recordedBy, reason);
 
-    // H2 (N9): read-only preview of isactive=1 versions whose period overlaps the proposed upsert period.
-    public async Task<IReadOnlyList<OrgUnitVersionDto>> PreviewUpsertAsync(long orgUnitId, EffectivePeriod period)
-    {
-        var businessSelect = string.Join(", ", BusinessColumns.Select(c => $"{c.Column} AS {c.Property}"));
-        var sql =
-            $"""
-            SELECT id AS Id,
-                   org_unit_id AS IdentityId,
-                   effective_from AS EffectiveFrom,
-                   effective_to AS EffectiveTo,
-                   isactive AS IsActive,
-                   recorded_at AS RecordedAt,
-                   recorded_by AS RecordedBy,
-                   reason AS Reason,
-                   status AS Status,
-                   {businessSelect}
-            FROM org_unit_version
-            WHERE isactive = 1 AND org_unit_id = @orgUnitId
-            """;
-
-        using var connection = Connections.CreateConnection();
-        var rows = await connection.QueryAsync<OrgUnitVersionEntity>(sql, new { orgUnitId });
-
-        return rows
-            .Where(r => new EffectivePeriod(r.EffectiveFrom, r.EffectiveTo).Overlaps(period))
-            .Select(ToDto)
-            .ToList();
-    }
-
     // Full timeline of identities IN `scope` — every version ever recorded (active, inactive,
     // cancelled alike), no isactive/period filter. History-grid read (Phase 4d). `orgUnitId` null
     // means every identity in scope; the scope predicate is applied server-side (mirrors
@@ -732,10 +700,10 @@ internal sealed class OrgUnitRepository
             e.ParentOrgNameShortVnAsOf);
 }
 
-// One ACTIVE version's identity and period, as read under a composite write's own lock. Internal on
-// purpose: it exists so OrgUnitDeclarationService can ask which version ends where without the entity
+// One ACTIVE version's identity, period and org code, as read under a composite write's own lock. Internal on
+// purpose: Edit reads this version's own period and org code from it (D-37) without the entity
 // leaving the data layer (rule-module-boundary item 2), and no public contract carries it.
-internal sealed record ActiveVersionPeriod(long VersionId, EffectivePeriod Period);
+internal sealed record ActiveVersionPeriod(long VersionId, EffectivePeriod Period, string OrgCode);
 
 // One ACTIVE predecessor version for the Thay thế gesture's [4a] read: id, period and parent_id together.
 // Sibling of ActiveVersionPeriod — that type deliberately omits parent_id (Edit asks periods and parents

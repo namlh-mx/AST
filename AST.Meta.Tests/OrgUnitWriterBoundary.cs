@@ -8,8 +8,8 @@ using System.Xml.Linq;
 
 namespace AST.Meta.Tests;
 
-// IL scan of the four production assemblies that can reach an org-unit version writer.
-// The claim, the allowed callers and the exclusions are the header of OrgUnitWritePathAbsenceTests.
+// IL scan of the four production assemblies that can reach an org-unit writer.
+// The claim, the per-writer allowed callers and the exclusions are the header of OrgUnitWritePathAbsenceTests.
 internal static class OrgUnitWriterBoundary
 {
     internal static readonly string[] Projects =
@@ -38,7 +38,19 @@ internal static class OrgUnitWriterBoundary
         "CancelPlanAsync",
         "MarkVersionInactiveForReplaceAsync",
         "StampVersionReplacedAsync",
+        "CreateIdentityAsync",
+        "DeleteEmptyIdentityAsync",
     };
+
+    // Identity writers. Version-writer pins keep the three callers in IsAllowed.
+    private const string ContextMint =
+        "CreateIdentityAsync(AST.Infrastructure.ICompositeWriteContext) -> System.Threading.Tasks.Task`1<Int64>";
+
+    private const string OwnConnectionMint =
+        "CreateIdentityAsync() -> System.Threading.Tasks.Task`1<Int64>";
+
+    private const string EmptyHeaderDelete =
+        "DeleteEmptyIdentityAsync(Int64) -> System.Threading.Tasks.Task";
 
     // Reference-type nullability is erased. Nullable value types stay Nullable<T>. !0 is TVersion.
     private static readonly string[] VersionedRepositoryPins =
@@ -55,6 +67,9 @@ internal static class OrgUnitWriterBoundary
 
     private static readonly string[] OrgUnitRepositoryPins =
     [
+        ContextMint,
+        OwnConnectionMint,
+        EmptyHeaderDelete,
         "CancelPlanAsync(AST.Infrastructure.ICompositeWriteContext,Int64,Int64,System.DateOnly,String,String) -> System.Threading.Tasks.Task`1<ErrorOr.ErrorOr`1<AST.Core.Data.UpsertResult>>",
         "CancelPlanAsync(Int64,Int64,System.DateOnly,String,String) -> System.Threading.Tasks.Task`1<ErrorOr.ErrorOr`1<AST.Core.Data.UpsertResult>>",
         "CloseVersionAsync(AST.Infrastructure.ICompositeWriteContext,Int64,Int64,System.DateOnly,AST.Core.Time.OperationDate,String,String) -> System.Threading.Tasks.Task`1<ErrorOr.ErrorOr`1<AST.Core.Data.UpsertResult>>",
@@ -592,9 +607,12 @@ internal static class OrgUnitWriterBoundary
 
                 var caller = Walk(assembly.Reader, method.GetDeclaringType());
                 var callerName = TypeFullName(assembly.Reader, caller);
-                if (IsAllowed(assembly.AssemblyName, callerName))
+                var target = Format(resolved.Name!, resolved.Signature, substitution);
+                if (IsAllowed(target, assembly.AssemblyName, callerName))
                 {
-                    if (assembly.AssemblyName == IamAssembly && callerName == DeclarationService)
+                    if (target != ContextMint
+                        && assembly.AssemblyName == IamAssembly
+                        && callerName == DeclarationService)
                     {
                         serviceUses++;
                     }
@@ -605,7 +623,7 @@ internal static class OrgUnitWriterBoundary
                 offenders.Add(
                     Mnemonic(code) + " " + (parentClass == ParentClass.Open ? "open" : "orgunit")
                     + " " + callerName
-                    + " target=" + Format(resolved.Name!, resolved.Signature, substitution)
+                    + " target=" + target
                     + " @ " + location.Text);
             }
         }
@@ -805,10 +823,22 @@ internal static class OrgUnitWriterBoundary
             ? inst.Args
             : null;
 
-    private static bool IsAllowed(string assembly, string fullName) =>
-        (assembly == IamAssembly && fullName == DeclarationService)
-        || (assembly == IamAssembly && fullName == OrgUnitRepository)
-        || (assembly == InfrastructureAssembly && fullName == VersionedRepository);
+    private static bool IsAllowed(string target, string assembly, string fullName)
+    {
+        if (target == ContextMint)
+        {
+            return assembly == IamAssembly && fullName == DeclarationService;
+        }
+
+        if (target == OwnConnectionMint || target == EmptyHeaderDelete)
+        {
+            return false;
+        }
+
+        return (assembly == IamAssembly && fullName == DeclarationService)
+            || (assembly == IamAssembly && fullName == OrgUnitRepository)
+            || (assembly == InfrastructureAssembly && fullName == VersionedRepository);
+    }
 
     private static TypeDefinitionHandle Walk(MetadataReader reader, TypeDefinitionHandle handle)
     {

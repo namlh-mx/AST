@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using AST.Modules.IAM.Tests.TestSupport;
 using Dapper;
 using FluentAssertions;
@@ -510,4 +511,135 @@ public sealed class VersionLifecycleStatusMigrationTests : IAsyncLifetime
         (await act.Should().ThrowAsync<MySqlException>()).Which.Number.Should().Be(
             3819, "the row must be refused by chk_rv_status, not by a missing column or table");
     }
+
+    // A second full run must not add a second schema_version row or change the three version tables.
+    [Fact]
+    public async Task V010_SecondRun_SucceedsAndKeepsOneSchemaVersionRow()
+    {
+        TestDatabase.SkipUnlessAvailable(_connectionString is not null);
+
+        await using var db = await OpenPreV010SchemaAsync(_connectionString!);
+        await db.ExecuteAsync(V010Sql());
+        var first = await CaptureVersionTableShapesAsync(db);
+
+        await db.ExecuteAsync(V010Sql());
+
+        (await CaptureVersionTableShapesAsync(db)).Should().Equal(first);
+        (await db.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM schema_version WHERE version = 10"))
+            .Should().Be(1);
+    }
+
+    // Phase 3 aborts after the backfill has already written status. Fixing cancelled to 0 and running
+    // again must rewrite that row to normal; a one-directional backfill leaves it cancelled.
+    [Fact]
+    public async Task V010_RerunAfterPhase3Abort_SetsFixedRowStatusToNormal()
+    {
+        TestDatabase.SkipUnlessAvailable(_connectionString is not null);
+
+        var clean = await CaptureCleanV010ShapesAsync();
+        await using var db = await OpenPreV010SchemaAsync(_connectionString!);
+        await db.ExecuteAsync("INSERT INTO `role` (id) VALUES (1)");
+        await db.ExecuteAsync("INSERT INTO `function` (id) VALUES (1)");
+        await db.ExecuteAsync("INSERT INTO `role_permission` (id) VALUES (1)");
+        await db.ExecuteAsync(
+            """
+            INSERT INTO role_permission_version
+              (role_permission_id, role_id, function_id, scope_level,
+               cancelled, effective_from, effective_to, isactive, recorded_by)
+            VALUES (1, 1, 1, 4, 1, '2020-01-01', '9999-12-31', 1, 'tester')
+            """);
+
+        var act = async () => await db.ExecuteAsync(V010Sql());
+        (await act.Should().ThrowAsync<MySqlException>()).Which.Number.Should().Be(3819);
+
+        await db.ExecuteAsync(
+            "UPDATE role_permission_version SET cancelled = 0 WHERE role_permission_id = 1");
+        await db.ExecuteAsync(V010Sql());
+
+        (await db.QuerySingleAsync<string>(
+            "SELECT status FROM role_permission_version WHERE role_permission_id = 1"))
+            .Should().Be("normal");
+        (await CaptureVersionTableShapesAsync(db)).Should().Equal(clean);
+    }
+
+    // Phase 1 aborts on the middle table. After the out-of-domain value is put back in {0,1},
+    // a second run must finish.
+    [Fact]
+    public async Task V010_RerunAfterPhase1Abort_Succeeds()
+    {
+        TestDatabase.SkipUnlessAvailable(_connectionString is not null);
+
+        var clean = await CaptureCleanV010ShapesAsync();
+        await using var db = await OpenPreV010SchemaAsync(_connectionString!);
+        await SeedOutOfDomainCancelledRowAsync(db, "role_version");
+
+        var act = async () => await db.ExecuteAsync(V010Sql());
+        (await act.Should().ThrowAsync<MySqlException>()).Which.Message.Should().Contain(
+            "chk_rv_legacy_cancelled_domain");
+
+        await db.ExecuteAsync("UPDATE role_version SET cancelled = 0 WHERE role_id = 1");
+        await db.ExecuteAsync(V010Sql());
+
+        (await CaptureVersionTableShapesAsync(db)).Should().Equal(clean);
+    }
+
+    // A generated column on role_version.cancelled stops phase 4 after org_unit_version has lost
+    // cancelled and the other two tables have not. Removing that fault and running again must finish.
+    [Fact]
+    public async Task V010_RerunAfterPartialPhase4_Succeeds()
+    {
+        TestDatabase.SkipUnlessAvailable(_connectionString is not null);
+
+        var clean = await CaptureCleanV010ShapesAsync();
+        await using var db = await OpenPreV010SchemaAsync(_connectionString!);
+        await db.ExecuteAsync(
+            "ALTER TABLE `role_version` ADD COLUMN `v010_fault` TINYINT AS (`cancelled`) VIRTUAL");
+
+        var act = async () => await db.ExecuteAsync(V010Sql());
+        await act.Should().ThrowAsync<MySqlException>();
+
+        (await CountCancelledColumnAsync(db, "org_unit_version")).Should().Be(0);
+        (await CountCancelledColumnAsync(db, "role_version")).Should().Be(1);
+        (await CountCancelledColumnAsync(db, "role_permission_version")).Should().Be(1);
+
+        await db.ExecuteAsync("ALTER TABLE `role_version` DROP COLUMN `v010_fault`");
+        await db.ExecuteAsync(V010Sql());
+
+        (await CaptureVersionTableShapesAsync(db)).Should().Equal(clean);
+    }
+
+    private async Task<IReadOnlyList<string>> CaptureCleanV010ShapesAsync()
+    {
+        await using var db = await OpenPreV010SchemaAsync(_connectionString!);
+        await db.ExecuteAsync(V010Sql());
+        return await CaptureVersionTableShapesAsync(db);
+    }
+
+    private static async Task<IReadOnlyList<string>> CaptureVersionTableShapesAsync(MySqlConnection db)
+    {
+        var shapes = new List<string>(VersionTables.Length);
+        foreach (var table in VersionTables)
+        {
+            await using var command = db.CreateCommand();
+            command.CommandText = $"SHOW CREATE TABLE `{table}`";
+            await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+            (await reader.ReadAsync(TestContext.Current.CancellationToken)).Should().BeTrue();
+            shapes.Add(AutoIncrementPattern.Replace(reader.GetString(1), ""));
+        }
+
+        return shapes;
+    }
+
+    private static async Task<int> CountCancelledColumnAsync(MySqlConnection db, string table) =>
+        await db.ExecuteScalarAsync<int>(
+            """
+            SELECT COUNT(*) FROM information_schema.columns
+            WHERE table_schema = DATABASE() AND table_name = @table AND column_name = 'cancelled'
+            """,
+            new { table });
+
+    private static readonly string[] VersionTables =
+        ["org_unit_version", "role_version", "role_permission_version"];
+
+    private static readonly Regex AutoIncrementPattern = new(@" AUTO_INCREMENT=\d+", RegexOptions.CultureInvariant);
 }

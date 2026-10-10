@@ -88,7 +88,6 @@ public class OrgUnitSupplementalDraftDirtyTests
             dates.Object,
             currentUser.Object,
             auth.Object,
-            Mock.Of<IConfirmationPrompt>(),
             Mock.Of<IBreakGlassPolicy>());
     }
 }

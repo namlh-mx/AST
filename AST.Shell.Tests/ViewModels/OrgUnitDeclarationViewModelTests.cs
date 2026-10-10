@@ -16,6 +16,10 @@ namespace AST.Shell.Tests.ViewModels;
 public class OrgUnitDeclarationViewModelTests
 {
     private static readonly DateOnly Today = new(2026, 7, 24);
+    private static readonly TimeSpan PendingCommandTimeout = TimeSpan.FromSeconds(5);
+    private const string ClosingConsequenceReminder =
+        "Đơn vị đã đóng sẽ chấm dứt hoạt động và không thể hoàn tác. Người dùng chỉ sử dụng chức năng đóng khi cần chấm dứt tình trạng hoạt động của đơn vị.";
+    private const string ReplacingConsequenceReminder = "Đơn vị sẽ được thay thế và không thể hoàn tác.";
 
     private sealed class FixedDates(DateOnly today) : IBusinessDateProvider
     {
@@ -32,6 +36,7 @@ public class OrgUnitDeclarationViewModelTests
         // Item 6 (2026-08-10 fix round): exposed so a test can assert LoadFromHistoryRow never calls the
         // repository, not just that it produces no error banner.
         public int ByIdentityCallCount => _byIdentityCallCount;
+        public int IdentityReadCallCount { get; private set; }
         // Optional per-call gate (same style as BeforeInScopeReturn) so a test can hold one identity
         // while a later LoadAsync supersedes it.
         public Func<long, DateOnly, Task>? BeforeByIdentityReturn { get; set; }
@@ -41,6 +46,7 @@ public class OrgUnitDeclarationViewModelTests
 
         public async Task<ErrorOr<OrgUnitVersionDto>> GetByIdentityAsync(long orgUnitId, DateOnly asOf)
         {
+            IdentityReadCallCount++;
             if (BeforeByIdentityReturn is { } before)
                 await before(orgUnitId, asOf);
 
@@ -116,10 +122,6 @@ public class OrgUnitDeclarationViewModelTests
             }
             return Task.FromResult(UpsertResult);
         }
-
-        public IReadOnlyList<OrgUnitVersionDto> PreviewResult { get; set; } = [];
-
-        public Task<IReadOnlyList<OrgUnitVersionDto>> PreviewUpsertAsync(long orgUnitId, EffectivePeriod period) => Task.FromResult(PreviewResult);
 
         public IReadOnlyList<OrgUnitVersionDto> HistoryResult { get; set; } = [];
         public long? LastHistoryOrgUnitId { get; private set; }
@@ -219,9 +221,8 @@ public class OrgUnitDeclarationViewModelTests
     {
         public bool WasCalled { get; private set; }
 
-        // "No dialog appeared" and "the dialog is broken" look identical from a bool. The remnant matrix
-        // has a row whose whole content is "no confirm at all", so that row needs a
-        // COUNT to assert against.
+        // "No dialog appeared" and "the dialog is broken" look identical from a bool.
+        // CallCount distinguishes a gesture that asked nothing from one that did confirm.
         public int CallCount { get; private set; }
         public string? LastMessage { get; private set; }
         public IReadOnlyList<string>? LastDetails { get; private set; }
@@ -241,12 +242,18 @@ public class OrgUnitDeclarationViewModelTests
         public ErrorOr<UpsertResult> CloseResult { get; set; } = new UpsertResult(0, [], []);
         public CloseOrgUnitDeclarationRequest? LastRequest { get; private set; }
         public int CloseCallCount { get; private set; }
+        public Func<Task>? BeforeCloseReturn { get; set; }
+        public Func<Task>? BeforeAddReturn { get; set; }
+        public Func<Task>? BeforeEditReturn { get; set; }
+        public Func<Task>? BeforeReplaceReturn { get; set; }
 
-        public Task<ErrorOr<UpsertResult>> CloseOrgUnitDeclarationAsync(CloseOrgUnitDeclarationRequest request)
+        public async Task<ErrorOr<UpsertResult>> CloseOrgUnitDeclarationAsync(CloseOrgUnitDeclarationRequest request)
         {
             CloseCallCount++;
             LastRequest = request;
-            return Task.FromResult(CloseResult);
+            if (BeforeCloseReturn is { } before)
+                await before();
+            return CloseResult;
         }
 
         // Add (an earlier ruling, 2026-08-17). The REAL service mints the identity and then writes the first
@@ -268,6 +275,9 @@ public class OrgUnitDeclarationViewModelTests
         {
             AddCallCount++;
             LastAddRequest = request;
+
+            if (BeforeAddReturn is { } before)
+                await before();
 
             if (AddError is { } denied)
             {
@@ -296,11 +306,16 @@ public class OrgUnitDeclarationViewModelTests
         public Error? EditError { get; set; }
         public EditOrgUnitDeclarationRequest? LastEditRequest { get; private set; }
         public int EditCallCount { get; private set; }
+        public Action? BeforeEdit { get; set; }
 
         public async Task<ErrorOr<UpsertResult>> EditOrgUnitDeclarationAsync(EditOrgUnitDeclarationRequest request)
         {
+            BeforeEdit?.Invoke();
             EditCallCount++;
             LastEditRequest = request;
+
+            if (BeforeEditReturn is { } before)
+                await before();
 
             if (EditError is { } denied)
             {
@@ -312,10 +327,19 @@ public class OrgUnitDeclarationViewModelTests
                 return new UpsertResult(0, [], []);
             }
 
+            // Period and org code are the loaded version's own, as the service writes them (D-37).
+            // ExpectedParentId is still passed through: this fake does not re-implement the parent guard.
+            // GetByIdentityAsync prefers the per-id dictionary; ByIdentityResult defaults to NotFound.
+            if (!Repository.ByIdentityByOrgUnitId.TryGetValue(request.OrgUnitId, out var storedResult))
+                storedResult = Repository.ByIdentityResult;
+            if (storedResult.IsError)
+                return storedResult.Errors;
+            var stored = storedResult.Value;
+
             return await Repository.UpsertAsync(
-                request.OrgUnitId, request.Period, request.OrgCode, request.OrgNameFullVn,
-                request.OrgNameShortVn, request.ExpectedParentId, VersionOperationKind.Edit, "tester",
-                request.Reason, request.Supplemental);
+                request.OrgUnitId, new EffectivePeriod(stored.EffectiveFrom, stored.EffectiveTo), stored.OrgCode,
+                request.OrgNameFullVn, request.OrgNameShortVn, request.ExpectedParentId, VersionOperationKind.Edit,
+                "tester", request.Reason, request.Supplemental);
         }
 
         public ErrorOr<ReplaceOrgUnitDeclarationResult> ReplaceResult { get; set; } =
@@ -323,35 +347,16 @@ public class OrgUnitDeclarationViewModelTests
         public ReplaceOrgUnitDeclarationRequest? LastReplaceRequest { get; private set; }
         public int ReplaceCallCount { get; private set; }
 
-        public Task<ErrorOr<ReplaceOrgUnitDeclarationResult>> ReplaceOrgUnitDeclarationAsync(
+        public async Task<ErrorOr<ReplaceOrgUnitDeclarationResult>> ReplaceOrgUnitDeclarationAsync(
             ReplaceOrgUnitDeclarationRequest request)
         {
             ReplaceCallCount++;
             LastReplaceRequest = request;
-            return Task.FromResult(ReplaceResult);
+            if (BeforeReplaceReturn is { } before)
+                await before();
+            return ReplaceResult;
         }
 
-        // Task 1b's canonical preview. This fake RETURNS what the test seeded instead of deriving the
-        // remnants: a fake that ran the 8-case algebra itself would only ever prove itself, and the
-        // preview-agrees-with-the-write claim belongs on real MySQL (OrgUnitDeclarationServiceTests).
-        public IReadOnlyList<PreviewedRemnant> PreviewRemnants { get; set; } = [];
-        public Error? PreviewError { get; set; }
-        public int PreviewCallCount { get; private set; }
-        public DateOnly? LastPreviewEndsOn { get; private set; }
-
-        public Task<ErrorOr<IReadOnlyList<PreviewedRemnant>>> PreviewEditAsync(
-            long orgUnitId, long expectedVersionId, EffectivePeriod period, DateOnly? endsOn)
-        {
-            PreviewCallCount++;
-            LastPreviewEndsOn = endsOn;
-
-            if (PreviewError is { } denied)
-            {
-                return Task.FromResult<ErrorOr<IReadOnlyList<PreviewedRemnant>>>(denied);
-            }
-
-            return Task.FromResult(PreviewRemnants.ToErrorOr());
-        }
     }
 
     private sealed class FakeBreakGlassPolicy(params string[] admins) : IBreakGlassPolicy
@@ -376,7 +381,7 @@ public class OrgUnitDeclarationViewModelTests
         var repo = new FakeOrgUnitRepository();
         var vm = new OrgUnitDeclarationViewModel(
             repo, BindDeclaration(declaration, repo), new FixedDates(Today),
-            new FakeCurrentUser("tester"), new FakeAuthorizationService(), new FakeConfirmationPrompt(confirm: true),
+            new FakeCurrentUser("tester"), new FakeAuthorizationService(),
             breakGlass ?? new FakeBreakGlassPolicy());
         return (vm, repo);
     }
@@ -388,20 +393,20 @@ public class OrgUnitDeclarationViewModelTests
         var auth = new FakeAuthorizationService();
         var vm = new OrgUnitDeclarationViewModel(
             repo, BindDeclaration(declaration, repo), new FixedDates(Today),
-            new FakeCurrentUser("tester"), auth, new FakeConfirmationPrompt(confirm: true),
+            new FakeCurrentUser("tester"), auth,
             breakGlass ?? new FakeBreakGlassPolicy());
         return (vm, repo, auth);
     }
 
     private static (OrgUnitDeclarationViewModel Vm, FakeOrgUnitRepository Repo, FakeConfirmationPrompt Confirm) BuildForEdit(
-        bool confirmH2 = true, FakeOrgUnitDeclarationService? declaration = null,
+        bool acceptsConfirmation = true, FakeOrgUnitDeclarationService? declaration = null,
         FakeAuthorizationService? authorization = null, IBreakGlassPolicy? breakGlass = null)
     {
         var repo = new FakeOrgUnitRepository();
-        var confirm = new FakeConfirmationPrompt(confirmH2);
+        var confirm = new FakeConfirmationPrompt(acceptsConfirmation);
         var vm = new OrgUnitDeclarationViewModel(
             repo, BindDeclaration(declaration, repo), new FixedDates(Today),
-            new FakeCurrentUser("tester"), authorization ?? new FakeAuthorizationService(), confirm,
+            new FakeCurrentUser("tester"), authorization ?? new FakeAuthorizationService(),
             breakGlass ?? new FakeBreakGlassPolicy());
         return (vm, repo, confirm);
     }
@@ -1806,15 +1811,12 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
-    public async Task Save_Edit_NoOverlap_SavesDirectly_WithoutAskingToConfirm()
+    public async Task Save_Edit_WritesTheLoadedIdentity_WithoutAskingToConfirm()
     {
         var (vm, repo, confirm) = BuildForEdit();
         repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
         await vm.LoadAsync(1, Today);
-        // A real PreviewUpsertAsync always includes the version being edited itself (it always overlaps an
-        // in-place edit of itself) -- the VM must exclude it by _currentVersionId, not treat it as an H2
-        // collision. This is the case that used to falsely trigger a confirm on every ordinary edit.
-        repo.PreviewResult = [Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77)];
+        // Sửa Lưu asks nothing and writes the loaded identity (D-37).
         repo.UpsertResult = new UpsertResult(2, [], []);
         vm.BeginEditCommand.Execute();
         vm.OrgCode = "ABCX"; // loaded Dto's default "ABC" is only 3 chars, below the §2.2 4-8 minimum
@@ -1830,12 +1832,11 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
-    public async Task Save_Edit_NoOverlap_PassesSupplementalToUpsert()
+    public async Task Save_Edit_PassesSupplementalToUpsert()
     {
         var (vm, repo, confirm) = BuildForEdit();
         repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
         await vm.LoadAsync(1, Today);
-        repo.PreviewResult = [Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77)];
         repo.UpsertResult = new UpsertResult(2, [], []);
         vm.BeginEditCommand.Execute();
         vm.OrgCode = "ABCX";
@@ -1851,196 +1852,48 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
-    public async Task Save_Edit_Overlap_AsksToConfirm_ProceedsWhenConfirmed()
+    public async Task Save_Edit_Success_ViewModelDoesNotAuthorizeBeforeTheWrite_RefreshStillDoes()
     {
-        var (vm, repo, confirm) = BuildForEdit(confirmH2: true);
+        var auth = new FakeAuthorizationService();
+        var declaration = new FakeOrgUnitDeclarationService();
+        var (vm, repo, _) = BuildForEdit(authorization: auth, declaration: declaration);
         repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
         await vm.LoadAsync(1, Today);
-        // id:2 = a genuinely DIFFERENT version row (a future sibling plan), distinct from the loaded version's
-        // own id:77 -- this is the actual H2 case: an OTHER version is affected, not self.
-        repo.PreviewResult = [Dto(1, parentId: 5, Today.AddDays(30), EffectivePeriod.OpenEnd, id: 2)];
-        repo.UpsertResult = new UpsertResult(2, [], []);
         vm.BeginEditCommand.Execute();
         vm.OrgCode = "ABCX";
-        vm.Reason = "kế hoạch nhiều giai đoạn";
+        vm.Reason = "doi ten";
+        var callsBeforeSave = auth.AuthorizeCallCount;
+        var callsWhenEditEntered = -1;
+        declaration.BeforeEdit = () => callsWhenEditEntered = auth.AuthorizeCallCount;
 
         await vm.SaveCommand.Execute();
 
-        Assert.True(confirm.WasCalled);
-        Assert.NotNull(confirm.LastDetails);
-        Assert.Single(confirm.LastDetails!);
-        Assert.Equal(StatusSeverity.Success, vm.Severity);
+        callsWhenEditEntered.Should().Be(callsBeforeSave,
+            "the ViewModel makes no IAuthorizationService call before EditOrgUnitDeclarationAsync");
+        auth.AuthorizeCallCount.Should().BeGreaterThan(callsWhenEditEntered,
+            "the post-save refresh still calls ResolveScopeAsync");
+        declaration.EditCallCount.Should().Be(1);
     }
 
     [Fact]
-    public async Task Save_Edit_Overlap_DeclinedConfirm_DoesNotWrite()
+    public async Task Save_Edit_AsksNothingAndWrites()
     {
-        var (vm, repo, confirm) = BuildForEdit(confirmH2: false);
+        var declaration = new FakeOrgUnitDeclarationService();
+        var (vm, repo, confirm) = BuildForEdit(acceptsConfirmation: true, declaration: declaration);
         repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
         await vm.LoadAsync(1, Today);
-        repo.PreviewResult = [Dto(1, parentId: 5, Today.AddDays(30), EffectivePeriod.OpenEnd, id: 2)];
-        vm.BeginEditCommand.Execute();
-        vm.OrgCode = "ABCX";
-        vm.Reason = "kế hoạch nhiều giai đoạn";
-
-        await vm.SaveCommand.Execute();
-
-        Assert.True(confirm.WasCalled);
-        Assert.Null(repo.LastUpsertOrgUnitId);
-        // Declining leaves the operator in Editing mode to adjust rather than silently dropping the attempt.
-        Assert.Equal(OrgUnitCardMode.Editing, vm.Mode);
-    }
-
-    // =========================================================================================
-    // The remnant confirm on Sửa. One test per row of the matrix,
-    // including the row whose content is "no dialog", and the remnants come from the service's canonical
-    // preview rather than from anything this screen derives.
-    //
-    // In every test below repo.PreviewResult holds ONLY the version being edited, so the older H2
-    // "other versions" confirm cannot fire and the dialog under assertion is unambiguous.
-    // =========================================================================================
-
-    // ONE sentence for every period-changing edit, carrying no dates. The
-    // three matrix rows below are no longer told apart by what the operator READS -- only by what the save
-    // DOES -- so each of them now has to assert EndsOn, or it asserts nothing the others do not.
-    private const string PeriodChangeConfirm =
-        "Đơn vị đang được điều chỉnh kỳ hiệu lực, người dùng cần xác nhận.";
-
-    [Fact]
-    public async Task Save_Edit_TailRemnant_ConfirmsAndWiresEndsOn()
-    {
-        var declaration = new FakeOrgUnitDeclarationService
-        {
-            PreviewRemnants = [new PreviewedRemnant(new EffectivePeriod(Today.AddDays(11), EffectivePeriod.OpenEnd))],
-        };
-        var (vm, repo, confirm) = BuildForEdit(declaration: declaration);
-        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
-        await vm.LoadAsync(1, Today);
-        repo.PreviewResult = [Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77)];
-        repo.UpsertResult = new UpsertResult(2, [], []);
-        vm.BeginEditCommand.Execute();
-        vm.OrgCode = "ABCX";
-        vm.IsUndetermined = false;
-        vm.EffectiveTo = Today.AddDays(10);
-        vm.Reason = "rút ngắn kỳ hiệu lực";
-
-        await vm.SaveCommand.Execute();
-
-        confirm.CallCount.Should().Be(1);
-        confirm.LastMessage.Should().Be(PeriodChangeConfirm);
-        confirm.LastMessage.Should().NotContainAny(
-            "2026", "/", "ngày ",
-            "this confirm carries no dates");
-        declaration.LastEditRequest.Should().NotBeNull();
-        declaration.LastEditRequest!.EndsOn.Should().Be(
-            Today.AddDays(10), "confirming the tail sentence IS the operator answering \"the unit ends here\"");
-        declaration.LastPreviewEndsOn.Should().BeNull("the preview asks what an ORDINARY edit would leave");
-    }
-
-    [Fact]
-    public async Task Save_Edit_TailRemnant_DeclinedConfirm_WritesNothing()
-    {
-        var declaration = new FakeOrgUnitDeclarationService
-        {
-            PreviewRemnants = [new PreviewedRemnant(new EffectivePeriod(Today.AddDays(11), EffectivePeriod.OpenEnd))],
-        };
-        var (vm, repo, confirm) = BuildForEdit(confirmH2: false, declaration: declaration);
-        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
-        await vm.LoadAsync(1, Today);
-        repo.PreviewResult = [Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77)];
-        vm.BeginEditCommand.Execute();
-        vm.OrgCode = "ABCX";
-        vm.IsUndetermined = false;
-        vm.EffectiveTo = Today.AddDays(10);
-        vm.Reason = "rút ngắn kỳ hiệu lực";
-
-        await vm.SaveCommand.Execute();
-
-        confirm.CallCount.Should().Be(1);
-        declaration.EditCallCount.Should().Be(0);
-        vm.Mode.Should().Be(OrgUnitCardMode.Editing, "declining leaves the operator on the card to adjust");
-    }
-
-    // Head only: warned, and offered NO route. Đóng cannot move effective_from, so pointing the operator
-    // there would send them to an operation that cannot do what they want.
-    [Fact]
-    public async Task Save_Edit_HeadRemnant_ConfirmsWithoutOfferingTheEndHereRoute()
-    {
-        var declaration = new FakeOrgUnitDeclarationService
-        {
-            PreviewRemnants = [new PreviewedRemnant(new EffectivePeriod(Today.AddDays(-10), Today.AddDays(-1)))],
-        };
-        var (vm, repo, confirm) = BuildForEdit(declaration: declaration);
-        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
-        await vm.LoadAsync(1, Today);
-        repo.PreviewResult = [Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77)];
-        repo.UpsertResult = new UpsertResult(2, [], []);
-        vm.BeginEditCommand.Execute();
-        vm.OrgCode = "ABCX";
-        vm.EffectiveFrom = Today;
-        vm.IsUndetermined = true;
-        vm.Reason = "dời ngày bắt đầu";
-
-        await vm.SaveCommand.Execute();
-
-        confirm.CallCount.Should().Be(1);
-        confirm.LastMessage.Should().Be(PeriodChangeConfirm);
-        confirm.LastMessage.Should().NotContain("Đóng", "Đóng cannot move the start date");
-        declaration.LastEditRequest!.EndsOn.Should().BeNull();
-    }
-
-    [Fact]
-    public async Task Save_Edit_HeadAndTailRemnants_ConfirmsBothAndWiresEndsOnForTheTailHalf()
-    {
-        var declaration = new FakeOrgUnitDeclarationService
-        {
-            PreviewRemnants =
-            [
-                new PreviewedRemnant(new EffectivePeriod(Today.AddDays(-10), Today.AddDays(-1))),
-                new PreviewedRemnant(new EffectivePeriod(Today.AddDays(11), EffectivePeriod.OpenEnd)),
-            ],
-        };
-        var (vm, repo, confirm) = BuildForEdit(declaration: declaration);
-        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
-        await vm.LoadAsync(1, Today);
-        repo.PreviewResult = [Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77)];
-        repo.UpsertResult = new UpsertResult(2, [], []);
-        vm.BeginEditCommand.Execute();
-        vm.OrgCode = "ABCX";
-        vm.EffectiveFrom = Today;
-        vm.IsUndetermined = false;
-        vm.EffectiveTo = Today.AddDays(10);
-        vm.Reason = "cắt kỳ hiệu lực";
-
-        await vm.SaveCommand.Execute();
-
-        confirm.CallCount.Should().Be(1, "one save asks once, however many remnants it would leave");
-        confirm.LastMessage.Should().Be(PeriodChangeConfirm);
-        declaration.LastEditRequest!.EndsOn.Should().Be(Today.AddDays(10));
-    }
-
-    // The row whose whole content is "no dialog". Without it, a branch that never fires and a branch that
-    // is broken are indistinguishable.
-    [Fact]
-    public async Task Save_Edit_NoRemnant_AsksNothing()
-    {
-        var declaration = new FakeOrgUnitDeclarationService { PreviewRemnants = [] };
-        var (vm, repo, confirm) = BuildForEdit(declaration: declaration);
-        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
-        await vm.LoadAsync(1, Today);
-        repo.PreviewResult = [Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77)];
         repo.UpsertResult = new UpsertResult(2, [], []);
         vm.BeginEditCommand.Execute();
         vm.OrgCode = "ABCX";
         vm.OrgNameFullVn = "Tên mới";
+        vm.IsUndetermined = false;
+        vm.EffectiveTo = Today.AddDays(10);
         vm.Reason = "sửa tên";
 
         await vm.SaveCommand.Execute();
 
         confirm.CallCount.Should().Be(0);
-        declaration.PreviewCallCount.Should().Be(1, "the screen still ASKS; it just has nothing to report");
-        declaration.LastEditRequest!.EndsOn.Should().BeNull();
-        vm.Severity.Should().Be(StatusSeverity.Success);
+        declaration.EditCallCount.Should().Be(1);
     }
 
     [Fact]
@@ -2049,7 +1902,6 @@ public class OrgUnitDeclarationViewModelTests
         var (vm, repo, _) = BuildForEdit();
         repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
         await vm.LoadAsync(1, Today);
-        repo.PreviewResult = [];
         repo.UpsertResult = new UpsertResult(2, [], []);
         repo.ByIdentityResultAfterClose = Error.NotFound(); // the post-save reload itself fails
         vm.BeginEditCommand.Execute();
@@ -2068,7 +1920,6 @@ public class OrgUnitDeclarationViewModelTests
         var (vm, repo, _) = BuildForEdit();
         repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd);
         await vm.LoadAsync(1, Today);
-        repo.PreviewResult = [];
         repo.UpsertResult = new UpsertResult(2, [], []);
         vm.BeginEditCommand.Execute();
         vm.OrgCode = "ABCX";
@@ -3035,7 +2886,6 @@ public class OrgUnitDeclarationViewModelTests
         var (vmEdit, repoEdit, _) = BuildForEdit();
         repoEdit.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
         await vmEdit.LoadAsync(1, Today);
-        repoEdit.PreviewResult = [];
         repoEdit.UpsertResult = new UpsertResult(2, [], []);
         vmEdit.BeginEditCommand.Execute();
         vmEdit.OrgCode = "ABCX";
@@ -3068,7 +2918,6 @@ public class OrgUnitDeclarationViewModelTests
         await vmEdit.LoadAsync(1, Today);
         auth.AuthorizeResult = new DataScope(ScopeLevel.OwnOrgUnit, 9, "tester");
         repoEdit.WithinScopeResult = true; // unit 1 IS within root 9's scope
-        repoEdit.PreviewResult = [];
         repoEdit.UpsertResult = new UpsertResult(2, [], []);
         vmEdit.BeginEditCommand.Execute();
         vmEdit.OrgCode = "ABCX";
@@ -3352,7 +3201,6 @@ public class OrgUnitDeclarationViewModelTests
         var (vmEdit, repoEdit, _) = BuildForEdit();
         repoEdit.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
         await vmEdit.LoadAsync(1, Today);
-        repoEdit.PreviewResult = [];
         repoEdit.UpsertResult = new UpsertResult(2, [], []);
         vmEdit.BeginEditCommand.Execute();
         vmEdit.OrgCode = "ABCX"; // seed Dto orgCode "ABC" is below §2.2 length — other Edit tests do the same
@@ -3369,7 +3217,8 @@ public class OrgUnitDeclarationViewModelTests
         repoEffective.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
         await vmEffective.LoadAsync(1, Today);
         vmEffective.BeginCloseCommand.Execute();
-        Assert.Equal(StatusSeverity.None, vmEffective.Severity);
+        Assert.Equal(StatusSeverity.Info, vmEffective.Severity);
+        Assert.Equal(ClosingConsequenceReminder, vmEffective.StatusMessage);
 
         vmEffective.EffectiveTo = new DateOnly(2026, 8, 10);
         Assert.Equal(StatusSeverity.Info, vmEffective.Severity);
@@ -3447,14 +3296,13 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
-    public async Task Save_Close_Pending_AbortConfirmation_WritesNothing_AndLeavesFormUntouched()
+    public async Task Save_Close_Pending_CallsServiceAndLeavesNoPromptGate()
     {
         var declaration = new FakeOrgUnitDeclarationService();
-        var confirm = new FakeConfirmationPrompt(confirm: false);
         var repo = new FakeOrgUnitRepository();
         var vm = new OrgUnitDeclarationViewModel(
             repo, declaration, new FixedDates(Today), new FakeCurrentUser("tester"),
-            new FakeAuthorizationService(), confirm, new FakeBreakGlassPolicy());
+            new FakeAuthorizationService(), new FakeBreakGlassPolicy());
         repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(1), EffectivePeriod.OpenEnd, id: 88);
         await vm.LoadAsync(1, Today);
         vm.BeginCloseCommand.Execute();
@@ -3463,37 +3311,20 @@ public class OrgUnitDeclarationViewModelTests
         Assert.False(vm.IsEffectivePeriodEnabled);
         Assert.Equal(OrgUnitCardMode.Closing, vm.Mode);
         Assert.Equal(VersionStatus.Pending, vm.Status);
-        var dirtyBefore = vm.IsDirty;
-        var toBefore = vm.EffectiveTo;
-        var severityBefore = vm.Severity;
-        var messageBefore = vm.StatusMessage;
-
         await vm.SaveCommand.Execute();
 
-        Assert.True(confirm.WasCalled);
-        Assert.Equal(
-            "Kỳ hiệu lực này chưa hoàn tất ngày hiệu lực nào. Thao tác này hủy toàn bộ kỳ hiệu lực đã khai. "
-            + "Nếu thực ra kỳ hiệu lực đã nhập sai, hãy dùng chức năng Sửa.",
-            confirm.LastMessage);
-        Assert.Equal(0, declaration.CloseCallCount);
-        Assert.Null(declaration.LastRequest);
-        Assert.Equal(OrgUnitCardMode.Closing, vm.Mode);
-        Assert.Equal(VersionStatus.Pending, vm.Status);
-        Assert.Equal(dirtyBefore, vm.IsDirty);
-        Assert.Equal(toBefore, vm.EffectiveTo);
-        Assert.Equal(severityBefore, vm.Severity);
-        Assert.Equal(messageBefore, vm.StatusMessage);
+        Assert.Equal(1, declaration.CloseCallCount);
+        Assert.Null(declaration.LastRequest!.EffectiveThrough);
     }
 
     [Fact]
     public async Task Save_Close_Pending_Confirm_CallsServiceWithNullEffectiveThrough()
     {
         var declaration = new FakeOrgUnitDeclarationService();
-        var confirm = new FakeConfirmationPrompt(confirm: true);
         var repo = new FakeOrgUnitRepository();
         var vm = new OrgUnitDeclarationViewModel(
             repo, declaration, new FixedDates(Today), new FakeCurrentUser("tester"),
-            new FakeAuthorizationService(), confirm, new FakeBreakGlassPolicy());
+            new FakeAuthorizationService(), new FakeBreakGlassPolicy());
         repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(1), EffectivePeriod.OpenEnd, id: 88);
         await vm.LoadAsync(1, Today);
         repo.ByIdentityResultAfterClose = Error.NotFound();
@@ -3502,7 +3333,6 @@ public class OrgUnitDeclarationViewModelTests
 
         await vm.SaveCommand.Execute();
 
-        Assert.True(confirm.WasCalled);
         Assert.Equal(1, declaration.CloseCallCount);
         Assert.Null(declaration.LastRequest!.EffectiveThrough);
         Assert.Equal(StatusSeverity.Success, vm.Severity);
@@ -3521,14 +3351,14 @@ public class OrgUnitDeclarationViewModelTests
 
         // Gate agrees with Save's FR6 arm: sentence raised at commit, Lưu disabled.
         vm.Severity.Should().Be(StatusSeverity.Error);
-        vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực chưa được khai báo.");
+        vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực phải là một ngày cụ thể.");
         vm.SaveCommand.CanExecute().Should().BeFalse();
 
         await vm.SaveCommand.Execute();
 
         Assert.Equal(0, declaration.CloseCallCount);
         Assert.Equal(StatusSeverity.Error, vm.Severity);
-        vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực chưa được khai báo.");
+        vm.StatusMessage.Should().Be("Ngày kết thúc hiệu lực phải là một ngày cụ thể.");
     }
 
     [Fact]
@@ -3615,8 +3445,8 @@ public class OrgUnitDeclarationViewModelTests
 
         vm.CanSave.Should().BeFalse();
         vm.SaveCommand.CanExecute().Should().BeFalse();
-        vm.Severity.Should().Be(StatusSeverity.None);
-        vm.StatusMessage.Should().BeNull();
+        vm.Severity.Should().Be(StatusSeverity.Info);
+        vm.StatusMessage.Should().Be(ClosingConsequenceReminder);
 
         await vm.SaveCommand.Execute();
 
@@ -3688,7 +3518,7 @@ public class OrgUnitDeclarationViewModelTests
     [Theory]
     [InlineData(OrgUnitCardMode.ReadOnly, VersionStatus.Effective, false)]
     [InlineData(OrgUnitCardMode.Adding, VersionStatus.None, true)]
-    [InlineData(OrgUnitCardMode.Editing, VersionStatus.Effective, true)]
+    [InlineData(OrgUnitCardMode.Editing, VersionStatus.Effective, false)]
     [InlineData(OrgUnitCardMode.Closing, VersionStatus.Effective, true)]
     [InlineData(OrgUnitCardMode.Closing, VersionStatus.Pending, false)]
     public async Task IsEffectivePeriodEnabled_MatchesModeAndCloseBranch(
@@ -3714,6 +3544,17 @@ public class OrgUnitDeclarationViewModelTests
         Assert.Equal(expectedEnabled, vm.IsEffectivePeriodEnabled);
     }
 
+    [Fact]
+    public async Task IsEffectivePeriodEnabled_IsFalseInEditing()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        vm.BeginEditCommand.Execute();
+
+        vm.IsEffectivePeriodEnabled.Should().BeFalse();
+    }
+
     // --- D1/D2 same-day cancel-plan cutover (QA Reviewer HIGH, 2026-08-10) ---
     // A version whose EffectiveFrom == today shows the `Đang hiệu lực` label (VersionStatusResolver is
     // deliberately unchanged) yet the server now cancels it, not closes it (VersionCloseRules D1). These
@@ -3736,14 +3577,13 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
-    public async Task Save_Close_FromEqualsToday_ShowsConfirmation_AndCancels_NotRetiresWithDate()
+    public async Task Save_Close_FromEqualsToday_Cancels_NotRetiresWithDate()
     {
         var declaration = new FakeOrgUnitDeclarationService();
-        var confirm = new FakeConfirmationPrompt(confirm: true);
         var repo = new FakeOrgUnitRepository();
         var vm = new OrgUnitDeclarationViewModel(
             repo, declaration, new FixedDates(Today), new FakeCurrentUser("tester"),
-            new FakeAuthorizationService(), confirm, new FakeBreakGlassPolicy());
+            new FakeAuthorizationService(), new FakeBreakGlassPolicy());
         repo.ByIdentityResult = Dto(1, parentId: 5, Today, EffectivePeriod.OpenEnd, id: 88);
         repo.ByIdentityResultAfterClose = Dto(
             1, parentId: 5, Today.AddDays(-30), Today.AddDays(-1), id: 55, isActive: false, status: VersionLifecycleStatus.Cancelled);
@@ -3753,12 +3593,6 @@ public class OrgUnitDeclarationViewModelTests
 
         await vm.SaveCommand.Execute();
 
-        // Confirmation dialog must fire — this is the exact gap the pre-fix bug skipped for a same-day
-        // version (it fell through the blank-EffectiveTo cancel path with no confirm at all).
-        confirm.WasCalled.Should().BeTrue();
-        confirm.LastMessage.Should().Be(
-            "Kỳ hiệu lực này chưa hoàn tất ngày hiệu lực nào. Thao tác này hủy toàn bộ kỳ hiệu lực đã khai. "
-            + "Nếu thực ra kỳ hiệu lực đã nhập sai, hãy dùng chức năng Sửa.");
         declaration.CloseCallCount.Should().Be(1);
         declaration.LastRequest.Should().NotBeNull();
         // Cancel, not retire-with-date: EffectiveThrough travels as null regardless of whatever was
@@ -3795,15 +3629,6 @@ public class OrgUnitDeclarationViewModelTests
         vm.Severity.Should().Be(StatusSeverity.Success);
         // Ordinary close/retire keeps the pre-existing wording, distinct from the cancel branch's "Đã hủy.".
         vm.StatusMessage.Should().Be("Đã lưu.");
-        // The retire branch used to write with NO dialog at all while the
-        // cancel branch had one. Both branches end a unit's life, so both ask first -- and the two
-        // sentences differ, because only this one has a cut date to name.
-        confirm.WasCalled.Should().BeTrue();
-        confirm.LastMessage.Should().Be(
-            "Đơn vị được chấm dứt hoạt động sau ngày kết thúc hiệu lực. Người dùng chỉ sử dụng chức năng "
-            + "đóng khi cần chấm dứt tình trạng hoạt động của đơn vị.");
-        confirm.LastMessage.Should().NotContainAny(
-            "2026", "/", "no confirm on this screen carries a date");
     }
 
     // The Advisor: the test above asserts the dialog APPEARS and says the right thing, and stays green even
@@ -3811,10 +3636,10 @@ public class OrgUnitDeclarationViewModelTests
     // this twin since it was written (Save_Close_Pending_AbortConfirmation_...); the retire branch, whose
     // confirm is new, shipped without one.
     [Fact]
-    public async Task Save_Close_Retire_DeclinedConfirm_WritesNothing_AndLeavesTheCardOpen()
+    public async Task Save_Close_Retire_CallsServiceWithoutPromptGate()
     {
         var declaration = new FakeOrgUnitDeclarationService();
-        var (vm, repo, confirm) = BuildForEdit(confirmH2: false, declaration: declaration);
+        var (vm, repo, _) = BuildForEdit(acceptsConfirmation: false, declaration: declaration);
         repo.ByIdentityResult = Dto(1, parentId: 5, Today.AddDays(-1), EffectivePeriod.OpenEnd, id: 77);
         await vm.LoadAsync(1, Today);
 
@@ -3822,18 +3647,11 @@ public class OrgUnitDeclarationViewModelTests
         vm.EffectiveTo = Today.AddDays(5);
         vm.IsUndetermined = false;
         vm.Reason = "đóng đơn vị";
-        var severityBefore = vm.Severity;
-        var messageBefore = vm.StatusMessage;
-
         await vm.SaveCommand.Execute();
 
-        confirm.WasCalled.Should().BeTrue();
-        declaration.CloseCallCount.Should().Be(0);
-        declaration.LastRequest.Should().BeNull();
-        vm.Mode.Should().Be(OrgUnitCardMode.Closing, "declining leaves the operator on the card to adjust");
-        vm.EffectiveTo.Should().Be(Today.AddDays(5), "nothing the operator typed is discarded");
-        vm.Severity.Should().Be(severityBefore);
-        vm.StatusMessage.Should().Be(messageBefore);
+        declaration.CloseCallCount.Should().Be(1);
+        declaration.LastRequest.Should().NotBeNull();
+        vm.Severity.Should().Be(StatusSeverity.Success);
     }
 
     // FR9: load-bearing XAML binding — deleting IsEnabled="{Binding IsEffectivePeriodEnabled}" must RED this.
@@ -3866,10 +3684,21 @@ public class OrgUnitDeclarationViewModelTests
         repo.ByIdentityResult = Dto(10, parentId: null, Today, EffectivePeriod.OpenEnd, orgCode: "ABCD");
         vm.BeginAddCommand.Execute();
         FillValidAddForm(vm);
+        var clears = 0;
+        vm.CardClearedAfterSave += (_, _) => clears++;
+        repo.BeforeByIdentityReturn = (_, _) =>
+        {
+            vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+            return Task.CompletedTask;
+        };
 
         await vm.SaveCommand.Execute();
 
         AssertClearedCardKeepsBanner(vm, "Đã lưu.");
+        repo.IdentityReadCallCount.Should().Be(1);
+        repo.InScopeCallCount.Should().Be(1);
+        repo.HistoryCallCount.Should().Be(1);
+        clears.Should().Be(1);
     }
 
     [Fact]
@@ -3908,11 +3737,10 @@ public class OrgUnitDeclarationViewModelTests
     public async Task ExecuteSaveCloseAsync_CancelPlan_ClearsCardAndKeepsDaHuy()
     {
         var declaration = new FakeOrgUnitDeclarationService();
-        var confirm = new FakeConfirmationPrompt(confirm: true);
         var repo = new FakeOrgUnitRepository();
         var vm = new OrgUnitDeclarationViewModel(
             repo, declaration, new FixedDates(Today), new FakeCurrentUser("tester"),
-            new FakeAuthorizationService(), confirm, new FakeBreakGlassPolicy());
+            new FakeAuthorizationService(), new FakeBreakGlassPolicy());
         repo.ByIdentityResult = Dto(1, parentId: 5, Today, EffectivePeriod.OpenEnd, id: 88);
         repo.ByIdentityResultAfterClose = Error.NotFound("EffectivePeriod.NoCoverage", "gone today");
         await vm.LoadAsync(1, Today);
@@ -3921,7 +3749,6 @@ public class OrgUnitDeclarationViewModelTests
 
         await vm.SaveCommand.Execute();
 
-        confirm.WasCalled.Should().BeTrue();
         AssertClearedCardKeepsBanner(vm, "Đã hủy.");
     }
 
@@ -4012,11 +3839,11 @@ public class OrgUnitDeclarationViewModelTests
         var (vm, repo, _) = BuildForEdit(authorization: auth);
         repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
         await vm.LoadAsync(3, Today);
-        // Call 1 = the write-scope check inside SaveCommand (must succeed for Edit to proceed);
-        // call 2 = RefreshTreeAndHistoryAsync's own ResolveScopeAsync call, which soft-fails here.
+        // RefreshTreeAndHistoryAsync's ResolveScopeAsync is now the first authorization call on Save.
+        // Denying that call is the post-save refresh soft-fail; the write is not gated here.
         auth.AuthorizeResultFactory = call => call == 1
-            ? new DataScope(ScopeLevel.Global, null, "tester")
-            : Error.Forbidden("Authz.NotGranted", "not granted");
+            ? Error.Forbidden("Authz.NotGranted", "not granted")
+            : new DataScope(ScopeLevel.Global, null, "tester");
         vm.BeginEditCommand.Execute();
         vm.OrgCode = "CN001X";
         vm.Reason = "doi ten";
@@ -4185,13 +4012,13 @@ public class OrgUnitDeclarationViewModelTests
         FillValidAddForm(vm);
 
         var save = vm.SaveCommand.Execute();
-        await verifyStarted.Task;
-        await vm.LoadAsync(2, Today);
-        holdVerify.SetResult();
-        await save;
+        await CompleteStaleSaveAsync(vm, repo, save, verifyStarted.Task, holdVerify.TrySetResult,
+            () => vm.LoadAsync(2, Today));
 
         vm.OrgCode.Should().Be("U2");
         raised.Should().Be(0);
+        vm.StatusMessage.Should().Be("Đã lưu.");
+        vm.Severity.Should().Be(StatusSeverity.Success);
     }
 
     [Fact]
@@ -4219,13 +4046,13 @@ public class OrgUnitDeclarationViewModelTests
         vm.Reason = "doi ten";
 
         var save = vm.SaveCommand.Execute();
-        await verifyStarted.Task;
-        await vm.LoadAsync(2, Today);
-        holdVerify.SetResult();
-        await save;
+        await CompleteStaleSaveAsync(vm, repo, save, verifyStarted.Task, holdVerify.TrySetResult,
+            () => vm.LoadAsync(2, Today));
 
         vm.OrgCode.Should().Be("U2");
         raised.Should().Be(0);
+        vm.StatusMessage.Should().Be("Đã lưu.");
+        vm.Severity.Should().Be(StatusSeverity.Success);
     }
 
     [Fact]
@@ -4728,7 +4555,7 @@ public class OrgUnitDeclarationViewModelTests
         {
             ReplaceResult = new ReplaceOrgUnitDeclarationResult(99, new UpsertResult(1, [], [])),
         };
-        var (vm, repo, confirm) = BuildForEdit(declaration: declaration);
+        var (vm, repo, _) = BuildForEdit(declaration: declaration);
         repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
         repo.EligibleParentsResult =
         [
@@ -4747,10 +4574,6 @@ public class OrgUnitDeclarationViewModelTests
 
         await vm.SaveCommand.Execute();
 
-        confirm.CallCount.Should().Be(1);
-        confirm.LastMessage.Should().Be(
-            "Đơn vị sẽ được thay thế toàn bộ thông tin. Người dùng cần xác nhận tiếp tục trước khi lưu.");
-        confirm.LastDetails.Should().BeEmpty();
         declaration.LastReplaceRequest.Should().NotBeNull();
         declaration.LastReplaceRequest!.PredecessorOrgUnitId.Should().Be(3);
         declaration.LastReplaceRequest.OrgCode.Should().Be("CN009");
@@ -4761,10 +4584,10 @@ public class OrgUnitDeclarationViewModelTests
     }
 
     [Fact]
-    public async Task Save_Replace_ConfirmDeclined_LeavesFormAndDoesNotCallReplace()
+    public async Task Save_Replace_CallsServiceWithoutPromptGate()
     {
         var declaration = new FakeOrgUnitDeclarationService();
-        var (vm, repo, confirm) = BuildForEdit(confirmH2: false, declaration: declaration);
+        var (vm, repo, _) = BuildForEdit(acceptsConfirmation: false, declaration: declaration);
         repo.ByIdentityResult = Dto(3, parentId: 1, Today.AddDays(-10), EffectivePeriod.OpenEnd, id: 30, orgCode: "CN001");
         repo.EligibleParentsResult = [new OrgUnitPickerItem(1, "PAR — Cha")];
         await vm.LoadAsync(3, Today);
@@ -4774,10 +4597,8 @@ public class OrgUnitDeclarationViewModelTests
 
         await vm.SaveCommand.Execute();
 
-        confirm.CallCount.Should().Be(1);
-        declaration.LastReplaceRequest.Should().BeNull();
-        vm.Mode.Should().Be(OrgUnitCardMode.Replacing);
-        vm.OrgNameShortVn.Should().Be("CN1b");
+        declaration.ReplaceCallCount.Should().Be(1);
+        declaration.LastReplaceRequest.Should().NotBeNull();
     }
 
     [Theory]
@@ -4804,6 +4625,7 @@ public class OrgUnitDeclarationViewModelTests
 
         await vm.SaveCommand.Execute();
 
+        declaration.ReplaceCallCount.Should().Be(1);
         vm.Severity.Should().Be(StatusSeverity.Error);
         vm.StatusMessage.Should().Be(expected);
         vm.StatusMessage.Should().NotContain("SEED-DESCRIPTION-MUST-NOT-LEAK");
@@ -4826,8 +4648,8 @@ public class OrgUnitDeclarationViewModelTests
         vm.PeriodCommitBlocked.Should().BeTrue();
         vm.CanSave.Should().BeFalse();
         vm.SaveCommand.CanExecute().Should().BeFalse("SaveCommand must observe PeriodCommitBlocked, not only CanSave");
-        vm.Severity.Should().Be(StatusSeverity.None);
-        vm.StatusMessage.Should().BeNull();
+        vm.Severity.Should().Be(StatusSeverity.Info);
+        vm.StatusMessage.Should().Be(ClosingConsequenceReminder);
     }
 
     [Fact]
@@ -5120,8 +4942,8 @@ public class OrgUnitDeclarationViewModelTests
         vm.ParentId = 9;
 
         vm.ParentId.Should().Be(9);
-        vm.StatusMessage.Should().BeNull();
-        vm.Severity.Should().Be(StatusSeverity.None);
+        vm.StatusMessage.Should().Be(ReplacingConsequenceReminder);
+        vm.Severity.Should().Be(StatusSeverity.Info);
         vm.PeriodCommitBlocked.Should().BeFalse();
         vm.CanSave.Should().BeTrue();
         vm.SaveCommand.CanExecute().Should().BeTrue();
@@ -5204,7 +5026,7 @@ public class OrgUnitDeclarationViewModelTests
         vm.ParentEligibility.Should().Be(ParentEligibilityState.Resolved);
         vm.ParentCandidates.Should().Contain(c => c.Id == 1);
         vm.ParentId.Should().Be(1);
-        vm.StatusMessage.Should().BeNull();
+        vm.StatusMessage.Should().Be(ReplacingConsequenceReminder);
         vm.PeriodCommitBlocked.Should().BeFalse();
         vm.Reason = "thay thế";
         vm.CanSave.Should().BeTrue();
@@ -5334,7 +5156,7 @@ public class OrgUnitDeclarationViewModelTests
         vm.ParentId = 9;
 
         vm.ParentId.Should().Be(9);
-        vm.StatusMessage.Should().BeNull();
+        vm.StatusMessage.Should().Be(ReplacingConsequenceReminder);
         vm.PeriodCommitBlocked.Should().BeFalse();
         vm.CanSave.Should().BeTrue();
         vm.ParentPickerItems.Should().Contain(c => c.Id == 1,
@@ -5408,7 +5230,7 @@ public class OrgUnitDeclarationViewModelTests
         vm.ParentPickerItems.Should().HaveCount(vm.ParentCandidates.Count,
             "extra display row is gone once the card parent is back in the real set");
         vm.ParentId.Should().Be(1);
-        vm.StatusMessage.Should().BeNull();
+        vm.StatusMessage.Should().Be(ReplacingConsequenceReminder);
         vm.PeriodCommitBlocked.Should().BeFalse();
         vm.CanSave.Should().BeTrue();
     }
@@ -5591,7 +5413,7 @@ public class OrgUnitDeclarationViewModelTests
         vm.ParentPickerItems.Should().Contain(c => c.Id == 1, "card parent still absent from the real set");
         vm.ParentPickerItems.Count(c => c.Id == 9).Should().Be(1, "live id is in the real set — no second injected row");
         vm.ParentId.Should().Be(9);
-        vm.StatusMessage.Should().BeNull();
+        vm.StatusMessage.Should().Be(ReplacingConsequenceReminder);
         vm.PeriodCommitBlocked.Should().BeFalse();
         vm.CanSave.Should().BeTrue();
     }
@@ -6126,6 +5948,766 @@ public class OrgUnitDeclarationViewModelTests
 
         await vm.CancelCommand.Execute();
         vm.BeginCloseCommand.Execute();
+        vm.StatusMessage.Should().Be(
+            "Đơn vị đã đóng sẽ chấm dứt hoạt động và không thể hoàn tác. Người dùng chỉ sử dụng chức năng đóng khi cần chấm dứt tình trạng hoạt động của đơn vị.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Save_Close_Refusal_DoesNotAskForConfirmation(bool cancelPlan)
+    {
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            CloseResult = Error.Validation("OrgUnit.RootNotClosable", "seed"),
+        };
+        var (vm, repo, confirm) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, parentId: 5, cancelPlan ? Today : Today.AddDays(-1), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+        vm.BeginCloseCommand.Execute();
+        if (!cancelPlan)
+            vm.EffectiveTo = Today;
+        vm.Reason = "đóng";
+
+        await vm.SaveCommand.Execute();
+
+        declaration.CloseCallCount.Should().Be(1);
+        vm.StatusMessage.Should().Be("Không thể đóng hoặc hủy đơn vị gốc.");
+        vm.Severity.Should().Be(StatusSeverity.Error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BeginClose_ShowsTheSettledConsequenceReminder(bool cancelPlan)
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, parentId: 5, cancelPlan ? Today : Today.AddDays(-1), EffectivePeriod.OpenEnd, id: 77);
+        await vm.LoadAsync(1, Today);
+
+        vm.BeginCloseCommand.Execute();
+
+        vm.Severity.Should().Be(StatusSeverity.Info);
+        vm.StatusMessage.Should().Be(ClosingConsequenceReminder);
+    }
+
+    [Theory]
+    [InlineData("Add")]
+    [InlineData("Edit")]
+    [InlineData("Retire")]
+    [InlineData("CancelPlan")]
+    [InlineData("Replace")]
+    public async Task Save_RefusalAfterCancel_DoesNotOverwriteTheCancelledCard(string branch)
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            AddError = Error.Validation("OrgUnit.NotInScope", "seed"),
+            EditError = Error.Validation("OrgUnit.NotInScope", "seed"),
+            CloseResult = Error.Validation("OrgUnit.NotInScope", "seed"),
+            ReplaceResult = Error.Validation("OrgUnit.NotInScope", "seed"),
+        };
+        Func<Task> delay = async () => { started.TrySetResult(); await release.Task; };
+        declaration.BeforeAddReturn = delay;
+        declaration.BeforeEditReturn = delay;
+        declaration.BeforeCloseReturn = delay;
+        declaration.BeforeReplaceReturn = delay;
+        var (vm, repo, _) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, 5, branch == "CancelPlan" ? Today : Today.AddDays(-1), EffectivePeriod.OpenEnd, id: 77, orgCode: "LIVE");
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(5, "P — Cha")];
+        await vm.LoadAsync(1, Today);
+        switch (branch)
+        {
+            case "Add":
+                vm.BeginAddCommand.Execute();
+                FillValidAddForm(vm);
+                break;
+            case "Edit":
+                vm.BeginEditCommand.Execute();
+                vm.OrgNameShortVn = "Sau";
+                break;
+            case "Replace":
+                vm.BeginReplaceCommand.Execute();
+                vm.OrgNameShortVn = "Sau";
+                break;
+            default:
+                vm.BeginCloseCommand.Execute();
+                if (branch == "Retire")
+                    vm.EffectiveTo = Today;
+                break;
+        }
+        vm.Reason = "thử";
+
+        var save = vm.SaveCommand.Execute();
+        await CompleteStaleSaveAsync(vm, repo, save, started.Task, release.TrySetResult,
+            () =>
+            {
+                vm.CanCancel.Should().BeTrue();
+                return vm.CancelCommand.Execute();
+            }, expectedTreeReads: 0, expectedHistoryReads: 0);
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.StatusMessage.Should().BeNull();
+        vm.Severity.Should().Be(StatusSeverity.None);
+    }
+
+    [Fact]
+    public async Task BeginReplace_ShowsTheSettledConsequenceReminder()
+    {
+        var (vm, repo, _) = BuildForEdit();
+        repo.ByIdentityResult = Dto(1, 5, Today.AddDays(-1), EffectivePeriod.OpenEnd);
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(5, "P — Cha")];
+        await vm.LoadAsync(1, Today);
+
+        vm.BeginReplaceCommand.Execute();
+
+        vm.StatusMessage.Should().Be(ReplacingConsequenceReminder);
+        vm.Severity.Should().Be(StatusSeverity.Info);
+    }
+
+    [Fact]
+    public async Task ClosingReminder_DateClearedWithNote_ReturnsThenYieldsToRevert()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, 5, Today.AddDays(-1), EffectivePeriod.OpenEnd);
+        await vm.LoadAsync(1, Today);
+        vm.BeginCloseCommand.Execute();
+        vm.Reason = "ghi chú";
+        vm.EffectiveTo = Today;
+        vm.StatusMessage.Should().Be("Mã đơn vị ABC còn hiệu lực đến ngày 24/07/2026, chấm dứt hiệu lực từ ngày 25/07/2026.");
+
+        vm.EffectiveTo = null;
+        vm.StatusMessage.Should().Be(ClosingConsequenceReminder);
+        vm.Severity.Should().Be(StatusSeverity.Info);
+
+        vm.Reason = "";
+        vm.StatusMessage.Should().Be("Thông tin đang khai báo không thay đổi so với thông tin hiện có của đơn vị.");
+        vm.Severity.Should().Be(StatusSeverity.Info);
+    }
+
+    [Fact]
+    public async Task ReplacingReminder_NameRestoredThenEdited_YieldsToRevertThenReturns()
+    {
+        var (vm, repo, _) = BuildForEdit();
+        repo.ByIdentityResult = Dto(1, 5, Today.AddDays(-1), EffectivePeriod.OpenEnd);
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(5, "P — Cha")];
+        await vm.LoadAsync(1, Today);
+        vm.BeginReplaceCommand.Execute();
+        var original = vm.OrgNameShortVn;
+        vm.OrgNameShortVn = "Tên mới";
+        vm.OrgNameShortVn = original;
+        vm.StatusMessage.Should().Be("Thông tin đang khai báo không thay đổi so với thông tin hiện có của đơn vị.");
+        vm.Severity.Should().Be(StatusSeverity.Info);
+
+        vm.OrgNameShortVn = "Tên khác";
+
+        vm.StatusMessage.Should().Be(ReplacingConsequenceReminder);
+        vm.Severity.Should().Be(StatusSeverity.Info);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConsequenceReminder_CancelRemovesIt(bool replace)
+    {
+        var (vm, repo, _) = BuildForEdit();
+        repo.ByIdentityResult = Dto(1, 5, Today.AddDays(-1), EffectivePeriod.OpenEnd);
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(5, "P — Cha")];
+        await vm.LoadAsync(1, Today);
+        if (replace)
+            vm.BeginReplaceCommand.Execute();
+        else
+            vm.BeginCloseCommand.Execute();
+        vm.StatusMessage.Should().Be(replace ? ReplacingConsequenceReminder : ClosingConsequenceReminder);
+
+        await vm.CancelCommand.Execute();
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.StatusMessage.Should().BeNull();
+        vm.Severity.Should().Be(StatusSeverity.None);
+    }
+
+    [Fact]
+    public async Task ConsequenceReminder_NeverShowsInReadOnlyAddingOrEditing()
+    {
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = Dto(1, 5, Today.AddDays(-1), EffectivePeriod.OpenEnd);
+        await vm.LoadAsync(1, Today);
+        vm.StatusMessage.Should().BeNull();
+        vm.BeginAddCommand.Execute();
+        vm.StatusMessage.Should().BeNull();
+        await vm.CancelCommand.Execute();
+        vm.BeginEditCommand.Execute();
+        vm.StatusMessage.Should().BeNull();
+        vm.OrgNameFullVn = "Tên đã sửa";
+        vm.Mode.Should().Be(OrgUnitCardMode.Editing);
         vm.StatusMessage.Should().BeNull();
     }
+
+    [Fact]
+    public async Task Save_Add_SuccessAfterCancel_LeavesTheCancelledCardUntouched()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            BeforeAddReturn = async () => { started.TrySetResult(); await release.Task; },
+        };
+        var (vm, repo, _) = BuildForSave(declaration);
+        vm.BeginAddCommand.Execute();
+        FillValidAddForm(vm);
+
+        var save = vm.SaveCommand.Execute();
+        await CompleteStaleSaveAsync(vm, repo, save, started.Task, release.TrySetResult, () => vm.CancelCommand.Execute());
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.OrgCode.Should().BeEmpty();
+        vm.StatusMessage.Should().Be("Đã lưu.");
+        vm.Severity.Should().Be(StatusSeverity.Success);
+    }
+
+    [Fact]
+    public async Task Save_Edit_SuccessAfterCancel_LeavesTheCancelledCardUntouched()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            BeforeEditReturn = async () => { started.TrySetResult(); await release.Task; },
+        };
+        var (vm, repo, _) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, 5, Today.AddDays(-1), EffectivePeriod.OpenEnd, orgCode: "EDIT", orgNameShortVn: "Trước");
+        await vm.LoadAsync(1, Today);
+        vm.BeginEditCommand.Execute();
+        vm.OrgNameShortVn = "Sau";
+
+        var save = vm.SaveCommand.Execute();
+        await CompleteStaleSaveAsync(vm, repo, save, started.Task, release.TrySetResult, () => vm.CancelCommand.Execute());
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.OrgNameShortVn.Should().Be("Trước");
+        vm.StatusMessage.Should().Be("Đã lưu.");
+        vm.Severity.Should().Be(StatusSeverity.Success);
+    }
+
+    [Fact]
+    public async Task Save_ClosePending_SuccessAfterCancel_LeavesTheCancelledCardUntouched()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            BeforeCloseReturn = async () => { started.TrySetResult(); await release.Task; },
+        };
+        var (vm, repo, _) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, 5, Today, EffectivePeriod.OpenEnd, id: 77, orgCode: "PEND");
+        await vm.LoadAsync(1, Today);
+        vm.BeginCloseCommand.Execute();
+        vm.Reason = "hủy";
+
+        var save = vm.SaveCommand.Execute();
+        await CompleteStaleSaveAsync(vm, repo, save, started.Task, release.TrySetResult, () => vm.CancelCommand.Execute());
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.OrgCode.Should().Be("PEND");
+        vm.StatusMessage.Should().Be("Đã hủy.");
+        vm.Severity.Should().Be(StatusSeverity.Success);
+    }
+
+    [Fact]
+    public async Task Save_CloseRetire_SuccessAfterCancel_LeavesTheCancelledCardUntouched()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            BeforeCloseReturn = async () => { started.TrySetResult(); await release.Task; },
+        };
+        var (vm, repo, _) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, 5, Today.AddDays(-1), EffectivePeriod.OpenEnd, id: 77, orgCode: "LIVE");
+        await vm.LoadAsync(1, Today);
+        vm.BeginCloseCommand.Execute();
+        vm.EffectiveTo = Today;
+        vm.Reason = "đóng";
+
+        var save = vm.SaveCommand.Execute();
+        await CompleteStaleSaveAsync(vm, repo, save, started.Task, release.TrySetResult, () => vm.CancelCommand.Execute());
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.OrgCode.Should().Be("LIVE");
+        vm.StatusMessage.Should().Be("Đã lưu.");
+        vm.Severity.Should().Be(StatusSeverity.Success);
+    }
+
+    [Fact]
+    public async Task Save_Replace_SuccessAfterCancel_LeavesTheCancelledCardUntouched()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            BeforeReplaceReturn = async () => { started.TrySetResult(); await release.Task; },
+        };
+        var (vm, repo, _) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, 5, Today.AddDays(-1), EffectivePeriod.OpenEnd, id: 77, orgCode: "OLDD");
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(5, "P — Cha")];
+        await vm.LoadAsync(1, Today);
+        vm.BeginReplaceCommand.Execute();
+        vm.OrgNameShortVn = "Mới";
+        vm.Reason = "thay";
+
+        var save = vm.SaveCommand.Execute();
+        await CompleteStaleSaveAsync(vm, repo, save, started.Task, release.TrySetResult, () => vm.CancelCommand.Execute());
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.OrgCode.Should().Be("OLDD");
+        vm.StatusMessage.Should().Be("Đã lưu.");
+        vm.Severity.Should().Be(StatusSeverity.Success);
+    }
+
+    [Fact]
+    public async Task Save_Add_SuccessAfterClear_RefreshesButDoesNotRestoreTheCard()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            BeforeAddReturn = async () => { started.TrySetResult(); await release.Task; },
+        };
+        var (vm, repo, _) = BuildForSave(declaration);
+        vm.BeginAddCommand.Execute();
+        FillValidAddForm(vm);
+
+        var save = vm.SaveCommand.Execute();
+        await CompleteStaleSaveAsync(vm, repo, save, started.Task, release.TrySetResult, () =>
+        {
+            vm.Clear();
+            return Task.CompletedTask;
+        });
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.OrgCode.Should().BeEmpty();
+        vm.StatusMessage.Should().Be("Đã lưu.");
+        vm.Severity.Should().Be(StatusSeverity.Success);
+        repo.InScopeCallCount.Should().BeGreaterThan(0);
+        repo.HistoryCallCount.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task Save_Add_SuccessAfterNewerLoad_DoesNotRestoreTheOldCard()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            BeforeAddReturn = async () => { started.TrySetResult(); await release.Task; },
+        };
+        var (vm, repo, _) = BuildForSave(declaration);
+        repo.ByIdentityByOrgUnitId[2] = Dto(2, null, Today.AddDays(-1), EffectivePeriod.OpenEnd, orgCode: "NEW");
+        vm.BeginAddCommand.Execute();
+        FillValidAddForm(vm);
+
+        var save = vm.SaveCommand.Execute();
+        await CompleteStaleSaveAsync(vm, repo, save, started.Task, release.TrySetResult, () => vm.LoadAsync(2, Today));
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.OrgCode.Should().Be("NEW");
+        vm.StatusMessage.Should().Be("Đã lưu.");
+    }
+
+    [Fact]
+    public async Task Save_Edit_SuccessAfterHistoryLoad_DoesNotRestoreTheOldCard()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            BeforeEditReturn = async () => { started.TrySetResult(); await release.Task; },
+        };
+        var (vm, repo, _) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, 5, Today.AddDays(-1), EffectivePeriod.OpenEnd, id: 77, orgCode: "OLDD");
+        await vm.LoadAsync(1, Today);
+        vm.BeginEditCommand.Execute();
+        vm.OrgNameShortVn = "Đang sửa";
+
+        var save = vm.SaveCommand.Execute();
+        await CompleteStaleSaveAsync(vm, repo, save, started.Task, release.TrySetResult, () =>
+        {
+            vm.LoadFromHistoryRow(HistoryRow(1, 77, "HIST"));
+            return Task.CompletedTask;
+        });
+
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.OrgCode.Should().Be("HIST");
+        vm.StatusMessage.Should().Be("Đã lưu.");
+    }
+
+    [Fact]
+    public async Task Save_Edit_SuccessAfterCancelAndReenter_DoesNotChangeTheNewAttempt()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            BeforeEditReturn = async () => { started.TrySetResult(); await release.Task; },
+        };
+        var (vm, repo, _) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, 5, Today.AddDays(-1), EffectivePeriod.OpenEnd, id: 77, orgCode: "EDIT", orgNameShortVn: "Cũ");
+        await vm.LoadAsync(1, Today);
+        vm.BeginEditCommand.Execute();
+        vm.OrgNameShortVn = "Lần một";
+
+        var save = vm.SaveCommand.Execute();
+        await CompleteStaleSaveAsync(vm, repo, save, started.Task, release.TrySetResult, async () =>
+        {
+            await vm.CancelCommand.Execute();
+            vm.BeginEditCommand.Execute();
+            vm.OrgNameShortVn = "Lần hai";
+        });
+
+        vm.Mode.Should().Be(OrgUnitCardMode.Editing);
+        vm.OrgNameShortVn.Should().Be("Lần hai");
+        vm.StatusMessage.Should().Be("Đã lưu.");
+    }
+
+    [Fact]
+    public async Task Save_Add_SuccessAfterInputEdit_DoesNotRestoreTheEditedCard()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            BeforeAddReturn = async () => { started.TrySetResult(); await release.Task; },
+        };
+        var (vm, repo, _) = BuildForSave(declaration);
+        vm.BeginAddCommand.Execute();
+        FillValidAddForm(vm);
+
+        var save = vm.SaveCommand.Execute();
+        await CompleteStaleSaveAsync(vm, repo, save, started.Task, release.TrySetResult, () =>
+        {
+            vm.OrgNameShortVn = "Mới hơn";
+            return Task.CompletedTask;
+        });
+
+        vm.Mode.Should().Be(OrgUnitCardMode.Adding);
+        vm.OrgNameShortVn.Should().Be("Mới hơn");
+        vm.StatusMessage.Should().Be("Đã lưu.");
+        vm.Severity.Should().Be(StatusSeverity.Success);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Save_Close_UnexpectedProbeErrorAfterBeginAdd_IsNotPublished(bool cancelPlan)
+    {
+        var probeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseProbe = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (vm, repo, _) = BuildForEdit(declaration: new FakeOrgUnitDeclarationService());
+        var from = cancelPlan ? Today : Today.AddDays(-1);
+        repo.ByIdentityByOrgUnitId[1] = Dto(1, 5, from, EffectivePeriod.OpenEnd, id: 77, orgCode: "LIVE");
+        await vm.LoadAsync(1, Today);
+        repo.ByIdentityByOrgUnitId[1] = Error.Failure("Unexpected", "probe");
+        repo.BeforeByIdentityReturn = async (_, _) =>
+        {
+            probeStarted.TrySetResult();
+            await releaseProbe.Task;
+        };
+        vm.BeginCloseCommand.Execute();
+        if (!cancelPlan)
+            vm.EffectiveTo = Today;
+        vm.Reason = "đóng";
+
+        var clears = 0;
+        object?[] fields = [];
+        var identityReads = 0;
+        var treeReads = 0;
+        var historyReads = 0;
+        vm.CardClearedAfterSave += (_, _) => clears++;
+        var save = vm.SaveCommand.Execute();
+        await CompleteDelayedCommandAsync(save, probeStarted.Task, releaseProbe.TrySetResult, () =>
+        {
+            vm.BeginAddCommand.CanExecute().Should().BeTrue();
+            vm.BeginAddCommand.Execute();
+            fields = CardFields(vm);
+            identityReads = repo.IdentityReadCallCount;
+            treeReads = repo.InScopeCallCount;
+            historyReads = repo.HistoryCallCount;
+            return Task.CompletedTask;
+        });
+
+        vm.StatusMessage.Should().Be(cancelPlan ? "Đã hủy." : "Đã lưu.");
+        vm.Severity.Should().Be(StatusSeverity.Success);
+        CardFields(vm).Should().Equal(fields);
+        vm.Mode.Should().Be(OrgUnitCardMode.Adding);
+        vm.OrgCode.Should().BeEmpty();
+        repo.IdentityReadCallCount.Should().Be(identityReads);
+        repo.InScopeCallCount.Should().Be(treeReads + 1);
+        repo.HistoryCallCount.Should().Be(historyReads + 1);
+        clears.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Save_Add_VerificationAfterClear_DoesNotPublishReadBack(bool readError, bool newerError)
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var declaration = new FakeOrgUnitDeclarationService();
+        var (vm, repo, _) = BuildForSave(declaration);
+        repo.CreateIdentityResult = 10;
+        repo.ByIdentityResult = readError
+            ? Error.Failure("Unexpected", "obsolete verification")
+            : Dto(10, null, Today, EffectivePeriod.OpenEnd, orgCode: "ABCD");
+        repo.BeforeByIdentityReturn = async (_, _) => { started.TrySetResult(); await release.Task; };
+        vm.BeginAddCommand.Execute();
+        FillValidAddForm(vm);
+        var clears = 0;
+        object?[] fields = [];
+        string? newerMessage = null;
+        vm.CardClearedAfterSave += (_, _) => clears++;
+
+        var save = vm.SaveCommand.Execute();
+        await CompleteDelayedCommandAsync(save, started.Task, release.TrySetResult, async () =>
+        {
+            declaration.AddCallCount.Should().Be(1);
+            repo.LastUpsertOrgUnitId.Should().Be(10);
+            vm.Clear();
+            fields = CardFields(vm);
+            if (newerError)
+            {
+                repo.InScopeException = new InvalidOperationException("newer tree load");
+                await vm.LoadTreeAsync(Today);
+                repo.InScopeException = null;
+                newerMessage = vm.StatusMessage;
+                vm.Severity.Should().Be(StatusSeverity.Error);
+            }
+        });
+
+        vm.StatusMessage.Should().Be(newerError ? newerMessage : "Đã lưu.");
+        vm.Severity.Should().Be(newerError ? StatusSeverity.Error : StatusSeverity.Success);
+        CardFields(vm).Should().Equal(fields);
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.OrgCode.Should().BeEmpty();
+        vm.OrgNameFullVn.Should().BeEmpty();
+        vm.OrgNameShortVn.Should().BeEmpty();
+        vm.EffectiveFrom.Should().BeNull();
+        vm.EffectiveTo.Should().BeNull();
+        vm.ParentId.Should().BeNull();
+        vm.Reason.Should().BeEmpty();
+        vm.Supplemental.Should().Be(new OrgUnitSupplementalDto());
+        repo.IdentityReadCallCount.Should().Be(1);
+        repo.InScopeCallCount.Should().Be(newerError ? 2 : 1);
+        repo.HistoryCallCount.Should().Be(1);
+        clears.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LoadAsync_AfterClear_ReturnsSupersededWithoutPublishing(bool readError)
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (vm, repo) = Build();
+        repo.ByIdentityResult = readError
+            ? Error.Failure("Unexpected", "obsolete load")
+            : Dto(1, null, Today, EffectivePeriod.OpenEnd, orgCode: "LIVE");
+        repo.BeforeByIdentityReturn = async (_, _) => { started.TrySetResult(); await release.Task; };
+        object?[] fields = [];
+        var clears = 0;
+        vm.CardClearedAfterSave += (_, _) => clears++;
+
+        var load = vm.LoadAsync(1, Today);
+        await CompleteDelayedCommandAsync(load, started.Task, release.TrySetResult, () =>
+        {
+            vm.Clear();
+            fields = CardFields(vm);
+            return Task.CompletedTask;
+        });
+
+        (await load).Should().Be(CardLoadOutcome.Superseded);
+        CardFields(vm).Should().Equal(fields);
+        vm.Mode.Should().Be(OrgUnitCardMode.ReadOnly);
+        vm.OrgCode.Should().BeEmpty();
+        vm.StatusMessage.Should().BeNull();
+        vm.Severity.Should().Be(StatusSeverity.None);
+        repo.IdentityReadCallCount.Should().Be(1);
+        repo.InScopeCallCount.Should().Be(0);
+        repo.HistoryCallCount.Should().Be(0);
+        clears.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Save_Add_RefreshSuccess_DoesNotOverwriteANewerBandMessage()
+    {
+        var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRefresh = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (vm, repo, _) = BuildForSave();
+        repo.CreateIdentityResult = 10;
+        repo.ByIdentityByOrgUnitId[10] = Dto(10, null, Today, EffectivePeriod.OpenEnd, orgCode: "ABCD");
+        repo.BeforeInScopeReturn = async () => { refreshStarted.TrySetResult(); await releaseRefresh.Task; };
+        vm.BeginAddCommand.Execute();
+        FillValidAddForm(vm);
+
+        var save = vm.SaveCommand.Execute();
+        string? newerMessage = null;
+        await CompleteStaleSaveAsync(vm, repo, save, refreshStarted.Task, releaseRefresh.TrySetResult, async () =>
+        {
+            repo.ByIdentityByOrgUnitId[99] = Error.NotFound("EffectivePeriod.NoCoverage", "newer");
+            await vm.LoadAsync(99, Today);
+            newerMessage = vm.StatusMessage;
+        }, expectedTreeReads: 0, expectedHistoryReads: 1);
+
+        vm.StatusMessage.Should().Be(newerMessage);
+        vm.Severity.Should().Be(StatusSeverity.Error);
+    }
+
+    [Fact]
+    public async Task Save_Add_RefreshFailure_DoesNotOverwriteANewerBandMessage()
+    {
+        var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRefresh = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (vm, repo, _) = BuildForSave();
+        repo.CreateIdentityResult = 10;
+        repo.ByIdentityByOrgUnitId[10] = Dto(10, null, Today, EffectivePeriod.OpenEnd, orgCode: "ABCD");
+        repo.BeforeHistoryReturn = async _ => { refreshStarted.TrySetResult(); await releaseRefresh.Task; };
+        repo.HistoryException = new InvalidOperationException("history");
+        vm.BeginAddCommand.Execute();
+        FillValidAddForm(vm);
+
+        var save = vm.SaveCommand.Execute();
+        string? newerMessage = null;
+        await CompleteStaleSaveAsync(vm, repo, save, refreshStarted.Task, releaseRefresh.TrySetResult, async () =>
+        {
+            repo.ByIdentityByOrgUnitId[99] = Error.NotFound("EffectivePeriod.NoCoverage", "newer");
+            await vm.LoadAsync(99, Today);
+            newerMessage = vm.StatusMessage;
+        }, expectedTreeReads: 0, expectedHistoryReads: 0);
+
+        vm.StatusMessage.Should().Be(newerMessage);
+        vm.Severity.Should().Be(StatusSeverity.Error);
+    }
+
+    [Fact]
+    public async Task Save_Replace_VerificationSupersededByNewerLoad_LeavesTheNewerCardUntouched()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            ReplaceResult = new ReplaceOrgUnitDeclarationResult(10, new UpsertResult(1, [], [])),
+        };
+        var (vm, repo, _) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityByOrgUnitId[1] = Dto(1, 5, Today.AddDays(-1), EffectivePeriod.OpenEnd, id: 77, orgCode: "LIVE");
+        repo.ByIdentityByOrgUnitId[10] = Dto(10, 5, Today.AddDays(-1), EffectivePeriod.OpenEnd);
+        repo.ByIdentityByOrgUnitId[2] = Dto(2, null, Today, EffectivePeriod.OpenEnd, orgCode: "NEW");
+        repo.EligibleParentsResult = [new OrgUnitPickerItem(5, "P — Cha")];
+        await vm.LoadAsync(1, Today);
+        repo.BeforeByIdentityReturn = async (id, _) =>
+        {
+            if (id == 10)
+            {
+                started.TrySetResult();
+                await release.Task;
+            }
+        };
+        vm.BeginReplaceCommand.Execute();
+        vm.OrgNameShortVn = "Mới";
+
+        var save = vm.SaveCommand.Execute();
+        await CompleteStaleSaveAsync(vm, repo, save, started.Task, release.TrySetResult,
+            () => vm.LoadAsync(2, Today));
+
+        vm.OrgCode.Should().Be("NEW");
+        vm.StatusMessage.Should().Be("Đã lưu.");
+        vm.Severity.Should().Be(StatusSeverity.Success);
+    }
+
+    [Fact]
+    public async Task Save_Edit_StaleSuccess_LeavesANewerErrorBandUntouched()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var declaration = new FakeOrgUnitDeclarationService
+        {
+            BeforeEditReturn = async () => { started.TrySetResult(); await release.Task; },
+        };
+        var (vm, repo, _) = BuildForEdit(declaration: declaration);
+        repo.ByIdentityResult = Dto(1, 5, Today.AddDays(-1), EffectivePeriod.OpenEnd, orgCode: "LIVE");
+        await vm.LoadAsync(1, Today);
+        vm.BeginEditCommand.Execute();
+        vm.OrgNameShortVn = "Mới";
+
+        var save = vm.SaveCommand.Execute();
+        string? newerMessage = null;
+        await CompleteStaleSaveAsync(vm, repo, save, started.Task, release.TrySetResult, async () =>
+        {
+            repo.ByIdentityByOrgUnitId[99] = Error.NotFound("EffectivePeriod.NoCoverage", "newer");
+            await vm.LoadAsync(99, Today);
+            newerMessage = vm.StatusMessage;
+        });
+
+        vm.StatusMessage.Should().Be(newerMessage);
+        vm.Severity.Should().Be(StatusSeverity.Error);
+    }
+
+    private static object?[] CardFields(OrgUnitDeclarationViewModel vm) =>
+        [vm.Mode, vm.OrgCode, vm.OrgNameFullVn, vm.OrgNameShortVn, vm.EffectiveFrom,
+         vm.EffectiveTo, vm.IsUndetermined, vm.ParentId, vm.Reason, vm.Supplemental,
+         vm.Status, vm.IsRoot, vm.IsDirty];
+
+    private static async Task CompleteStaleSaveAsync(
+        OrgUnitDeclarationViewModel vm, FakeOrgUnitRepository repo,
+        Task command, Task started, Func<bool> release, Func<Task> whilePending,
+        int expectedTreeReads = 1, int expectedHistoryReads = 1)
+    {
+        object?[] fields = [];
+        var identityReads = 0;
+        var treeReads = 0;
+        var historyReads = 0;
+        var clears = 0;
+        vm.CardClearedAfterSave += (_, _) => clears++;
+        await CompleteDelayedCommandAsync(command, started, release, async () =>
+        {
+            await whilePending();
+            fields = CardFields(vm);
+            identityReads = repo.IdentityReadCallCount;
+            treeReads = repo.InScopeCallCount;
+            historyReads = repo.HistoryCallCount;
+        });
+
+        CardFields(vm).Should().Equal(fields);
+        repo.IdentityReadCallCount.Should().Be(identityReads);
+        repo.InScopeCallCount.Should().Be(treeReads + expectedTreeReads);
+        repo.HistoryCallCount.Should().Be(historyReads + expectedHistoryReads);
+        clears.Should().Be(0);
+    }
+
+    private static async Task CompleteDelayedCommandAsync(
+        Task command, Task started, Func<bool> release, Func<Task> whilePending)
+    {
+        try
+        {
+            await started.WaitAsync(PendingCommandTimeout);
+            await whilePending();
+        }
+        finally
+        {
+            _ = release();
+            await command.WaitAsync(PendingCommandTimeout);
+        }
+    }
+
+    private static OrgUnitHistoryRow HistoryRow(long orgUnitId, long versionId, string orgCode) =>
+        new(
+            Id: versionId, OrgUnitId: orgUnitId, EffectiveFrom: Today.AddDays(-1), EffectiveTo: EffectivePeriod.OpenEnd,
+            FromText: "x", ToText: "y", RecordedAtText: "z", StatusText: "Hiệu lực",
+            Status: VersionStatus.Effective, OrgCode: orgCode, NameFull: "Lịch sử", NameShort: "LS",
+            ParentId: 5, ParentLabel: "P — Cha", Operation: "Sửa", RecordedBy: "tester", Reason: "seed",
+            Supplemental: new OrgUnitSupplementalDto());
 }

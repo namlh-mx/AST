@@ -6,7 +6,7 @@ using FluentAssertions;
 namespace AST.AppScope.Tests;
 
 // Each suite owns the per-process WPF Application singleton. This fact is the guard for THIS suite's
-// process. AST.App.Tests is not edited by this task, so it does not host the mirror fact.
+// process. AST.App.Tests hosts the mirror fact for its own process.
 public class WpfSuiteProcessTests
 {
     internal const string AppScopeSuite = "AST.AppScope.Tests";

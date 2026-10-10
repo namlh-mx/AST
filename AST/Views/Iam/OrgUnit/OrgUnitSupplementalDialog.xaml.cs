@@ -131,7 +131,7 @@ public partial class OrgUnitSupplementalDialog : UserControl
         {
             confirmed = await AstDialog.ConfirmAsync(
                 Dialogs,
-                "Chuyển sang 2 cấp sẽ xóa dữ liệu Quận/huyện (VN và EN). Tiếp tục?",
+                "Địa giới hành chính 2 cấp sẽ không còn dữ liệu quận, huyện.",
                 StatusSeverity.Warning,
                 "Tiếp tục",
                 Wpf.Ui.Controls.SymbolRegular.Checkmark24,

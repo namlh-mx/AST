@@ -37,8 +37,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
             authorization ?? new FakeAuthorizationService(new DataScope(ScopeLevel.Global, null, actor)),
             new FakeCurrentWindowsUser(actor),
             new FixedBusinessDateProvider(Today),
-            breakGlass ?? new FakeBreakGlassPolicy(),
-            new PeriodEditor());
+            breakGlass ?? new FakeBreakGlassPolicy());
 
     // A service whose actor IS a break-glass rescuer. Since the requester's 2026-09-03 ruling the ROOT org
     // unit may only be declared and adjusted by one, so every test whose subject is root behaviour rather
@@ -185,7 +184,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
         var service = new OrgUnitDeclarationService(
             rolloverOrgUnitRepo, Connections, new AST.Infrastructure.AuditLogWriter(),
             new FakeAuthorizationService(new DataScope(ScopeLevel.Global, null, Actor)), new FakeCurrentWindowsUser(Actor),
-            advancing, new FakeBreakGlassPolicy(), new PeriodEditor());
+            advancing, new FakeBreakGlassPolicy());
 
         var request = new CloseOrgUnitDeclarationRequest(org, sameDay.Value.NewVersionId, EffectiveThrough: null, "hủy kế hoạch");
 
@@ -524,8 +523,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
             new FakeAuthorizationService(new DataScope(ScopeLevel.Global, null, Actor)),
             new FakeCurrentWindowsUser(null),
             new FixedBusinessDateProvider(Today),
-            new FakeBreakGlassPolicy(),
-            new PeriodEditor());
+            new FakeBreakGlassPolicy());
 
         var result = await service.CloseOrgUnitDeclarationAsync(
             new CloseOrgUnitDeclarationRequest(org, versionId, Today, "retire"));
@@ -955,7 +953,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
         var versionId = (await OrgUnits.GetByIdentityAsync(child, Today)).Value.Id;
 
         var request = new EditOrgUnitDeclarationRequest(
-            child, versionId, parent, OpenFrom2020, null, "E1CHI", "Đơn vị con đổi tên", "Con", "rename", null);
+            child, versionId, parent, "Đơn vị con đổi tên", "Con", "rename", null);
 
         var result = await BuildService().EditOrgUnitDeclarationAsync(request);
 
@@ -980,7 +978,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
 
         var result = await BuildService(authorization: denied).EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                org, versionId, null, OpenFrom2020, null, "E2ORG", "Đổi tên", "E2ORG", "rename", null));
+                org, versionId, null, "Đổi tên", "E2ORG", "rename", null));
 
         result.IsError.Should().BeTrue();
         // Same discriminator as the close path's C1: pins the authorizer's OWN code propagating through
@@ -1005,7 +1003,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
         // return an ErrorOr -- this call completing at all is part of the assertion.
         var result = await BuildService(authorization: selfScope).EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                org, versionId, null, OpenFrom2020, null, "E3ORG", "Đổi tên", "E3ORG", "rename", null));
+                org, versionId, null, "Đổi tên", "E3ORG", "rename", null));
 
         result.IsError.Should().BeTrue();
         result.FirstError.Code.Should().Be("Authz.ScopeInsufficient");
@@ -1026,7 +1024,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
 
         var result = await BuildService(authorization: narrowScope).EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                org, versionId, null, OpenFrom2020, null, "E4ORG", "Đổi tên", "E4ORG", "rename", null));
+                org, versionId, null, "Đổi tên", "E4ORG", "rename", null));
 
         result.IsError.Should().BeTrue();
         result.FirstError.Code.Should().Be("OrgUnit.NotInScope");
@@ -1050,7 +1048,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
 
         var result = await BuildService().EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                org, supersededId, null, OpenFrom2020, null, "E5ORG", "Đổi tên", "E5ORG", "rename", null));
+                org, supersededId, null, "Đổi tên", "E5ORG", "rename", null));
 
         result.IsError.Should().BeTrue();
         result.FirstError.Code.Should().Be("OrgUnit.VersionNotFound");
@@ -1081,7 +1079,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
 
         var result = await BuildService().EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                child, supersededId, parent, OpenFrom2020, null, "E9CHI", "Đổi tên", "E9CHI",
+                child, supersededId, parent, "Đổi tên", "E9CHI",
                 "rename", null));
 
         result.IsError.Should().BeTrue();
@@ -1104,7 +1102,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
         // the only shape a stale or tampered echo can take -- and it must not be silently coerced.
         var result = await BuildService().EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                child, versionId, other, OpenFrom2020, null, "E6CHI", "Đổi tên", "Con", "rename", null));
+                child, versionId, other, "Đổi tên", "Con", "rename", null));
 
         result.IsError.Should().BeTrue();
         result.FirstError.Code.Should().Be("OrgUnit.ParentMismatch");
@@ -1143,8 +1141,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
 
         var result = await BuildService().EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                child, versionId, parentB, new EffectivePeriod(new DateOnly(2020, 7, 1), EffectivePeriod.OpenEnd),
-                null, "E7CHI", "Đổi tên", "Con", "rename", null));
+                child, versionId, parentB, "Đổi tên", "Con", "rename", null));
 
         result.IsError.Should().BeTrue();
         // Rejected even though the echo MATCHES the version the caller loaded -- so this cannot be the
@@ -1167,7 +1164,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
 
         var result = await BuildService(auditLog: new FailingAuditLogWriter()).EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                org, versionId, parent, Year2021, null, "E8ORG", "Đổi tên", "E8ORG", "rename", null));
+                org, versionId, parent, "Đổi tên", "E8ORG", "rename", null));
 
         result.IsError.Should().BeTrue();
         result.FirstError.Code.Should().Be("AuditLog.Injected");
@@ -1175,75 +1172,6 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
         (await CountAllAuditRowsAsync()).Should().Be(0);
     }
 
-    // The confirm on Sửa describes the remnants a save will leave, and
-    // it may only describe them if the preview it reads and the write that follows come from ONE algebra.
-    // Case 5 -- the new period lies strictly inside the stored one -- is the shape that produces BOTH a head
-    // and a tail remnant, so it is the case where a second derivation has two chances to disagree.
-    //
-    // The assertion is on the PERIODS, not on a count: two remnants of the wrong lengths would satisfy a
-    // count and still put the wrong dates in front of the operator.
-    [Fact]
-    public async Task PreviewEditAsync_Case5_AgreesWithTheRemnantsTheWriteActuallyProduces()
-    {
-        SkipUnlessDbAvailable();
-
-        var stored = new EffectivePeriod(new DateOnly(2020, 1, 1), new DateOnly(2020, 12, 31));
-        var parent = await CreateOrgUnitAsync("P1PAR", "Đơn vị cha", "P1PAR", null, OpenFrom2020);
-        var org = await CreateOrgUnitAsync("P1ORG", "Đơn vị", "P1ORG", parent, stored);
-        var versionId = (await OrgUnits.GetByIdentityAsync(org, new DateOnly(2020, 6, 1))).Value.Id;
-
-        var edited = new EffectivePeriod(new DateOnly(2020, 4, 1), new DateOnly(2020, 9, 30));
-        var service = BuildService();
-
-        var preview = await service.PreviewEditAsync(org, versionId, edited, endsOn: null);
-        preview.IsError.Should().BeFalse(DescribeErrors(preview.Errors));
-
-        var write = await service.EditOrgUnitDeclarationAsync(
-            new EditOrgUnitDeclarationRequest(
-                org, versionId, parent, edited, null, "P1ORG", "Đơn vị đổi tên", "P1ORG", "sửa kỳ", null));
-        write.IsError.Should().BeFalse(DescribeErrors(write.Errors));
-
-        // What the write actually left behind: every active version except the one carrying the period the
-        // operator typed. Derived from the ROWS, so this test cannot be satisfied by re-running the planner.
-        var writtenRemnants = (await OrgUnits.GetHistoryInScopeAsync(new DataScope(ScopeLevel.Global, null, Actor), org))
-            .Where(v => v.IsActive)
-            .Select(v => new EffectivePeriod(v.EffectiveFrom, v.EffectiveTo))
-            .Where(p => p != edited)
-            .ToList();
-
-        writtenRemnants.Should().HaveCount(2, "case 5 leaves a head stretch and a tail stretch");
-        preview.Value.Select(r => r.Period).Should().BeEquivalentTo(writtenRemnants);
-    }
-
-    // =========================================================================================
-    // N -- the mandatory note. The note is the ONLY carrier of "why the
-    // period changed", so it stops being optional exactly when the period changes -- and the check lives
-    // HERE, under the identity lock, because a ViewModel guard is bypassable by any other caller.
-    // =========================================================================================
-
-    [Fact]
-    public async Task EditOrgUnitDeclarationAsync_PeriodChangedWithABlankNote_IsRefused()
-    {
-        SkipUnlessDbAvailable();
-
-        var parent = await CreateOrgUnitAsync("N1PAR", "Đơn vị cha", "N1PAR", null, OpenFrom2020);
-        var org = await CreateOrgUnitAsync("N1ORG", "Đơn vị", "N1ORG", parent, OpenFrom2020);
-        var versionId = (await OrgUnits.GetByIdentityAsync(org, Today)).Value.Id;
-        var rowsBefore = await CountRowsAsync(org);
-
-        var result = await BuildService().EditOrgUnitDeclarationAsync(
-            new EditOrgUnitDeclarationRequest(
-                org, versionId, parent, new EffectivePeriod(new DateOnly(2020, 1, 1), Today.AddDays(30)), null,
-                "N1ORG", "Đơn vị", "N1ORG", "   ", null));
-
-        result.IsError.Should().BeTrue();
-        result.FirstError.Code.Should().Be("OrgUnit.ReasonRequiredForPeriodChange");
-        result.FirstError.Type.Should().Be(ErrorType.Validation);
-        (await CountRowsAsync(org)).Should().Be(rowsBefore, "a refused edit writes nothing");
-    }
-
-    // THE guard against the rule silently widening into "every Edit needs a note". If
-    // this goes red, the trigger has drifted from "the period changed" to "this is an Edit".
     [Fact]
     public async Task EditOrgUnitDeclarationAsync_NameOnlyWithABlankNote_IsAccepted()
     {
@@ -1255,270 +1183,94 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
 
         var result = await BuildService().EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                org, versionId, parent, OpenFrom2020, null, "N2ORG", "Đơn vị đổi tên", "N2ORG", null, null));
+                org, versionId, parent, "Đơn vị đổi tên", "N2ORG", null, null));
 
         result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
     }
 
-    // =========================================================================================
-    // X -- "the unit ends on that date". ONE save that both records
-    // the edited values and ends the unit: Upsert over [From, storedEnd] followed by the EXISTING Close
-    // of the row that upsert just wrote, inside one CompositeWrite.
-    //
-    // Every unit here is a CHILD, never a root: ending a root is refused outright, and the
-    // test that pins that refusal is the last one in this block.
-    // =========================================================================================
-
-    // Asserted against the ROWS, not against the return value: the whole point of C-b is what is left on
-    // disk once the transient row has been deactivated.
     [Fact]
-    public async Task EditOrgUnitDeclarationAsync_EndsOn_WritesTheNewValuesAndLeavesNoTail()
+    public async Task EditOrgUnitDeclarationAsync_NameEditWithANote_KeepsTheStoredStartEndAndCode()
     {
         SkipUnlessDbAvailable();
 
-        var parent = await CreateOrgUnitAsync("X1PAR", "Đơn vị cha", "X1PAR", null, OpenFrom2020);
-        var org = await CreateOrgUnitAsync("X1ORG", "Cũ", "Cũ", parent, OpenFrom2020);
+        var parent = await CreateOrgUnitAsync("K1PAR", "Đơn vị cha", "K1PAR", null, OpenFrom2020);
+        var org = await CreateOrgUnitAsync("K1ORG", "Đơn vị", "K1ORG", parent, OpenFrom2020);
         var versionId = (await OrgUnits.GetByIdentityAsync(org, Today)).Value.Id;
-        var endsOn = Today.AddDays(10);
+        var stored = await ReadFullVersionRowAsync(versionId);
 
         var result = await BuildService().EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                org, versionId, parent, new EffectivePeriod(OpenFrom2020.From, endsOn), endsOn,
-                "X1ORG", "Mới", "Mới", "sửa tên và kết thúc", null));
+                org, versionId, parent, "Đơn vị đổi tên", "K1ORG", "sửa tên", null));
 
         result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
 
-        var active = (await OrgUnits.GetHistoryInScopeAsync(new DataScope(ScopeLevel.Global, null, Actor), org))
-            .Where(v => v.IsActive)
-            .ToList();
-
-        var only = active.Should().ContainSingle("no tail may survive an \"ends here\" save").Subject;
-        only.EffectiveFrom.Should().Be(OpenFrom2020.From);
-        only.EffectiveTo.Should().Be(endsOn);
-        only.OrgNameFullVn.Should().Be("Mới", "the edited values are what survives, not the old ones");
+        var written = await ReadFullVersionRowAsync(result.Value.NewVersionId);
+        DateOnly.FromDateTime(written.EffectiveFrom).Should().Be(DateOnly.FromDateTime(stored.EffectiveFrom));
+        DateOnly.FromDateTime(written.EffectiveTo).Should().Be(DateOnly.FromDateTime(stored.EffectiveTo));
+        written.OrgCode.Should().Be(stored.OrgCode);
     }
 
-    // Section 19.1 clause 2. The screen fills both fields from ONE date box, so a caller where they differ
-    // disagrees with itself and is refused rather than silently resolved in either direction.
     [Fact]
-    public async Task EditOrgUnitDeclarationAsync_EndsOnDisagreesWithThePeriod_IsRefused()
+    public async Task EditOrgUnitDeclarationAsync_NameEditWithABlankNote_KeepsTheStoredStartEndAndCode()
     {
         SkipUnlessDbAvailable();
 
-        var parent = await CreateOrgUnitAsync("X2PAR", "Đơn vị cha", "X2PAR", null, OpenFrom2020);
-        var org = await CreateOrgUnitAsync("X2ORG", "Đơn vị", "X2ORG", parent, OpenFrom2020);
+        var parent = await CreateOrgUnitAsync("K2PAR", "Đơn vị cha", "K2PAR", null, OpenFrom2020);
+        var org = await CreateOrgUnitAsync("K2ORG", "Đơn vị", "K2ORG", parent, OpenFrom2020);
         var versionId = (await OrgUnits.GetByIdentityAsync(org, Today)).Value.Id;
-        var rowsBefore = await CountRowsAsync(org);
+        var stored = await ReadFullVersionRowAsync(versionId);
 
         var result = await BuildService().EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                org, versionId, parent, new EffectivePeriod(OpenFrom2020.From, Today.AddDays(10)),
-                Today.AddDays(20), "X2ORG", "Đơn vị", "X2ORG", "kết thúc", null));
-
-        result.IsError.Should().BeTrue();
-        result.FirstError.Code.Should().Be("OrgUnit.EndsOnDisagreesWithPeriod");
-        (await CountRowsAsync(org)).Should().Be(rowsBefore);
-    }
-
-    // THE test that proves ending on the stored end returns this path's own code, not InvalidShrink. Ending
-    // on the end the version already has removes nothing, and without this guard the engine's own
-    // InvalidShrink surfaces instead -- naming a cut window [From, To) the operator never typed.
-    [Fact]
-    public async Task EditOrgUnitDeclarationAsync_EndsOnEqualsTheStoredEnd_ReturnsItsOwnCode_NotInvalidShrink()
-    {
-        SkipUnlessDbAvailable();
-
-        var storedEnd = Today.AddDays(60);
-        var stored = new EffectivePeriod(new DateOnly(2020, 1, 1), storedEnd);
-        var parent = await CreateOrgUnitAsync("X3PAR", "Đơn vị cha", "X3PAR", null, OpenFrom2020);
-        var org = await CreateOrgUnitAsync("X3ORG", "Đơn vị", "X3ORG", parent, stored);
-        var versionId = (await OrgUnits.GetByIdentityAsync(org, Today)).Value.Id;
-
-        var result = await BuildService().EditOrgUnitDeclarationAsync(
-            new EditOrgUnitDeclarationRequest(
-                org, versionId, parent, stored, storedEnd, "X3ORG", "Đơn vị", "X3ORG", "kết thúc", null));
-
-        result.IsError.Should().BeTrue();
-        // The Advisor: a NotBe after a Be on the same value proves nothing, so it is gone. The claim lives in
-        // the fixture instead - EndsOn == storedEnd is the exact input the layers below refuse in their own
-        // terms. MEASURED 2026-09-03 by neutralising clause 3: this fixture then returns
-        // VersionClose.CloseDateEqualsVersionEnd, still a code about a window the operator never typed.
-        // F-88's InvalidShrink sits one layer further in again, behind the close-date rule.
-        result.FirstError.Code.Should().Be("OrgUnit.EndsOnNotBeforeStoredEnd");
-    }
-
-    // Section 19.1 clause 4. EndsOn ends ONE version's stretch, which is only "the unit ends" if nothing
-    // survives after it -- reachable whenever the identity carries a later active version.
-    [Fact]
-    public async Task EditOrgUnitDeclarationAsync_EndsOn_WhileALaterVersionStillCovers_IsRefused()
-    {
-        SkipUnlessDbAvailable();
-
-        var parent = await CreateOrgUnitAsync("X4PAR", "Đơn vị cha", "X4PAR", null, OpenFrom2020);
-        var first = new EffectivePeriod(new DateOnly(2020, 1, 1), Today.AddDays(20));
-        var org = await CreateOrgUnitAsync("X4ORG", "Đơn vị", "X4ORG", parent, first);
-
-        // Adjacent, so both stay active (algebra case 2) and the identity really does cover days beyond
-        // the version under edit.
-        var later = await OrgUnits.UpsertAsync(
-            org, new EffectivePeriod(Today.AddDays(21), EffectivePeriod.OpenEnd), "X4ORG", "Đơn vị", "X4ORG",
-            parent, VersionOperationKind.Edit, Actor, "giai đoạn sau");
-        later.IsError.Should().BeFalse(DescribeErrors(later.Errors));
-
-        var versionId = (await OrgUnits.GetByIdentityAsync(org, Today)).Value.Id;
-        var endsOn = Today.AddDays(10);
-
-        var result = await BuildService().EditOrgUnitDeclarationAsync(
-            new EditOrgUnitDeclarationRequest(
-                org, versionId, parent, new EffectivePeriod(first.From, endsOn), endsOn,
-                "X4ORG", "Đơn vị", "X4ORG", "kết thúc", null));
-
-        result.IsError.Should().BeTrue();
-        result.FirstError.Code.Should().Be("OrgUnit.EndsOnLeavesLaterCoverage");
-    }
-
-    // The ONE assertion standing between this gesture and an orphaned child. It passes only because the
-    // coverage-reducing half runs through the existing CloseVersionAsync, which carries the reverse-FK
-    // check -- UpsertAsync does not.
-    [Fact]
-    public async Task EditOrgUnitDeclarationAsync_EndsOn_WithAChildCoveredBeyondThatDate_IsRefused()
-    {
-        SkipUnlessDbAvailable();
-
-        var parent = await CreateOrgUnitAsync("X5PAR", "Đơn vị cha", "X5PAR", null, OpenFrom2020);
-        var org = await CreateOrgUnitAsync("X5ORG", "Đơn vị", "X5ORG", parent, OpenFrom2020);
-        var child = await CreateOrgUnitAsync("X5CHI", "Đơn vị con", "X5CHI", org, OpenFrom2020);
-        var versionId = (await OrgUnits.GetByIdentityAsync(org, Today)).Value.Id;
-        var endsOn = Today.AddDays(10);
-        var rowsBefore = await CountRowsAsync(org);
-
-        var result = await BuildService().EditOrgUnitDeclarationAsync(
-            new EditOrgUnitDeclarationRequest(
-                org, versionId, parent, new EffectivePeriod(OpenFrom2020.From, endsOn), endsOn,
-                "X5ORG", "Đơn vị", "X5ORG", "kết thúc", null));
-
-        result.IsError.Should().BeTrue();
-        result.FirstError.Code.Should().Be("TemporalFk.DependentsUncovered");
-        (await CountRowsAsync(org)).Should().Be(rowsBefore, "a blocked gesture leaves no row behind");
-        (await CountAllAuditRowsAsync()).Should().Be(0);
-
-        var childBack = await OrgUnits.GetByIdentityAsync(child, Today);
-        childBack.IsError.Should().BeFalse(DescribeErrors(childBack.Errors));
-    }
-
-    // The SECOND edge into org_unit_version. IamTemporalFkEdges declares both the
-    // parent_id self-edge and user_version.org_unit_id, and the acceptance row says "a child org unit OR a
-    // user". A pair whose halves are tested one-at-a-time is how the untested half ships broken.
-    //
-    // The user_version row is seeded through UserRepository directly: the user-declaration screen does not
-    // exist yet, so there is no service path that could create one.
-    [Fact]
-    public async Task EditOrgUnitDeclarationAsync_EndsOn_WithAUserCoveredBeyondThatDate_IsRefused()
-    {
-        SkipUnlessDbAvailable();
-
-        var parent = await CreateOrgUnitAsync("X6PAR", "Đơn vị cha", "X6PAR", null, OpenFrom2020);
-        var org = await CreateOrgUnitAsync("X6ORG", "Đơn vị", "X6ORG", parent, OpenFrom2020);
-        var role = await CreateRoleAsync("X6ROLE", "Vai trò X6", OpenFrom2020);
-        var user = await CreateUserHeaderAsync();
-        var createUser = await Users.UpsertAsync(
-            user, OpenFrom2020, "x6user", "Người dùng X6", org, role, Actor, "create");
-        createUser.IsError.Should().BeFalse(DescribeErrors(createUser.Errors));
-
-        var versionId = (await OrgUnits.GetByIdentityAsync(org, Today)).Value.Id;
-        var endsOn = Today.AddDays(10);
-        var rowsBefore = await CountRowsAsync(org);
-
-        var result = await BuildService().EditOrgUnitDeclarationAsync(
-            new EditOrgUnitDeclarationRequest(
-                org, versionId, parent, new EffectivePeriod(OpenFrom2020.From, endsOn), endsOn,
-                "X6ORG", "Đơn vị", "X6ORG", "kết thúc", null));
-
-        result.IsError.Should().BeTrue();
-        result.FirstError.Code.Should().Be("TemporalFk.DependentsUncovered");
-        (await CountRowsAsync(org)).Should().Be(rowsBefore);
-    }
-
-    // Every row-shape and reverse-FK assertion above stays green while the audit row points
-    // at the transient [From, storedEnd] row this same transaction set isactive = 0, which is exactly why
-    // the audit target needs an assertion of its own.
-    [Fact]
-    public async Task EditOrgUnitDeclarationAsync_EndsOn_AuditRowReferencesTheSurvivingVersion()
-    {
-        SkipUnlessDbAvailable();
-
-        var parent = await CreateOrgUnitAsync("X7PAR", "Đơn vị cha", "X7PAR", null, OpenFrom2020);
-        var org = await CreateOrgUnitAsync("X7ORG", "Đơn vị", "X7ORG", parent, OpenFrom2020);
-        var versionId = (await OrgUnits.GetByIdentityAsync(org, Today)).Value.Id;
-        var endsOn = Today.AddDays(10);
-
-        var result = await BuildService().EditOrgUnitDeclarationAsync(
-            new EditOrgUnitDeclarationRequest(
-                org, versionId, parent, new EffectivePeriod(OpenFrom2020.From, endsOn), endsOn,
-                "X7ORG", "Đơn vị", "X7ORG", "kết thúc", null));
+                org, versionId, parent, "Đơn vị đổi tên", "K2ORG", null, null));
 
         result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
 
-        var survivor = (await OrgUnits.GetHistoryInScopeAsync(new DataScope(ScopeLevel.Global, null, Actor), org))
-            .Single(v => v.IsActive);
-
-        result.Value.NewVersionId.Should().Be(survivor.Id, "the caller is handed the row that survived");
-        (await CountAuditRowsForTargetAsync($"org_unit_version:{survivor.Id}")).Should().Be(1);
-        (await CountAllAuditRowsAsync()).Should().Be(1, "one save writes one audit row");
+        var written = await ReadFullVersionRowAsync(result.Value.NewVersionId);
+        DateOnly.FromDateTime(written.EffectiveFrom).Should().Be(DateOnly.FromDateTime(stored.EffectiveFrom));
+        DateOnly.FromDateTime(written.EffectiveTo).Should().Be(DateOnly.FromDateTime(stored.EffectiveTo));
+        written.OrgCode.Should().Be(stored.OrgCode);
     }
 
-    // The operator has just stated a close intent, so the
-    // close-date floor every other close obeys applies here too. This does NOT
-    // arrive by inheritance, because OrgUnitRepository does not override ValidateClose; the service calls
-    // VersionCloseRules explicitly. This test is what pins that as a decision rather than an accident.
     [Fact]
-    public async Task EditOrgUnitDeclarationAsync_EndsOn_BeforeTheCloseDateFloor_IsRefused()
+    public async Task EditOrgUnitDeclarationAsync_OnOneOfTwoActiveVersions_LeavesTheOtherRowUntouched()
     {
         SkipUnlessDbAvailable();
 
-        var parent = await CreateOrgUnitAsync("X8PAR", "Đơn vị cha", "X8PAR", null, OpenFrom2020);
-        var org = await CreateOrgUnitAsync("X8ORG", "Đơn vị", "X8ORG", parent, OpenFrom2020);
-        var versionId = (await OrgUnits.GetByIdentityAsync(org, Today)).Value.Id;
-        var endsOn = Today.AddDays(-5);
+        var parent = await CreateOrgUnitAsync("K3PAR", "Đơn vị cha", "K3PAR", null, OpenFrom2020);
+        var firstPeriod = new EffectivePeriod(new DateOnly(2020, 1, 1), new DateOnly(2020, 12, 31));
+        var secondPeriod = new EffectivePeriod(new DateOnly(2021, 1, 1), EffectivePeriod.OpenEnd);
+        var org = await CreateOrgUnitAsync("K3ORG", "Giai đoạn một", "K3ORG", parent, firstPeriod);
+        var firstId = (await OrgUnits.GetByIdentityAsync(org, new DateOnly(2020, 6, 1))).Value.Id;
+
+        var second = await OrgUnits.UpsertAsync(
+            org, secondPeriod, "K3ORG", "Giai đoạn hai", "K3HAI", parent,
+            VersionOperationKind.Edit, Actor, "giai đoạn hai");
+        second.IsError.Should().BeFalse(DescribeErrors(second.Errors));
+        var secondBefore = await ReadFullVersionRowAsync(second.Value.NewVersionId);
 
         var result = await BuildService().EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                org, versionId, parent, new EffectivePeriod(OpenFrom2020.From, endsOn), endsOn,
-                "X8ORG", "Đơn vị", "X8ORG", "kết thúc", null));
-
-        result.IsError.Should().BeTrue();
-        result.FirstError.Code.Should().Be(VersionCloseRules.Codes.CloseDateInPast);
-    }
-
-    // The other half of that floor decision: the floor applies, the
-    // Retire-vs-CancelPlan branch rule does not. A version whose coverage has not started yet is where an
-    // operator most often mis-declares an end date, so refusing the gesture there would leave the remnant
-    // tail unfixed for that shape. Without this test the scoping is indistinguishable from an oversight.
-    [Fact]
-    public async Task EditOrgUnitDeclarationAsync_EndsOn_OnAVersionThatHasNotStartedYet_Succeeds()
-    {
-        SkipUnlessDbAvailable();
-
-        var parent = await CreateOrgUnitAsync("XBPAR", "Đơn vị cha", "XBPAR", null, OpenFrom2020);
-        var future = new EffectivePeriod(Today.AddDays(7), EffectivePeriod.OpenEnd);
-        var org = await CreateOrgUnitAsync("XBORG", "Đơn vị", "XBORG", parent, future);
-        var versionId = (await OrgUnits.GetByIdentityAsync(org, Today.AddDays(10))).Value.Id;
-        var endsOn = Today.AddDays(20);
-
-        var result = await BuildService().EditOrgUnitDeclarationAsync(
-            new EditOrgUnitDeclarationRequest(
-                org, versionId, parent, new EffectivePeriod(future.From, endsOn), endsOn,
-                "XBORG", "Đơn vị", "XBORG", "kết thúc", null));
+                org, firstId, parent, "Giai đoạn một đổi tên", "K3ORG", "sửa tên", null));
 
         result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
 
-        var active = (await OrgUnits.GetHistoryInScopeAsync(new DataScope(ScopeLevel.Global, null, Actor), org))
-            .Where(v => v.IsActive)
-            .ToList();
+        var written = await ReadFullVersionRowAsync(result.Value.NewVersionId);
+        DateOnly.FromDateTime(written.EffectiveFrom).Should().Be(firstPeriod.From);
+        DateOnly.FromDateTime(written.EffectiveTo).Should().Be(firstPeriod.To);
+        written.OrgCode.Should().Be("K3ORG");
+        written.OrgNameFullVn.Should().Be("Giai đoạn một đổi tên");
+        written.OperationKind.Should().Be("Edit");
 
-        var only = active.Should().ContainSingle().Subject;
-        only.EffectiveFrom.Should().Be(future.From);
-        only.EffectiveTo.Should().Be(endsOn);
+        (await ReadFullVersionRowAsync(second.Value.NewVersionId)).Should().BeEquivalentTo(secondBefore);
+
+        var stillSecond = (await OrgUnits.GetByIdentityAsync(org, new DateOnly(2021, 6, 1))).Value;
+        stillSecond.Id.Should().Be(second.Value.NewVersionId);
+        stillSecond.OrgCode.Should().Be("K3ORG");
+        stillSecond.OrgNameFullVn.Should().Be("Giai đoạn hai");
+        stillSecond.OrgNameShortVn.Should().Be("K3HAI");
+        stillSecond.EffectiveFrom.Should().Be(secondPeriod.From);
+        stillSecond.EffectiveTo.Should().Be(secondPeriod.To);
     }
 
     // =========================================================================================
@@ -1564,9 +1316,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
             + "operation was permitted, which a security review has to be able to query for");
     }
 
-    // The gate is on the ROOT, not on the "ends here" gesture: a plain rename of a root is refused too.
-    // Without this, deleting the gate and re-adding it inside the EndsOn branch would leave every other
-    // test green while an ordinary admin could still re-date the top of the tree.
+    // A plain rename of a root is refused for an ordinary actor.
     [Fact]
     public async Task EditOrgUnitDeclarationAsync_Root_NameOnly_OrdinaryActor_IsRefused()
     {
@@ -1578,7 +1328,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
 
         var result = await BuildService().EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                root, versionId, null, OpenFrom2020, null, "Y3ROOT", "Đổi tên", "Y3ROOT", null, null));
+                root, versionId, null, "Đổi tên", "Y3ROOT", null, null));
 
         result.IsError.Should().BeTrue();
         result.FirstError.Code.Should().Be("OrgUnit.RootNotEditable");
@@ -1596,54 +1346,7 @@ public sealed class OrgUnitDeclarationServiceTests : IamRepositoryTestBase
 
         var result = await BuildRootService().EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                root, versionId, null, OpenFrom2020, null, "Y4ROOT", "Đổi tên", "Y4ROOT", null, null));
-
-        result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
-
-        var target = $"org_unit_version:{result.Value.NewVersionId}";
-        (await ReadAuditEventTypesForTargetAsync(target)).Should().BeEquivalentTo(
-            ["orgunit-edit", "orgunit-root-edit-breakglass"]);
-    }
-
-    // "Ends here" reduces coverage, so it is a close in the only sense the root-close
-    // gate cares about -- and that gate lives in CloseOrgUnitDeclarationAsync alone.
-    // Without the gate repeated here, Sửa would retire a root that Đóng refuses.
-    [Fact]
-    public async Task EditOrgUnitDeclarationAsync_EndsOn_OnARootUnit_OrdinaryActor_IsRefused()
-    {
-        SkipUnlessDbAvailable();
-
-        var root = await CreateOrgUnitAsync("X9ROOT", "Đơn vị gốc", "X9ROOT", null, OpenFrom2020);
-        var versionId = (await OrgUnits.GetByIdentityAsync(root, Today)).Value.Id;
-        var endsOn = Today.AddDays(10);
-        var rowsBefore = await CountRowsAsync(root);
-
-        var result = await BuildService().EditOrgUnitDeclarationAsync(
-            new EditOrgUnitDeclarationRequest(
-                root, versionId, null, new EffectivePeriod(OpenFrom2020.From, endsOn), endsOn,
-                "X9ROOT", "Đơn vị gốc", "X9ROOT", "kết thúc", null));
-
-        result.IsError.Should().BeTrue();
-        result.FirstError.Code.Should().Be("OrgUnit.RootNotEditable");
-        (await CountRowsAsync(root)).Should().Be(rowsBefore);
-    }
-
-    // The carve-out's other half. A rescuer MAY end a mis-declared root, and the fact that a
-    // normally-forbidden operation was permitted gets its own audit row -- the same pair the ordinary root
-    // close writes. Testing only the block is how a carve-out ships unreachable.
-    [Fact]
-    public async Task EditOrgUnitDeclarationAsync_EndsOn_OnARootUnit_BreakGlassActor_SucceedsAndRecordsWhy()
-    {
-        SkipUnlessDbAvailable();
-
-        var root = await CreateOrgUnitAsync("XAROOT", "Đơn vị gốc", "XAROOT", null, OpenFrom2020);
-        var versionId = (await OrgUnits.GetByIdentityAsync(root, Today)).Value.Id;
-        var endsOn = Today.AddDays(10);
-
-        var result = await BuildService(breakGlass: new FakeBreakGlassPolicy(Actor)).EditOrgUnitDeclarationAsync(
-            new EditOrgUnitDeclarationRequest(
-                root, versionId, null, new EffectivePeriod(OpenFrom2020.From, endsOn), endsOn,
-                "XAROOT", "Đơn vị gốc", "XAROOT", "kết thúc", null));
+                root, versionId, null, "Đổi tên", "Y4ROOT", null, null));
 
         result.IsError.Should().BeFalse(DescribeErrors(result.Errors));
 

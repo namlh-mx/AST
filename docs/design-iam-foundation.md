@@ -31,7 +31,7 @@
 - Data scope is attached per **(role x function)**, **4 levels**.
 - The root admin is managed via a **list of usernames in a config file** (break-glass), independent of the DB.
 - MySQL is **Community** (not Enterprise), and **enabling KDS on the domain controller is difficult**.
-- The host registers module list, descriptors and navigation at one composition point.
+- The host registers module list, descriptors and navigation at one composition point. A domain whose registration drifts gets its own registration function in the existing project, never its own assembly.
 - The service already normalises independently and must keep doing so: UI input rules are for the operator's benefit, server normalisation for the system's, and the second may never be delegated to the first (role-code whitespace: backlog 3.2).
 
 ---
@@ -69,7 +69,7 @@ Which entities carry an effective period at all is decided in `design-temporalit
   - **Does NOT use DPAPI-NG** (KDS is hard to enable). The file contains a **list of root-admin usernames** (e.g. `alice`); the app compares the **currently logged-in Windows username** → a match = full-authority root admin (Global scope), independent of the DB, **with logging**.
   - **The barrier = the Windows identity** (cannot be impersonated without that person's Windows password).
   - The root admin exists to create the initial org units/roles/users + to rescue the system if DB permissions are locked out by mistake; day-to-day operation uses a **"System Administrator" role in the DB**.
-  - ⭐ **The ROOT ORG UNIT is break-glass-only for declaring, adjusting and closing/cancelling, and is never replaceable.** Declaring one, adjusting one, and closing or cancelling one remain reserved to a break-glass admin; an ordinary admin, however wide their data scope, may only READ it. Enforced in `OrgUnitDeclarationService` by `OrgUnit.RootNotDeclarable` (Add), `OrgUnit.RootNotEditable` (Edit, which includes the "the unit ends on that date" gesture) and `OrgUnit.RootNotClosable` (Close/Cancel), and each permitted write records a second `audit_log` row (`orgunit-root-add-breakglass` / `orgunit-root-edit-breakglass` / `orgunit-root-close-breakglass`) so that "a normally-forbidden operation was permitted" is a fact a security review can query for rather than infer from `parent_id`. ⚠️ **Requester ruling 2026-09-06:** replacing a root is forbidden to every actor, break-glass included; re-declaring the root goes through Close → Add. `OrgUnit.RootNotReplaceable` is an unconditional refusal when the *predecessor* is a root **or** when the *successor* is declared as a root, because the gesture writes both. The other three writes touch one unit each. **Consequence:** a fresh database has no root, so its first org unit can only be declared by a break-glass admin — which is what File B's own purpose above already says.
+  - ⭐ **The ROOT ORG UNIT is break-glass-only for declaring, adjusting and closing/cancelling, and is never replaceable.** Declaring one, adjusting one, and closing or cancelling one remain reserved to a break-glass admin; an ordinary admin, however wide their data scope, may only READ it. Enforced in `OrgUnitDeclarationService` by `OrgUnit.RootNotDeclarable` (Add), `OrgUnit.RootNotEditable` (Edit) and `OrgUnit.RootNotClosable` (Close/Cancel), and each permitted write records a second `audit_log` row (`orgunit-root-add-breakglass` / `orgunit-root-edit-breakglass` / `orgunit-root-close-breakglass`) so that "a normally-forbidden operation was permitted" is a fact a security review can query for rather than infer from `parent_id`. ⚠️ **Requester ruling 2026-09-06:** replacing a root is forbidden to every actor, break-glass included; re-declaring the root goes through Close → Add. `OrgUnit.RootNotReplaceable` is an unconditional refusal when the *predecessor* is a root **or** when the *successor* is declared as a root, because the gesture writes both. The other three writes touch one unit each. **Consequence:** a fresh database has no root, so its first org unit can only be declared by a break-glass admin — which is what File B's own purpose above already says.
 - **Both File A & B are protected against tampering/forgery with a DIGITAL SIGNATURE (instead of an unusable ACL):**
   - Use a **self-generated asymmetric key pair** (RSA/ECDSA via .NET's built-in cryptography libraries) — **free, no CA purchase, no expiry**. **Asymmetric is mandatory** (no HMAC/symmetric, because a symmetric key shipped inside the app could be extracted to forge signatures).
   - IT keeps the **private key offline** (an admin machine, never on the share), using a **small signing tool** to sign the file's content every time it's updated. The app **embeds the public key** (harmless if exposed), **verifies the signature before use**; a wrong/missing signature → **refused** (no DB connection / root admin not recognized). Losing the private key → generate a new pair, re-sign, ship the app with the new public key.
@@ -134,19 +134,19 @@ These items fill operational gaps without reopening decisions D1–D13 of `docs/
 ## (9) Org-unit gestures and replacement (Thay thế)
 
 ### (9.1) The five gestures
-Requester ruling 2026-09-04, amended for Sửa by the requester on 2026-09-09. Each gesture writes rows carrying exactly one `VersionOperationKind`; the five gestures and the five values map 1:1.
+Requester ruling 2026-09-04; Sửa per D-37. Each gesture writes rows carrying exactly one `VersionOperationKind`; the five gestures and the five values map 1:1.
 
 | Gesture | What it changes | Kind |
 |---|---|---|
 | Thêm | declares a new org unit | `Add` |
-| Sửa | content, as a new version over the same period (in-place correction); never the org code, never the parent. To hold two periods with different data on one identity, Sửa moves effective-from later and leaves a head remnant; a period change makes the reason mandatory. Not yet enforced by the code. | `Edit` |
+| Sửa | `Tên đầy đủ`, `Tên viết tắt`, `Thông tin bổ sung` and `Ghi chú`, as a new version over the card version's own period (in-place correction); never the effective period, the org code or the parent (D-37) | `Edit` |
 | Đóng | ends an operating org unit; last effective day ≥ `today - 1` | `Close` |
 | Hủy | withdraws a version that has not completed one effective day | `Cancel` |
 | **Thay thế** | **replaces one org unit wholly** with a corrected declaration | `Replace` |
 
 - **Đóng** says *"this unit existed, and now it ends."* The rows stay `normal`; the history is true.
-- **Thay thế** says *"this unit was never right as recorded; this is the corrected declaration."* It declares a **new** identity and marks the old one's rows `replaced`. It is the only gesture that can give a unit a different parent or org code.
-- The note (`Ghi chú`) carries *why* a Sửa was made — a real change or a data-entry fix. No kind separates the two and the confirm answer is not persisted (requester 2026-08-22). History therefore cannot filter corrections; this is a ruling, not a defect.
+- **Thay thế** says *"this unit was never right as recorded; this is the corrected declaration."* It declares a **new** identity and marks the old one's rows `replaced`. It is the only gesture that can give a unit a different parent, org code or effective-from.
+- The note (`Ghi chú`) carries *why* a Sửa was made — a real change or a data-entry fix. No kind separates the two (requester 2026-08-22). History therefore cannot filter corrections; this is a ruling, not a defect.
 
 ### (9.2) Scope of a replacement
 - **One predecessor per gesture** (requester 2026-09-04). No predecessor set, no merge.

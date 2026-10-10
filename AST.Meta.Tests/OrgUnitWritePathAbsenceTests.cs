@@ -3,17 +3,24 @@ using FluentAssertions;
 namespace AST.Meta.Tests;
 
 // Claim: in AST.Infrastructure, AST.Modules.IAM, AST.ConfigKeyGen and AST, no IL use (call, callvirt,
-// newobj, ldftn, ldvirtftn, ldtoken) of a pinned org-unit version writer resolves to OrgUnitRepository,
-// VersionedRepository<OrgUnitVersionEntity> or open VersionedRepository<T>, except three callers, each
-// matched by defining assembly and full type name:
+// newobj, ldftn, ldvirtftn, ldtoken) of a pinned org-unit writer resolves to OrgUnitRepository,
+// VersionedRepository<OrgUnitVersionEntity> or open VersionedRepository<T>, except that writer's
+// allowed callers, each matched by defining assembly and full type name.
+//
+// Version writers:
 //   AST.Modules.IAM.OrgUnitDeclarationService
 //   AST.Modules.IAM.Data.Repositories.OrgUnitRepository (the whole type)
 //   AST.Infrastructure.VersionedRepository`1
+// CreateIdentityAsync(ICompositeWriteContext): only AST.Modules.IAM.OrgUnitDeclarationService.
+// CreateIdentityAsync() and DeleteEmptyIdentityAsync(Int64): no production caller, including
+// OrgUnitRepository and OrgUnitDeclarationService.
 //
 // Exclusions: reflection; dynamic; a delegate built inside an allowed caller and handed out; test
-// projects; raw SQL and a VersionedRepository<OtherRow> subclass whose table is org_unit_version; the
-// identity writers; a new writer under a new name; a .cs file brought in from outside the project, which
-// is covered by build-first only.
+// projects; raw SQL and a VersionedRepository<OtherRow> subclass whose table is org_unit_version; a
+// new writer under a new name, with the protected
+// VersionedRepository<TVersion>.InsertIdentityAsync overloads as its included case — for org_unit
+// those are reachable only inside the sealed OrgUnitRepository; a .cs file brought in from outside
+// the project, which is covered by build-first only.
 // The guard assumes the current production inputs were built first; a change that keeps an older
 // timestamp than the DLL is not detected by freshness.
 public sealed class OrgUnitWritePathAbsenceTests
@@ -148,7 +155,7 @@ public sealed class OrgUnitWritePathAbsenceTests
             WriteClaim + ".");
     }
 
-    // Production scan. The file header states the claim, the three allowed callers and the exclusions.
+    // Production scan. The file header states the claim, the per-writer allowed callers and the exclusions.
     // Joined, not BeEmpty on the collection: BeEmpty names only the first offender.
     [Fact]
     public void No_production_file_outside_the_service_calls_an_org_unit_writer()
@@ -156,7 +163,7 @@ public sealed class OrgUnitWritePathAbsenceTests
         var report = OrgUnitWriterBoundary.Scan();
         var observed = report.Failure ?? string.Join("\n", report.Offenders);
         observed.Should().BeEmpty(
-            "an org-unit version writer is used outside the three allowed callers, or the guard could not read "
+            "an org-unit writer is used outside that writer's allowed callers, or the guard could not read "
             + "a current build (dotnet build AST.slnx); " + WriteClaim + ".");
     }
 

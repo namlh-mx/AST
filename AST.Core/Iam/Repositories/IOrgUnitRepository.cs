@@ -51,12 +51,6 @@ public interface IOrgUnitRepository
     Task<IReadOnlyList<OrgUnitPickerItem>> GetEligibleParentsAsync(
         DataScope scope, Period childPeriod, long? excludedSubtreeRootId = null);
 
-    // H2 (N9): the "affected versions" preview for a warn-before-save UI check. Returns the isactive=1
-    // versions of `orgUnitId` whose period OVERLAPS `period` -- empty means a clean append (no cut/remnant
-    // will happen); non-empty means the save will soft-deactivate/split at least one existing version.
-    // Read-only; does not write.
-    Task<IReadOnlyList<OrgUnitVersionDto>> PreviewUpsertAsync(long orgUnitId, Period period);
-
     // Scope-checked-write membership primitive (2026-08-05 security fix, decision-log): does `orgUnitId`
     // fall within `scope` at ANY point in its FULL version history (active, inactive, cancelled, past,
     // present, or future alike) -- NOT just "as of today". Mirrors GetHistoryInScopeAsync's own scope

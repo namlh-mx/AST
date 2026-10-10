@@ -268,7 +268,6 @@ public class OrgUnitParentDecisionRenderedTests
             dates.Object,
             currentUser.Object,
             Mock.Of<IAuthorizationService>(),
-            Mock.Of<IConfirmationPrompt>(),
             Mock.Of<IBreakGlassPolicy>());
     }
 

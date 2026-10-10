@@ -151,7 +151,6 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     private readonly IBusinessDateProvider _dates;
     private readonly ICurrentWindowsUser _currentUser;
     private readonly IAuthorizationService _authorization;
-    private readonly IConfirmationPrompt _confirmation;
 
     // Function-level P7 (N8): ONE key gates every DB-mutating command on this screen
     // (Add/Edit/Close/Replace -- Replace joined 2026-09-04 and is gated by the same key), per
@@ -161,7 +160,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     public OrgUnitDeclarationViewModel(
         IOrgUnitRepository orgUnits, IOrgUnitDeclarationService declaration, IBusinessDateProvider dates,
-        ICurrentWindowsUser currentUser, IAuthorizationService authorization, IConfirmationPrompt confirmation,
+        ICurrentWindowsUser currentUser, IAuthorizationService authorization,
         IBreakGlassPolicy breakGlass)
     {
         _orgUnits = orgUnits;
@@ -170,7 +169,6 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         _dates = dates;
         _currentUser = currentUser;
         _authorization = authorization;
-        _confirmation = confirmation;
 
         BeginAddCommand = new DelegateCommand(ExecuteBeginAdd, () => CanAdd).ObservesProperty(() => Mode);
         BeginEditCommand = new DelegateCommand(ExecuteBeginEdit, () => CanEdit).ObservesProperty(() => Mode).ObservesProperty(() => Status);
@@ -196,9 +194,17 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     private int _historyLoadGeneration;
     private int _cardLoadGeneration;
 
-    // Entering a mutating mode takes ownership of the card; any in-flight LoadAsync must return
-    // Superseded and write nothing. NOT called from Clear() — LoadAsync/LoadFromHistoryRow bump
-    // before calling Clear(), so a bump inside Clear() would make every load supersede itself.
+    // A save result belongs to the card state that started it, not merely to a load generation.
+    // A save's own verification read deliberately retains this ownership.
+    private int _saveAttemptGeneration;
+    private readonly record struct SaveAttempt(int Generation, long? OrgUnitId, long? VersionId, OrgUnitCardMode Mode);
+
+    private SaveAttempt StartSaveAttempt() => new(++_saveAttemptGeneration, _orgUnitId, _currentVersionId, Mode);
+    private void InvalidateSaveAttempt() => ++_saveAttemptGeneration;
+    private bool IsCurrent(SaveAttempt attempt) => attempt.Generation == _saveAttemptGeneration;
+
+    // Operator Clear and mode entry take ownership of the card (templates/WPF-CONVENTIONS.md Derived UI state).
+    // Loads and the save's own clear use Clear(false), preserving their own card ownership.
     private void InvalidateInFlightCardLoad() => ++_cardLoadGeneration;
 
     // Mode-entry field baseline for IsDirty (card 273). Distinct from _snapshot, which is the Hủy
@@ -213,6 +219,11 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     private const string RevertToEntryStateMessage =
         "Thông tin đang khai báo không thay đổi so với thông tin hiện có của đơn vị.";
 
+    private const string ClosingConsequenceReminder =
+        "Đơn vị đã đóng sẽ chấm dứt hoạt động và không thể hoàn tác. Người dùng chỉ sử dụng chức năng đóng khi cần chấm dứt tình trạng hoạt động của đơn vị.";
+    private const string ReplacingConsequenceReminder =
+        "Đơn vị sẽ được thay thế và không thể hoàn tác.";
+
     private readonly record struct EntryDirtyBaseline(
         string OrgCode, string OrgNameFullVn, string OrgNameShortVn,
         DateOnly? EffectiveFrom, DateOnly? EffectiveTo, bool IsUndetermined, long? ParentId,
@@ -223,8 +234,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         if (_isLoading)
             return;
 
+        InvalidateSaveAttempt();
         RecomputeIsDirtyFromEntryBaseline();
         RefreshRevertCleanStatus();
+        RefreshModeStatusFallback();
     }
 
     // EffectiveFrom/To, IsUndetermined and ParentId run status writers after MarkDirty; publish the
@@ -234,6 +247,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         if (_isLoading)
             return;
 
+        InvalidateSaveAttempt();
         RecomputeIsDirtyFromEntryBaseline();
     }
 
@@ -243,6 +257,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             return;
 
         RefreshRevertCleanStatus();
+        RefreshModeStatusFallback();
     }
 
     private void RecomputeIsDirtyFromEntryBaseline()
@@ -287,6 +302,27 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         _entryDirtyBaseline = null;
         _liveSupplementalDraft = null;
         ClearRevertCleanOwnedStatus();
+    }
+
+    private bool IsModeReminder(string? message) =>
+        message == ClosingConsequenceReminder || message == ReplacingConsequenceReminder;
+
+    // The reminder is computed from the current mode. It is never captured in the entry baseline,
+    // and any status writer that already owns the band wins.
+    private void RefreshModeStatusFallback()
+    {
+        var reminder = Mode switch
+        {
+            OrgUnitCardMode.Closing => ClosingConsequenceReminder,
+            OrgUnitCardMode.Replacing => ReplacingConsequenceReminder,
+            _ => null,
+        };
+
+        if (reminder is not null && string.IsNullOrEmpty(StatusMessage))
+        {
+            StatusMessage = reminder;
+            Severity = StatusSeverity.Info;
+        }
     }
 
     private void RefreshRevertCleanStatus()
@@ -519,9 +555,11 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         if (_isLoading)
             return;
 
+        InvalidateSaveAttempt();
         _liveSupplementalDraft = null;
         RecomputeIsDirtyFromEntryBaseline();
         RefreshRevertCleanStatus();
+        RefreshModeStatusFallback();
     }
 
     // Real eligible-parent set from GetEligibleParentsAsync. The replace-parent gate reads this.
@@ -734,17 +772,17 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     }
 
     // AstEffectivePeriod.IsEnabled binding — single home for strip enablement (FR9).
-    // On in Adding/Editing/Replacing/Closing; off in ReadOnly and Closing∧cancel-plan-branch. Literal
+    // On in Adding, Replacing, and Closing except the cancel-plan branch; off in ReadOnly and Editing. Literal
     // "enabled unless Closing∧cancel-plan" would wrongly enable ReadOnly — do not simplify that way.
     //
     // The cancel-plan-vs-retire branch is deliberately NOT `Status == VersionStatus.Pending` — that was
     // the pre-D1 defect (a same-day-effective version labels `Effective`, not `Pending`, yet the server
     // now cancels it too; see VersionCloseRules.Validate / D1). IsCloseCancelPlanBranch
     // consumes VersionCloseRules' own decision instead of re-deriving the `From >= today` comparison here.
-    // Replacing enables the period for the same reason Editing already does today. The one surface
-    // Replacing unlocks that Editing does not is the parent (card 238 / F-237-01) - not the period.
+    // Editing leaves the period disabled: Sửa cannot change it (D-37). Replacing enables it. Parent
+    // eligibility governs the parent (card 238 / F-237-01).
     public bool IsEffectivePeriodEnabled =>
-        Mode is OrgUnitCardMode.Adding or OrgUnitCardMode.Editing or OrgUnitCardMode.Replacing
+        Mode is OrgUnitCardMode.Adding or OrgUnitCardMode.Replacing
         || (Mode == OrgUnitCardMode.Closing && !IsCloseCancelPlanBranch());
 
     // Server-authoritative branch: consumes VersionCloseRules.BranchFor (the single home of the
@@ -857,12 +895,11 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             return;
         }
 
-        // FR6 / ExecuteSaveCloseAsync: a literal OpenEnd in the To box is CloseDateRequired wording,
-        // not a Validate input — agree with Save exactly.
+        // A literal open end is not a concrete close date (docs/operator-messages.md §1.8h).
         if (EffectiveTo == EffectivePeriod.OpenEnd)
         {
             SetCloseDateCommitBlocked(true);
-            PublishCloseGateStatus(CloseDateRequiredMessage, StatusSeverity.Error);
+            PublishCloseGateStatus(CloseDateMustBeConcreteMessage, StatusSeverity.Error);
             return;
         }
 
@@ -1056,6 +1093,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private void ExecuteBeginAdd()
     {
+        InvalidateSaveAttempt();
         InvalidateInFlightCardLoad();
         _snapshot = CaptureSnapshot();
         _addParentContext = _orgUnitId is { } loadedId
@@ -1092,8 +1130,8 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         if (_isLoading)
             return;
 
-        // F-237-04: Replacing unlocks the parent the same way unlocked Add does. Editing keeps parent
-        // Display-locked; that is the one surface Replacing opens that Editing does not (card 238).
+        // F-237-04: Replacing unlocks the parent the same way unlocked Add does. Editing keeps the parent
+        // Display-locked; parent eligibility governs that surface (card 238).
         if (Mode is not (OrgUnitCardMode.Adding or OrgUnitCardMode.Replacing))
         {
             return;
@@ -1289,6 +1327,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private void ExecuteBeginEdit()
     {
+        InvalidateSaveAttempt();
         InvalidateInFlightCardLoad();
         _snapshot = CaptureSnapshot();
         Mode = OrgUnitCardMode.Editing;
@@ -1297,18 +1336,21 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private void ExecuteBeginReplace()
     {
+        InvalidateSaveAttempt();
         InvalidateInFlightCardLoad();
         // Keep the current values on the card — do not Clear(). RecomputeParentEligibility unlocks the
-        // parent picker; period/code/names are already editable in Editing today, so Replacing's
-        // distinctive unlock against Editing is the parent only (card 238 / F-237-01).
+        // parent picker (card 238 / F-237-01). The period and the org code stay disabled in Editing
+        // (D-37); Replacing enables them.
         _snapshot = CaptureSnapshot();
         _replaceCardParentItem = ResolveParentItem(_snapshot.ParentId, ParentDecision.SelectedParentItem);
         Mode = OrgUnitCardMode.Replacing;
         CaptureEntryDirtyBaseline();
+        RefreshModeStatusFallback();
     }
 
     private void ExecuteBeginClose()
     {
+        InvalidateSaveAttempt();
         InvalidateInFlightCardLoad();
         _snapshot = CaptureSnapshot();
         // Close always needs a concrete end date — clear open-end so the EP To box is editable.
@@ -1326,10 +1368,12 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         Mode = OrgUnitCardMode.Closing;
         // After open-end → blank To; baseline is that blank, not _snapshot's open end.
         CaptureEntryDirtyBaseline();
+        RefreshModeStatusFallback();
     }
 
     private async Task ExecuteCancelAsync()
     {
+        InvalidateSaveAttempt();
         // _snapshot was captured by the Begin* that entered mutating mode -- for Add it is whatever the card
         // showed BEFORE the blank new-entry form (e.g. the previously selected node, or nothing), so restoring
         // it is correct for ALL mutating modes -- Add, Edit, Close and Replace -- not just Edit/Close.
@@ -1346,19 +1390,28 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             Severity = StatusSeverity.None;
         }
 
+        if (IsModeReminder(StatusMessage))
+        {
+            StatusMessage = null;
+            Severity = StatusSeverity.None;
+        }
+
         await Task.CompletedTask;
     }
 
     public async Task<CardLoadOutcome> LoadAsync(
         long orgUnitId,
         DateOnly asOf,
-        OrgUnitPickerItem? knownParentItem = null)
+        OrgUnitPickerItem? knownParentItem = null,
+        bool invalidateSaveAttempt = true)
     {
         // Bump before Clear/await so two clean-form clicks cannot let a slower GetByIdentityAsync
         // overwrite the card (or its error banner) after a newer load already owns it — same idiom
         // as _treeLoadGeneration / _historyLoadGeneration.
         var generation = ++_cardLoadGeneration;
-        Clear();
+        if (invalidateSaveAttempt)
+            InvalidateSaveAttempt();
+        Clear(invalidateSaveAttempt: false);
 
         var result = await _orgUnits.GetByIdentityAsync(orgUnitId, asOf);
         if (generation != _cardLoadGeneration)
@@ -1446,7 +1499,8 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // Bump so a slower in-flight LoadAsync (e.g. a tree click racing this) cannot overwrite this
         // synchronous load after it lands -- same generation idiom LoadAsync uses.
         ++_cardLoadGeneration;
-        Clear();
+        InvalidateSaveAttempt();
+        Clear(invalidateSaveAttempt: false);
 
         var loadedParentItem = row.ParentId is { } parentId && !string.IsNullOrWhiteSpace(row.ParentLabel)
             ? new OrgUnitPickerItem(parentId, row.ParentLabel)
@@ -1648,7 +1702,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // ResolveScopeAsync IsError (no throw) both set refreshFailed so finally REPLACES Save/Close's
     // Success banner with a Warning — a stale tree is never silently hidden behind "Đã lưu."
     // (thrown path 2026-08-05; soft scope path closes FR1.)
-    private async Task RefreshTreeAndHistoryAsync(long? orgUnitId)
+    private async Task RefreshTreeAndHistoryAsync(long? orgUnitId, SaveAttempt? attempt = null)
     {
         var preservedMessage = StatusMessage;
         var preservedSeverity = Severity;
@@ -1680,12 +1734,14 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         }
         finally
         {
-            if (refreshFailed)
+            // A refresh is a status writer only while its captured band is still current. Its data refresh
+            // remains best-effort after a successful write, even if another card action overtook the save.
+            if (StatusMessage == preservedMessage && Severity == preservedSeverity && refreshFailed)
             {
                 StatusMessage = IamDeclarationMessages.SavedDisplayNotUpdated;
                 Severity = StatusSeverity.Warning;
             }
-            else
+            else if (StatusMessage == preservedMessage && Severity == preservedSeverity)
             {
                 StatusMessage = preservedMessage;
                 Severity = preservedSeverity;
@@ -1693,8 +1749,15 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         }
     }
 
-    public void Clear()
+    public void Clear() => Clear(invalidateSaveAttempt: true);
+
+    private void Clear(bool invalidateSaveAttempt)
     {
+        if (invalidateSaveAttempt)
+        {
+            InvalidateSaveAttempt();
+            InvalidateInFlightCardLoad();
+        }
         AbandonParentCandidateQuery();
         _isLoading = true;
         _stagedParentId = ParentId;
@@ -1920,30 +1983,30 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
     private void ClearAfterSuccessfulSave()
     {
-        Clear();
+        Clear(invalidateSaveAttempt: false);
         CardClearedAfterSave?.Invoke(this, EventArgs.Empty);
     }
 
-    private async Task CompleteSaveAfterVerificationAsync(long orgUnitId, CardLoadOutcome verification, string successMessage)
+    private async Task CompleteSaveAfterVerificationAsync(
+        SaveAttempt attempt, long orgUnitId, CardLoadOutcome verification, string successMessage)
     {
         if (verification == CardLoadOutcome.Failed)
             return;
 
-        if (verification == CardLoadOutcome.Loaded)
+        if (IsCurrent(attempt) && verification == CardLoadOutcome.Loaded)
         {
             ClearAfterSuccessfulSave();
         }
-        else
+
+        // A stale successful write has happened in the database, so it still refreshes shared tree/history
+        // state. It may only annotate an empty band; a later operator message is never displaced.
+        if (IsCurrent(attempt) || string.IsNullOrEmpty(StatusMessage) || IsModeReminder(StatusMessage))
         {
-            // SUPERSEDED: the operator navigated away; their click wins. Do not clear, do not write
-            // the card. The write already succeeded — this is only the read-back. Still publish the
-            // success banner and refresh tree/history. A newer load that completes after this publish
-            // will blank the banner as part of loading its own record; accepted residual, no queue.
+            StatusMessage = successMessage;
+            Severity = StatusSeverity.Success;
         }
 
-        StatusMessage = successMessage;
-        Severity = StatusSeverity.Success;
-        await RefreshTreeAndHistoryAsync(orgUnitId);
+        await RefreshTreeAndHistoryAsync(orgUnitId, attempt);
     }
 
     public void ClearHistory()
@@ -2051,7 +2114,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // errors as English Description text instead of the VM's VN map).
         if (Mode == OrgUnitCardMode.Closing)
         {
-            await ExecuteSaveCloseAsync();
+            await ExecuteSaveCloseAsync(StartSaveAttempt());
             return;
         }
 
@@ -2060,7 +2123,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         if (Mode == OrgUnitCardMode.Adding)
         {
             var addPeriod = new EffectivePeriod(EffectiveFrom!.Value, IsUndetermined ? EffectivePeriod.OpenEnd : EffectiveTo!.Value);
-            await ExecuteSaveAddAsync(addPeriod);
+            await ExecuteSaveAddAsync(addPeriod, StartSaveAttempt());
             return;
         }
 
@@ -2069,59 +2132,37 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         if (Mode == OrgUnitCardMode.Replacing)
         {
             var replacePeriod = new EffectivePeriod(EffectiveFrom!.Value, IsUndetermined ? EffectivePeriod.OpenEnd : EffectiveTo!.Value);
-            await ExecuteSaveReplaceAsync(replacePeriod);
-            return;
-        }
-
-        var username = _currentUser.Username ?? "unknown";
-
-        var authz = await ResolveScopeAsync();
-        if (authz.IsError)
-        {
-            // Same map as every other error surface on this screen. Its Authz.* branch already keeps a real
-            // Description and substitutes a Vietnamese sentence only when the Description is empty, so no
-            // authorization detail is lost by routing through it.
-            StatusMessage = string.Join("; ", authz.Errors.Select(FormatWriteError));
-            Severity = StatusSeverity.Error;
+            await ExecuteSaveReplaceAsync(replacePeriod, StartSaveAttempt());
             return;
         }
 
         if (Mode == OrgUnitCardMode.Editing)
         {
-            var period = new EffectivePeriod(EffectiveFrom!.Value, IsUndetermined ? EffectivePeriod.OpenEnd : EffectiveTo!.Value);
-            await ExecuteSaveEditAsync(period, username, authz.Value);
+            await ExecuteSaveEditAsync(StartSaveAttempt());
         }
     }
 
     // Close/cancel write path: one call into IOrgUnitDeclarationService. EffectiveThrough is shaped for
     // display Status (null = not-yet-effective plan; typed cut date = effective/past) — the service
     // alone derives WHICH repository operation runs. Do not call CancelPlanAsync/CloseVersionAsync here.
-    private async Task ExecuteSaveCloseAsync()
+    private async Task ExecuteSaveCloseAsync(SaveAttempt attempt)
     {
-        var orgUnitId = _orgUnitId!.Value;
-        var versionId = _currentVersionId!.Value;
+        var orgUnitId = attempt.OrgUnitId!.Value;
+        var versionId = attempt.VersionId!.Value;
 
-        // Cancel-plan branch (server-authoritative, see IsCloseCancelPlanBranch) — requester-locked.
-        // Confirm before writing; abort leaves the form as-is.
+        // The service is the first operation that decides whether a close/cancel may proceed.
         if (IsCloseCancelPlanBranch())
         {
-            // Reworded, not added. The old sentence said the close would
-            // "hủy kỳ hiệu lực" without saying that this version never completed an effective day, which is
-            // the whole reason this branch exists and the reason nothing is being cut. It also gave the
-            // operator no way out when the real mistake was the dates themselves.
-            //
-            // NO date in this sentence, deliberately: on this branch there is no cut date at all, and
-            // EffectiveThrough must be null. Naming one would describe an operation that is not running.
-            var confirmed = await _confirmation.ConfirmAsync(
-                "Kỳ hiệu lực này chưa hoàn tất ngày hiệu lực nào. Thao tác này hủy toàn bộ kỳ hiệu lực đã khai. "
-                + "Nếu thực ra kỳ hiệu lực đã nhập sai, hãy dùng chức năng Sửa.",
-                Array.Empty<string>());
-            if (!confirmed)
-                return;
-
             var notePending = string.IsNullOrWhiteSpace(Reason) ? null : Reason.Trim();
             var cancelResult = await _declaration.CloseOrgUnitDeclarationAsync(
                 new CloseOrgUnitDeclarationRequest(orgUnitId, versionId, EffectiveThrough: null, notePending));
+
+            if (!IsCurrent(attempt))
+            {
+                if (!cancelResult.IsError)
+                    await CompleteSaveAfterVerificationAsync(attempt, orgUnitId, CardLoadOutcome.Superseded, "Đã hủy.");
+                return;
+            }
 
             if (cancelResult.IsError)
             {
@@ -2130,15 +2171,14 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
                 return;
             }
 
-            await FinishCloseSuccessAsync(orgUnitId, "Đã hủy.");
+            await FinishCloseSuccessAsync(attempt, orgUnitId, "Đã hủy.");
             return;
         }
 
-        // FR6: a literal OpenEnd in the To box maps to null at the service and would yield CloseDateRequired
-        // while a date is visibly present — block with wording that matches what the operator sees.
+        // A literal open end is not a concrete close date (docs/operator-messages.md §1.8h).
         if (EffectiveTo == EffectivePeriod.OpenEnd)
         {
-            StatusMessage = CloseDateRequiredMessage;
+            StatusMessage = CloseDateMustBeConcreteMessage;
             Severity = StatusSeverity.Error;
             return;
         }
@@ -2158,30 +2198,16 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             return;
         }
 
-        // Until now the RETIRE branch wrote with no confirmation at all, while
-        // the cancel branch had one. Both branches end a unit's life, so both ask first.
-        //
-        // NO date, on either branch: the no-data rule that already governed
-        // error text now covers confirms too. The two sentences still differ, because the two operations differ: this one says the
-        // unit STOPS after the end date it already shows, and says when the operator should be reaching for
-        // this button at all. The cancel sentence below says the period never completed a day and the whole
-        // declaration is being withdrawn.
-        //
-        // IsCloseCancelPlanBranch chose the wording; it never chose the operation. The service derives the
-        // branch itself from its own read and refuses if it disagrees, so a stale card fails clearly
-        // instead of silently running the other operation.
-        var retireConfirmed = await _confirmation.ConfirmAsync(
-            "Đơn vị được chấm dứt hoạt động sau ngày kết thúc hiệu lực. Người dùng chỉ sử dụng chức năng "
-            + "đóng khi cần chấm dứt tình trạng hoạt động của đơn vị.",
-            Array.Empty<string>());
-        if (!retireConfirmed)
-        {
-            return;
-        }
-
         var note = string.IsNullOrWhiteSpace(Reason) ? null : Reason.Trim();
         var result = await _declaration.CloseOrgUnitDeclarationAsync(
             new CloseOrgUnitDeclarationRequest(orgUnitId, versionId, effectiveThrough, note));
+
+        if (!IsCurrent(attempt))
+        {
+            if (!result.IsError)
+                await CompleteSaveAfterVerificationAsync(attempt, orgUnitId, CardLoadOutcome.Superseded, "Đã lưu.");
+            return;
+        }
 
         if (result.IsError)
         {
@@ -2190,15 +2216,25 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             return;
         }
 
-        await FinishCloseSuccessAsync(orgUnitId, "Đã lưu.");
+        await FinishCloseSuccessAsync(attempt, orgUnitId, "Đã lưu.");
     }
 
-    private async Task FinishCloseSuccessAsync(long orgUnitId, string successMessage)
+    private async Task FinishCloseSuccessAsync(SaveAttempt attempt, long orgUnitId, string successMessage)
     {
+        if (!IsCurrent(attempt))
+        {
+            await CompleteSaveAfterVerificationAsync(attempt, orgUnitId, CardLoadOutcome.Superseded, successMessage);
+            return;
+        }
         Mode = OrgUnitCardMode.ReadOnly;
         // Capture before the probe await: a tree click during it bumps _cardLoadGeneration via LoadAsync.
         var ownership = _cardLoadGeneration;
         var stillVisible = await _orgUnits.GetByIdentityAsync(orgUnitId, _dates.Today);
+        if (!IsCurrent(attempt))
+        {
+            await CompleteSaveAfterVerificationAsync(attempt, orgUnitId, CardLoadOutcome.Superseded, successMessage);
+            return;
+        }
         if (stillVisible.IsError)
         {
             if (!IsExpectedCloseAbsence(stillVisible.Errors))
@@ -2213,7 +2249,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
             var verification = ownership == _cardLoadGeneration
                 ? CardLoadOutcome.Loaded
                 : CardLoadOutcome.Superseded;
-            await CompleteSaveAfterVerificationAsync(orgUnitId, verification, successMessage);
+            await CompleteSaveAfterVerificationAsync(attempt, orgUnitId, verification, successMessage);
             return;
         }
 
@@ -2222,16 +2258,18 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // would erase a newer user action, which CompleteSaveAfterVerificationAsync's own rule forbids.
         if (ownership != _cardLoadGeneration)
         {
-            await CompleteSaveAfterVerificationAsync(orgUnitId, CardLoadOutcome.Superseded, successMessage);
+            await CompleteSaveAfterVerificationAsync(attempt, orgUnitId, CardLoadOutcome.Superseded, successMessage);
             return;
         }
 
-        var loaded = await LoadAsync(orgUnitId, _dates.Today);
-        await CompleteSaveAfterVerificationAsync(orgUnitId, loaded, successMessage);
+        var loaded = await LoadAsync(orgUnitId, _dates.Today, invalidateSaveAttempt: false);
+        await CompleteSaveAfterVerificationAsync(attempt, orgUnitId, loaded, successMessage);
     }
 
     private static bool IsExpectedCloseAbsence(IReadOnlyList<Error> errors) =>
         errors.Count > 0 && errors.All(e => e.Type == ErrorType.NotFound);
+
+    private const string CloseDateMustBeConcreteMessage = "Ngày kết thúc hiệu lực phải là một ngày cụ thể.";
 
     // Reused by both FormatWriteError's CloseDateRequired mapping and the VM-side retire-branch
     // null-date guard above — one wording, one home (rule-prefer-existing).
@@ -2349,16 +2387,10 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         // fallback cannot swallow it.
         "OrgUnit.PredecessorNotEmpty" =>
             "Đơn vị còn tham số phụ thuộc, người dùng cần xử lý tham số phụ thuộc trước khi thực hiện thao tác.",
-        // The note is the only carrier of "why the period changed".
         "OrgUnit.ReasonRequiredForPeriodChange" =>
             "Khi thay đổi kỳ hiệu lực, người dùng phải nhập lý do.",
-        // Reachable from this screen: the unit still has a later stretch, so it does not end on the date
-        // the operator just confirmed.
         "OrgUnit.EndsOnLeavesLaterCoverage" =>
             "Đơn vị còn giai đoạn hiệu lực sau ngày này nên chưa thể kết thúc.",
-        // Not reachable from this screen -- the confirm derives both values from the SAME date box, and it
-        // only offers the route when a tail exists. Mapped anyway so a future caller cannot re-open the
-        // English Description leak; this is not a claim that a route exists.
         "OrgUnit.EndsOnDisagreesWithPeriod" or "OrgUnit.EndsOnNotBeforeStoredEnd" =>
             PlatformErrorDescriber.CatchAll,
         "EffectivePeriod.OverlappingVersions" =>
@@ -2399,143 +2431,51 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     public string FormatWriteErrorPublic(Error error) => FormatWriteError(error);
     public string FormatLoadErrorPublic(Error error) => FormatLoadError(error);
 
-    // Edit write path: one call into IOrgUnitDeclarationService (earlier ruling). The service owns
-    // P7, the scope-membership check and the parent-immutability guard unbypassably -- this screen used to
-    // hold the first two itself and write straight to the repository, so any other caller got neither.
-    //
-    // `username` and `scope` stay as parameters for signature parity with the other write helpers.
-    // ExecuteSaveAsync resolves them once only on the Editing path — Closing, Adding and Replacing
-    // return earlier with their own resolution. This branch no longer USES them for a gate — the
-    // service re-derives both server-side — and they are deliberately not forwarded on the request.
-    private async Task ExecuteSaveEditAsync(EffectivePeriod period, string username, DataScope scope)
+    // Edit write path. The service owns P7, the scope-membership check and the parent-immutability
+    // guard unbypassably -- this screen used to hold the first two itself and write straight to the
+    // repository, so any other caller got neither. Sửa confirms nothing, so a refusal is the write's
+    // own result (D-36).
+    private async Task ExecuteSaveEditAsync(SaveAttempt attempt)
     {
-        var orgUnitId = _orgUnitId!.Value;
+        var orgUnitId = attempt.OrgUnitId!.Value;
 
-        // PreviewUpsertAsync returns every isactive=1 version whose period overlaps the new one -- including
-        // the version currently loaded on the card (it always overlaps an in-place edit of itself). Exclude
-        // it: H2 is about OTHER versions being affected, not the one the operator is deliberately editing.
-        var affected = (await _orgUnits.PreviewUpsertAsync(orgUnitId, period))
-            .Where(a => a.Id != _currentVersionId)
-            .ToList();
-        if (affected.Count > 0)
-        {
-            var details = affected
-                .Select(a => $"{a.OrgCode} — {FormatDate(a.EffectiveFrom)} → {FormatDate(a.EffectiveTo)}")
-                .ToList();
-            var confirmed = await _confirmation.ConfirmAsync(
-                "Thao tác này sẽ ảnh hưởng các phiên bản hiệu lực khác của đơn vị này. Tiếp tục?", details);
-            if (!confirmed)
-            {
-                return;
-            }
-        }
-
-        // The SECOND confirm, and it answers a different question from the one above.
-        // H2 asks "which OTHER versions does this touch"; this asks "what will this save
-        // LEAVE BEHIND on this very unit". The exclusion at the top of this method is precisely why the
-        // remnant shape gets no confirmation today -- both confirms survive, neither replaces the other.
-        //
-        // The remnant list comes from the service's canonical preview, never from a derivation here: the
-        // 8-case algebra is LOCKED and keeps ONE caller layer. Whatever this method
-        // displays and whatever the write performs then come from the same planner.
-        var preview = await _declaration.PreviewEditAsync(orgUnitId, _currentVersionId!.Value, period, endsOn: null);
-        if (preview.IsError)
-        {
-            StatusMessage = string.Join("; ", preview.Errors.Select(FormatWriteError));
-            Severity = StatusSeverity.Error;
-            return;
-        }
-
-        // A remnant sitting BEFORE the new period is a head; one sitting AFTER it is a tail. Keyed to where
-        // each operation actually falls, never to the algebra's case number: case 8 yields zero, one or two
-        // remnants depending on where the span's boundaries land, so a branch on "which case is this" is
-        // wrong by construction.
-        var head = preview.Value.FirstOrDefault(r => r.Period.To < period.From);
-        var tail = preview.Value.FirstOrDefault(r => r.Period.From > period.To);
-
-        // ONE sentence for every period-changing edit, carrying NO dates: the no-data rule that
-        // already governed error text now covers this confirm too. The branch below still
-        // decides what the save DOES - a tail means the operator is ending the unit - but what they are
-        // shown no longer varies with the shape.
-        //
-        // ⚠️ The cost is stated where it is paid: on the tail branch, Tiếp tục ENDS the unit, and this
-        // sentence does not say so.
-        const string PeriodChangeConfirm =
-            "Đơn vị đang được điều chỉnh kỳ hiệu lực, người dùng cần xác nhận.";
-
-        DateOnly? endsOn = null;
-        if (tail is not null)
-        {
-            if (!await _confirmation.ConfirmAsync(PeriodChangeConfirm, Array.Empty<string>()))
-            {
-                return;
-            }
-
-            // A tail keeps the OLD values, which is never what
-            // Sửa means: editing changes the content that is there, it does not also declare a second
-            // stretch. So confirming IS the operator saying the unit ends here.
-            endsOn = period.To;
-        }
-        else if (head is not null)
-        {
-            // Head only: warn, and offer NO route. Đóng cannot move effective_from, so
-            // pointing the operator there would send them to an operation that cannot do what they want.
-            if (!await _confirmation.ConfirmAsync(PeriodChangeConfirm, Array.Empty<string>()))
-            {
-                return;
-            }
-        }
-
-        var code = OrgCode.Trim().ToUpperInvariant();
-
-        // ParentId is ECHOED, never proposed: the request has no "desired parent" field, and the picker is
-        // Display-only outside Add (OrgUnitDeclarationView.xaml.cs RefreshParentSurface), so this is the
-        // value that was LOADED. The service verifies it against its own read under the identity lock and
-        // rejects a mismatch -- so a stale card fails cleanly instead of writing against a parent that moved.
+        // ParentId is echoed, never proposed: the request has no desired parent, and the picker is
+        // display-only outside Add. The service verifies the echo under the identity lock. The period and
+        // the org code are likewise unexpressible; the service writes this version's own (D-37).
         var result = await _declaration.EditOrgUnitDeclarationAsync(
             new EditOrgUnitDeclarationRequest(
-                orgUnitId, _currentVersionId!.Value, ParentId, period, endsOn, code, OrgNameFullVn.Trim(),
+                orgUnitId, attempt.VersionId!.Value, ParentId, OrgNameFullVn.Trim(),
                 OrgNameShortVn.Trim(), Reason.Trim(), Supplemental));
+
+        if (!IsCurrent(attempt))
+        {
+            if (!result.IsError)
+                await CompleteSaveAfterVerificationAsync(attempt, orgUnitId, CardLoadOutcome.Superseded, "Đã lưu.");
+            return;
+        }
 
         if (result.IsError)
         {
             // Edit goes through the SAME presentation map as Add, Close and Replace (requester F5,
-            // 2026-08-17). It used to dump the raw English Description, which was survivable while no
-            // write code had VN wording — but once `OrgUnit.CodeInUse` and `TemporalFk.ParentGap` were
-            // mapped for Add, the one screen showed the SAME code in Vietnamese from one button and in
-            // English from another.
-            // ⚠ CORRECTED 2026-09-05 (F-244-03, sixth anchor). This used to say the map "falls through
-            // to Description for anything it does not know". It does NOT, and never did on this screen:
-            // the catch-all is `_ => "Lỗi hệ thống, …"`, nothing here reads Error.Description, and the map's
-            // own arms say "never pass through Description". So an UNMAPPED code shows the generic system
-            // sentence, not English — which means adding a service error code without adding its arm here
-            // is silent, not loud. `FormatWriteErrorCompleteness` in the Shell tests is the gate that
-            // catches that.
+            // 2026-08-17). The catch-all is the generic system sentence; nothing here reads
+            // Error.Description. An unmapped code shows that sentence.
             StatusMessage = string.Join("; ", result.Errors.Select(FormatWriteError));
             Severity = StatusSeverity.Error;
             return;
         }
 
         Mode = OrgUnitCardMode.ReadOnly;
-        var verification = await LoadAsync(orgUnitId, period.From);
-        await CompleteSaveAfterVerificationAsync(orgUnitId, verification, "Đã lưu.");
+        var verification = await LoadAsync(orgUnitId, _snapshot.EffectiveFrom!.Value, invalidateSaveAttempt: false);
+        await CompleteSaveAfterVerificationAsync(attempt, orgUnitId, verification, "Đã lưu.");
     }
 
     private static string FormatDate(DateOnly d) => d == EffectivePeriod.OpenEnd ? "Không xác định" : d.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
-    private async Task ExecuteSaveReplaceAsync(EffectivePeriod period)
+    private async Task ExecuteSaveReplaceAsync(EffectivePeriod period, SaveAttempt attempt)
     {
-        // Settled confirm (card 238): what the gesture does, no dates and no values.
-        const string ReplaceConfirm =
-            "Đơn vị sẽ được thay thế toàn bộ thông tin. Người dùng cần xác nhận tiếp tục trước khi lưu.";
-        if (!await _confirmation.ConfirmAsync(ReplaceConfirm, Array.Empty<string>()))
-        {
-            return;
-        }
-
         var result = await _declaration.ReplaceOrgUnitDeclarationAsync(
             new ReplaceOrgUnitDeclarationRequest(
-                _orgUnitId!.Value,
+                attempt.OrgUnitId!.Value,
                 period,
                 OrgCode.Trim().ToUpperInvariant(),
                 ParentId,
@@ -2543,6 +2483,13 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
                 OrgNameShortVn.Trim(),
                 Reason.Trim(),
                 Supplemental));
+
+        if (!IsCurrent(attempt))
+        {
+            if (!result.IsError)
+                await CompleteSaveAfterVerificationAsync(attempt, result.Value.OrgUnitId, CardLoadOutcome.Superseded, "Đã lưu.");
+            return;
+        }
 
         if (result.IsError)
         {
@@ -2553,8 +2500,8 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
 
         var newId = result.Value.OrgUnitId;
         Mode = OrgUnitCardMode.ReadOnly;
-        var verification = await LoadAsync(newId, period.From);
-        await CompleteSaveAfterVerificationAsync(newId, verification, "Đã lưu.");
+        var verification = await LoadAsync(newId, period.From, invalidateSaveAttempt: false);
+        await CompleteSaveAfterVerificationAsync(attempt, newId, verification, "Đã lưu.");
     }
 
     // Add write path: one call into IOrgUnitDeclarationService. The service owns P7, the Global-scope gate,
@@ -2563,7 +2510,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
     // on its own connection and hand-compensate with DeleteEmptyIdentityAsync when the version write failed,
     // which design-effective-period.md §7 forbids and which left an orphan identity whenever the
     // compensation itself did not run.
-    private async Task ExecuteSaveAddAsync(EffectivePeriod period)
+    private async Task ExecuteSaveAddAsync(EffectivePeriod period, SaveAttempt attempt)
     {
         var result = await _declaration.AddOrgUnitDeclarationAsync(
             new AddOrgUnitDeclarationRequest(
@@ -2574,6 +2521,13 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
                 ParentId,
                 Reason.Trim(),
                 Supplemental));
+
+        if (!IsCurrent(attempt))
+        {
+            if (!result.IsError)
+                await CompleteSaveAfterVerificationAsync(attempt, result.Value.OrgUnitId, CardLoadOutcome.Superseded, "Đã lưu.");
+            return;
+        }
 
         if (result.IsError)
         {
@@ -2587,7 +2541,7 @@ public sealed class OrgUnitDeclarationViewModel : BindableBase, IDeclarationForm
         Mode = OrgUnitCardMode.ReadOnly;
         // Reload at the just-saved period's own start, not "today": a future-dated Add (N4) has no coverage
         // AT today, so resolving at today would wrongly NotFound right after a successful save.
-        var verification = await LoadAsync(newId, period.From);
-        await CompleteSaveAfterVerificationAsync(newId, verification, "Đã lưu.");
+        var verification = await LoadAsync(newId, period.From, invalidateSaveAttempt: false);
+        await CompleteSaveAfterVerificationAsync(attempt, newId, verification, "Đã lưu.");
     }
 }
